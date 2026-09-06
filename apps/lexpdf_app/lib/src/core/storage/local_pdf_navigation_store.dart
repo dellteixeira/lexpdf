@@ -34,6 +34,18 @@ class LocalSearchHit {
   final int? pageNumber;
 }
 
+class DocumentCollection {
+  const DocumentCollection({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final DateTime createdAt;
+}
+
 class LocalPdfNavigationStore {
   LocalPdfNavigationStore(this.db) {
     _ensureTables();
@@ -70,6 +82,21 @@ class LocalPdfNavigationStore {
         document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
         tag TEXT NOT NULL,
         PRIMARY KEY(document_id, tag)
+      );
+    ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS document_collections (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+    ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS document_collection_members (
+        collection_id TEXT NOT NULL REFERENCES document_collections(id) ON DELETE CASCADE,
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        added_at TEXT NOT NULL,
+        PRIMARY KEY(collection_id, document_id)
       );
     ''');
   }
@@ -266,6 +293,59 @@ class LocalPdfNavigationStore {
       'DELETE FROM document_tags WHERE document_id = ? AND tag = ?;',
       [documentId, tag],
     );
+  }
+
+  Future<List<DocumentCollection>> listCollections() async {
+    final rows = db.database.select('''
+      SELECT * FROM document_collections ORDER BY lower(name), created_at;
+    ''');
+    return rows
+        .map(
+          (row) => DocumentCollection(
+            id: row['id'] as String,
+            name: row['name'] as String,
+            createdAt: DateTime.parse(row['created_at'] as String),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<DocumentCollection> createCollection(String name) async {
+    final value = name.trim();
+    if (value.isEmpty) throw ArgumentError('Collection name cannot be empty.');
+    final now = DateTime.now().toUtc();
+    final id = 'collection-${now.microsecondsSinceEpoch.toRadixString(36)}';
+    db.database.execute('''
+      INSERT INTO document_collections(id, name, created_at) VALUES (?, ?, ?);
+    ''', [id, value, now.toIso8601String()]);
+    return DocumentCollection(id: id, name: value, createdAt: now);
+  }
+
+  Future<void> deleteCollection(String id) async {
+    db.database.execute('DELETE FROM document_collections WHERE id = ?;', [id]);
+  }
+
+  Future<void> addDocumentToCollection(String collectionId, String documentId) async {
+    db.database.execute('''
+      INSERT OR IGNORE INTO document_collection_members(
+        collection_id, document_id, added_at
+      ) VALUES (?, ?, ?);
+    ''', [collectionId, documentId, DateTime.now().toUtc().toIso8601String()]);
+  }
+
+  Future<void> removeDocumentFromCollection(String collectionId, String documentId) async {
+    db.database.execute('''
+      DELETE FROM document_collection_members
+      WHERE collection_id = ? AND document_id = ?;
+    ''', [collectionId, documentId]);
+  }
+
+  Future<List<String>> listDocumentIdsInCollection(String collectionId) async {
+    final rows = db.database.select('''
+      SELECT document_id FROM document_collection_members
+      WHERE collection_id = ? ORDER BY added_at DESC;
+    ''', [collectionId]);
+    return rows.map((row) => row['document_id'] as String).toList(growable: false);
   }
 
   static String _snippet(String content, String query) {
