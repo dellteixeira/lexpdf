@@ -1,9 +1,9 @@
-import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 
 import '../core/ink/ink_models.dart';
+import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
 
 class PdfInkPageOverlay extends StatefulWidget {
@@ -17,6 +17,7 @@ class PdfInkPageOverlay extends StatefulWidget {
     required this.strokeWidth,
     required this.onStrokeCompleted,
     this.onStrokeErased,
+    this.onEraseApplied,
     this.eraserMode = false,
     this.eraserRadius = 18,
     super.key,
@@ -33,12 +34,15 @@ class PdfInkPageOverlay extends StatefulWidget {
   final double eraserRadius;
   final ValueChanged<PdfInkStroke> onStrokeCompleted;
   final ValueChanged<PdfInkStroke>? onStrokeErased;
+  final ValueChanged<PdfInkEraseResult>? onEraseApplied;
 
   @override
   State<PdfInkPageOverlay> createState() => _PdfInkPageOverlayState();
 }
 
 class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
+  static const _eraser = PdfInkEraser();
+
   final List<InkPoint> _active = [];
   int? _pointer;
   Size _size = Size.zero;
@@ -133,66 +137,24 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
 
   void _eraseAt(Offset position) {
     if (widget.strokes.isEmpty || _size.isEmpty) return;
-    PdfInkStroke? hit;
     for (final stroke in widget.strokes.reversed) {
-      if (_strokeHits(stroke, position, widget.eraserRadius)) {
-        hit = stroke;
-        break;
+      final result = _eraser.eraseAt(
+        stroke: stroke,
+        localX: position.dx,
+        localY: position.dy,
+        pageWidth: _size.width,
+        pageHeight: _size.height,
+        radius: widget.eraserRadius,
+      );
+      if (result != null) {
+        if (widget.onEraseApplied != null) {
+          widget.onEraseApplied!(result);
+        } else {
+          widget.onStrokeErased?.call(stroke);
+        }
+        return;
       }
     }
-    if (hit != null) widget.onStrokeErased?.call(hit);
-  }
-
-  bool _strokeHits(PdfInkStroke stroke, Offset position, double radius) {
-    final radiusSquared = radius * radius;
-    final points = stroke.points;
-    for (final point in points) {
-      final dx = point.x * _size.width - position.dx;
-      final dy = point.y * _size.height - position.dy;
-      if (dx * dx + dy * dy <= radiusSquared) return true;
-    }
-
-    for (var index = 1; index < points.length; index++) {
-      final a = points[index - 1];
-      final b = points[index];
-      if (_distanceToSegmentSquared(
-            position.dx,
-            position.dy,
-            a.x * _size.width,
-            a.y * _size.height,
-            b.x * _size.width,
-            b.y * _size.height,
-          ) <=
-          radiusSquared) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  double _distanceToSegmentSquared(
-    double px,
-    double py,
-    double ax,
-    double ay,
-    double bx,
-    double by,
-  ) {
-    final abx = bx - ax;
-    final aby = by - ay;
-    final lengthSquared = abx * abx + aby * aby;
-    if (lengthSquared == 0) {
-      final dx = px - ax;
-      final dy = py - ay;
-      return dx * dx + dy * dy;
-    }
-    final t = (((px - ax) * abx + (py - ay) * aby) / lengthSquared)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final nearestX = ax + abx * t;
-    final nearestY = ay + aby * t;
-    return math.pow(px - nearestX, 2).toDouble() +
-        math.pow(py - nearestY, 2).toDouble();
   }
 
   @override
