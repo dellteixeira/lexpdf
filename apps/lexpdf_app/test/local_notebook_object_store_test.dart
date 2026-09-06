@@ -77,6 +77,91 @@ void main() {
     expect(restored.single.rotation, 0.5);
   });
 
+  test('persists editable text and local image metadata', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final inkStore = LocalInkStore(database);
+    final page = await inkStore.ensureDefaultPage();
+    final store = LocalNotebookObjectStore(database);
+    final now = DateTime.utc(2026, 9, 6);
+
+    await store.upsert(NotebookObject(
+      id: 'text-1',
+      pageId: page.id,
+      type: NotebookObjectType.text,
+      x: 10,
+      y: 20,
+      width: 220,
+      height: 80,
+      rotation: 0,
+      colorValue: 0xFF246BFD,
+      strokeWidth: 1,
+      textValue: 'Texto editável',
+      fontSize: 24,
+      createdAt: now,
+      updatedAt: now,
+    ));
+    await store.upsert(NotebookObject(
+      id: 'image-1',
+      pageId: page.id,
+      type: NotebookObjectType.image,
+      x: 30,
+      y: 40,
+      width: 260,
+      height: 180,
+      rotation: 0.25,
+      colorValue: 0xFF000000,
+      strokeWidth: 1,
+      imagePath: '/local/notebook_assets/image.png',
+      createdAt: now,
+      updatedAt: now,
+    ));
+
+    final restored = await store.listObjects(page.id);
+    expect(restored, hasLength(2));
+    final text = restored.singleWhere((item) => item.id == 'text-1');
+    final image = restored.singleWhere((item) => item.id == 'image-1');
+    expect(text.textValue, 'Texto editável');
+    expect(text.fontSize, 24);
+    expect(image.imagePath, '/local/notebook_assets/image.png');
+    expect(image.rotation, 0.25);
+  });
+
+  test('copies all page objects using new ids', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final inkStore = LocalInkStore(database);
+    final notebook = await inkStore.createNotebook('Cópia de objetos');
+    final source = (await inkStore.listPages(notebook.id)).single;
+    final target = await inkStore.createPage(notebook.id);
+    final store = LocalNotebookObjectStore(database);
+    final now = DateTime.utc(2026, 9, 6);
+
+    await store.upsert(NotebookObject(
+      id: 'source-object',
+      pageId: source.id,
+      type: NotebookObjectType.text,
+      x: 12,
+      y: 24,
+      width: 180,
+      height: 70,
+      rotation: 0,
+      colorValue: 0xFF000000,
+      strokeWidth: 1,
+      textValue: 'Copiado',
+      fontSize: 18,
+      createdAt: now,
+      updatedAt: now,
+    ));
+
+    final copies = await store.copyPageObjects(source.id, target.id);
+    expect(copies, hasLength(1));
+    expect(copies.single.id, isNot('source-object'));
+    expect(copies.single.pageId, target.id);
+    expect(copies.single.textValue, 'Copiado');
+    expect(await store.listObjects(target.id), hasLength(1));
+  });
+
   test('page delete cascades notebook objects', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);
