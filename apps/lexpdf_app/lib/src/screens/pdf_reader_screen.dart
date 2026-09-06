@@ -306,9 +306,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     }
 
     await delegate.clearTextSelection();
-    final document = _viewerController.document;
-    if (document != null) {
-      await _loadSavedAnnotations(document);
+    if (_viewerController.isReady) {
+      await _loadSavedAnnotations(_viewerController.document);
     }
   }
 
