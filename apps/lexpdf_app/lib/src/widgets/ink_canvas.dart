@@ -14,6 +14,7 @@ class InkCanvas extends StatefulWidget {
     required this.colorValue,
     required this.strokeWidth,
     required this.onStrokeCompleted,
+    this.onStrokeUpdated,
     this.onStrokeErased,
     this.onSelectionChanged,
     this.stylusOnly = true,
@@ -33,6 +34,7 @@ class InkCanvas extends StatefulWidget {
   final bool lassoMode;
   final double eraserRadius;
   final ValueChanged<InkStroke> onStrokeCompleted;
+  final ValueChanged<InkStroke>? onStrokeUpdated;
   final ValueChanged<InkStroke>? onStrokeErased;
   final ValueChanged<Set<String>>? onSelectionChanged;
 
@@ -98,6 +100,40 @@ class InkCanvasState extends State<InkCanvas> {
     return removed;
   }
 
+  List<InkStroke> moveSelected(double dx, double dy) {
+    if (_selectedStrokeIds.isEmpty || (dx == 0 && dy == 0)) return const [];
+    final updated = <InkStroke>[];
+    for (var index = 0; index < _strokes.length; index++) {
+      final stroke = _strokes[index];
+      if (!_selectedStrokeIds.contains(stroke.id)) continue;
+      final moved = InkStroke(
+        id: stroke.id,
+        pageId: stroke.pageId,
+        tool: stroke.tool,
+        colorValue: stroke.colorValue,
+        opacity: stroke.opacity,
+        width: stroke.width,
+        points: List<InkPoint>.unmodifiable(
+          stroke.points.map(
+            (point) => InkPoint(
+              x: point.x + dx,
+              y: point.y + dy,
+              pressure: point.pressure,
+              tilt: point.tilt,
+              timestampMicros: point.timestampMicros,
+            ),
+          ),
+        ),
+        createdAt: stroke.createdAt,
+      );
+      _strokes[index] = moved;
+      updated.add(moved);
+      widget.onStrokeUpdated?.call(moved);
+    }
+    setState(() {});
+    return List.unmodifiable(updated);
+  }
+
   void clearSelection() => _clearSelection();
 
   void clear() {
@@ -125,12 +161,10 @@ class InkCanvasState extends State<InkCanvas> {
 
   void _onPointerDown(PointerDownEvent event) {
     if (_isStylus(event)) _stylusActive = true;
-
     if (event.kind == PointerDeviceKind.touch && _stylusActive) {
       _ignoredTouchPointers.add(event.pointer);
       return;
     }
-
     if (_activePointer != null || !_accept(event)) return;
     _activePointer = event.pointer;
 
@@ -142,12 +176,10 @@ class InkCanvasState extends State<InkCanvas> {
       setState(() {});
       return;
     }
-
     if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
       _eraseAt(event.localPosition);
       return;
     }
-
     _activePoints
       ..clear()
       ..add(_pointFromEvent(event));
@@ -157,18 +189,15 @@ class InkCanvasState extends State<InkCanvas> {
   void _onPointerMove(PointerMoveEvent event) {
     if (_ignoredTouchPointers.contains(event.pointer)) return;
     if (_activePointer != event.pointer) return;
-
     if (widget.lassoMode) {
       _lassoPoints.add(event.localPosition);
       setState(() {});
       return;
     }
-
     if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
       _eraseAt(event.localPosition);
       return;
     }
-
     _activePoints.add(_pointFromEvent(event));
     setState(() {});
   }
@@ -179,13 +208,9 @@ class InkCanvasState extends State<InkCanvas> {
       if (_isStylus(event)) _stylusActive = false;
       return;
     }
-
     if (widget.lassoMode) {
       _lassoPoints.add(event.localPosition);
-      final selected = _lasso.selectStrokes(
-        strokes: _strokes,
-        polygon: _lassoPoints,
-      );
+      final selected = _lasso.selectStrokes(strokes: _strokes, polygon: _lassoPoints);
       _selectedStrokeIds
         ..clear()
         ..addAll(selected);
@@ -195,14 +220,12 @@ class InkCanvasState extends State<InkCanvas> {
       setState(() {});
       return;
     }
-
     if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
       _activePointer = null;
       if (_isStylus(event)) _stylusActive = false;
       setState(() {});
       return;
     }
-
     _finishStroke(event);
     if (_isStylus(event)) _stylusActive = false;
   }
@@ -253,19 +276,10 @@ class InkCanvasState extends State<InkCanvas> {
       final dy = point.y - position.dy;
       if (dx * dx + dy * dy <= radiusSquared) return true;
     }
-
     for (var index = 1; index < stroke.points.length; index++) {
       final a = stroke.points[index - 1];
       final b = stroke.points[index];
-      if (_distanceToSegmentSquared(
-            position.dx,
-            position.dy,
-            a.x,
-            a.y,
-            b.x,
-            b.y,
-          ) <=
-          radiusSquared) {
+      if (_distanceToSegmentSquared(position.dx, position.dy, a.x, a.y, b.x, b.y) <= radiusSquared) {
         return true;
       }
     }
@@ -381,17 +395,8 @@ class _InkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _paintStroke(
-        canvas,
-        stroke.points,
-        stroke.tool,
-        stroke.colorValue,
-        stroke.width,
-        stroke.opacity,
-      );
-      if (selectedStrokeIds.contains(stroke.id)) {
-        _paintSelectionBounds(canvas, stroke);
-      }
+      _paintStroke(canvas, stroke.points, stroke.tool, stroke.colorValue, stroke.width, stroke.opacity);
+      if (selectedStrokeIds.contains(stroke.id)) _paintSelectionBounds(canvas, stroke);
     }
     if (activePoints.length >= 2) {
       _paintStroke(
@@ -430,9 +435,8 @@ class _InkPainter extends CustomPainter {
       maxX = math.max(maxX, point.x);
       maxY = math.max(maxY, point.y);
     }
-    final rect = Rect.fromLTRB(minX, minY, maxX, maxY).inflate(4);
     canvas.drawRect(
-      rect,
+      Rect.fromLTRB(minX, minY, maxX, maxY).inflate(4),
       Paint()
         ..color = Colors.blueGrey.withValues(alpha: 0.9)
         ..strokeWidth = 1.5
