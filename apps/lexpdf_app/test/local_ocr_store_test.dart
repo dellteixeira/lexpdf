@@ -10,10 +10,10 @@ void main() {
     addTearDown(database.close);
     final catalog = LocalDocumentCatalog(database);
     await catalog.upsert(
-      DocumentRef(
+      const DocumentRef(
         id: 'doc-ocr',
         name: 'scan.pdf',
-        kind: DocumentProviderKind.local,
+        provider: DocumentProviderKind.local,
         localPath: '/tmp/scan.pdf',
         availableOffline: true,
       ),
@@ -51,10 +51,10 @@ void main() {
     addTearDown(database.close);
     final catalog = LocalDocumentCatalog(database);
     await catalog.upsert(
-      DocumentRef(
+      const DocumentRef(
         id: 'doc-ocr',
         name: 'scan.pdf',
-        kind: DocumentProviderKind.local,
+        provider: DocumentProviderKind.local,
         localPath: '/tmp/scan.pdf',
         availableOffline: true,
       ),
