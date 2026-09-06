@@ -15,6 +15,30 @@ class LocalNotebookObjectStore {
   }
 
   Future<void> upsert(NotebookObject object) async {
+    _insertObject(object);
+  }
+
+  Future<void> replacePageObjects(
+    String pageId,
+    List<NotebookObject> objects,
+  ) async {
+    db.database.execute('BEGIN IMMEDIATE;');
+    try {
+      db.database.execute('DELETE FROM notebook_objects WHERE page_id = ?;', [pageId]);
+      for (final object in objects) {
+        if (object.pageId != pageId) {
+          throw StateError('Objeto ${object.id} pertence a outra página.');
+        }
+        _insertObject(object);
+      }
+      db.database.execute('COMMIT;');
+    } catch (_) {
+      db.database.execute('ROLLBACK;');
+      rethrow;
+    }
+  }
+
+  void _insertObject(NotebookObject object) {
     db.database.execute('''
       INSERT OR REPLACE INTO notebook_objects(
         id, page_id, type, x, y, width, height, rotation, color_value,

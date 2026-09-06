@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/ink/ink_models.dart';
 import '../core/notebook/ink_shape_recognizer.dart';
+import '../core/notebook/notebook_history.dart';
 import '../core/notebook/notebook_object_models.dart';
 import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_notebook_object_store.dart';
@@ -35,6 +36,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const InkShapeRecognizer _shapeRecognizer = InkShapeRecognizer();
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
+  final NotebookHistoryController _history = NotebookHistoryController();
   late final LocalNotebookObjectStore _objectStore;
   late final Future<void> _loadFuture;
 
@@ -53,10 +55,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _lassoMode = false;
   bool _clipboardAvailable = false;
   int _selectionCount = 0;
-
   bool _objectMode = false;
   bool _rulerMode = false;
   String? _selectedObjectId;
+  bool _suppressMutationHistory = false;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -88,14 +90,65 @@ class _NotebookScreenState extends State<NotebookScreen> {
       (item) => item.id == page.id,
       orElse: () => pages.first,
     );
-    final strokes = await widget.inkStore.listStrokes(target.id);
-    final objects = await _objectStore.listObjects(target.id);
     _notebooks = notebooks;
     _currentNotebook = notebook;
     _pages = pages;
     _currentPage = target;
-    _currentStrokes = strokes;
-    _objects = objects;
+    _currentStrokes = await widget.inkStore.listStrokes(target.id);
+    _objects = await _objectStore.listObjects(target.id);
+    _history.clear();
+  }
+
+  NotebookPageSnapshot _captureSnapshot() => NotebookPageSnapshot.capture(
+        strokes: _canvasKey.currentState?.strokes ?? _currentStrokes,
+        objects: _objects,
+      );
+
+  void _recordHistory() {
+    if (_suppressMutationHistory || _currentPage == null) return;
+    _history.record(_captureSnapshot());
+  }
+
+  void _runCanvasMutation(VoidCallback action) {
+    _recordHistory();
+    _suppressMutationHistory = true;
+    try {
+      action();
+    } finally {
+      _suppressMutationHistory = false;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _restoreSnapshot(NotebookPageSnapshot snapshot) async {
+    final page = _currentPage;
+    if (page == null) return;
+    _suppressMutationHistory = true;
+    try {
+      await widget.inkStore.replacePageStrokes(page.id, snapshot.strokes);
+      await _objectStore.replacePageObjects(page.id, snapshot.objects);
+    } finally {
+      _suppressMutationHistory = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _currentStrokes = List<InkStroke>.unmodifiable(snapshot.strokes);
+      _objects = List<NotebookObject>.unmodifiable(snapshot.objects);
+      _selectionCount = 0;
+      _selectedObjectId = null;
+      _clipboardAvailable = false;
+    });
+    _canvasKey.currentState?.clearSelection();
+  }
+
+  Future<void> _undoHistory() async {
+    final target = _history.undo(_captureSnapshot());
+    if (target != null) await _restoreSnapshot(target);
+  }
+
+  Future<void> _redoHistory() async {
+    final target = _history.redo(_captureSnapshot());
+    if (target != null) await _restoreSnapshot(target);
   }
 
   Future<void> _reloadCurrent({String? pageId}) async {
@@ -136,6 +189,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _clipboardAvailable = false;
       _selectedObjectId = null;
     });
+    _history.clear();
   }
 
   @override
@@ -193,9 +247,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
             color: _eraserMode ? Theme.of(context).colorScheme.primary : null,
           ),
           IconButton(
-            tooltip: 'Desfazer último traço',
-            onPressed: _undo,
+            tooltip: 'Desfazer',
+            onPressed: _history.canUndo ? _undoHistory : null,
             icon: const Icon(Icons.undo),
+          ),
+          IconButton(
+            tooltip: 'Refazer',
+            onPressed: _history.canRedo ? _redoHistory : null,
+            icon: const Icon(Icons.redo),
           ),
         ],
       ),
@@ -251,13 +310,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
                               eraserMode: _eraserMode,
                               lassoMode: _lassoMode,
                               onStrokeCompleted: (stroke) {
+                                if (!_suppressMutationHistory) _recordHistory();
                                 unawaited(widget.inkStore.addStroke(stroke));
+                                setState(() {});
                               },
                               onStrokeUpdated: (stroke) {
                                 unawaited(widget.inkStore.addStroke(stroke));
                               },
                               onStrokeErased: (stroke) {
+                                if (!_suppressMutationHistory) _recordHistory();
                                 unawaited(widget.inkStore.deleteStroke(stroke.id));
+                                setState(() {});
                               },
                               onSelectionChanged: (ids) {
                                 if (!mounted) return;
@@ -405,21 +468,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
           children: [
             SegmentedButton<InkTool>(
               segments: const [
-                ButtonSegment(
-                  value: InkTool.pen,
-                  icon: Icon(Icons.edit_outlined),
-                  label: Text('Caneta'),
-                ),
-                ButtonSegment(
-                  value: InkTool.pencil,
-                  icon: Icon(Icons.draw_outlined),
-                  label: Text('Lápis'),
-                ),
-                ButtonSegment(
-                  value: InkTool.highlighter,
-                  icon: Icon(Icons.border_color_outlined),
-                  label: Text('Marca-texto'),
-                ),
+                ButtonSegment(value: InkTool.pen, icon: Icon(Icons.edit_outlined), label: Text('Caneta')),
+                ButtonSegment(value: InkTool.pencil, icon: Icon(Icons.draw_outlined), label: Text('Lápis')),
+                ButtonSegment(value: InkTool.highlighter, icon: Icon(Icons.border_color_outlined), label: Text('Marca-texto')),
               ],
               selected: {_tool},
               onSelectionChanged: (selection) => setState(() {
@@ -450,9 +501,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
             FilterChip(
               selected: _lassoMode,
               avatar: const Icon(Icons.gesture, size: 18),
-              label: Text(
-                _selectionCount > 0 ? 'Laço ($_selectionCount)' : 'Laço',
-              ),
+              label: Text(_selectionCount > 0 ? 'Laço ($_selectionCount)' : 'Laço'),
               onSelected: (value) => setState(() {
                 _lassoMode = value;
                 _eraserMode = false;
@@ -494,49 +543,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   PopupMenuItem(value: NotebookObjectType.triangle, child: Text('Triângulo')),
                 ],
               ),
-              IconButton(
-                tooltip: 'Inserir texto',
-                onPressed: _addText,
-                icon: const Icon(Icons.text_fields),
-              ),
-              IconButton(
-                tooltip: 'Inserir imagem',
-                onPressed: _addImage,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-              ),
+              IconButton(tooltip: 'Inserir texto', onPressed: _addText, icon: const Icon(Icons.text_fields)),
+              IconButton(tooltip: 'Inserir imagem', onPressed: _addImage, icon: const Icon(Icons.add_photo_alternate_outlined)),
               if (selectedObject != null) ...[
-                IconButton(
-                  tooltip: 'Girar objeto 15° à esquerda',
-                  onPressed: () => _rotateSelectedObject(-_rotationStep),
-                  icon: const Icon(Icons.rotate_left),
-                ),
-                IconButton(
-                  tooltip: 'Girar objeto 15° à direita',
-                  onPressed: () => _rotateSelectedObject(_rotationStep),
-                  icon: const Icon(Icons.rotate_right),
-                ),
+                IconButton(tooltip: 'Girar objeto 15° à esquerda', onPressed: () => _rotateSelectedObject(-_rotationStep), icon: const Icon(Icons.rotate_left)),
+                IconButton(tooltip: 'Girar objeto 15° à direita', onPressed: () => _rotateSelectedObject(_rotationStep), icon: const Icon(Icons.rotate_right)),
                 if (selectedObject.type == NotebookObjectType.text) ...[
-                  IconButton(
-                    tooltip: 'Editar texto',
-                    onPressed: () => _editTextObject(selectedObject),
-                    icon: const Icon(Icons.edit_note),
-                  ),
-                  IconButton(
-                    tooltip: 'Diminuir fonte',
-                    onPressed: () => _adjustSelectedTextSize(-2),
-                    icon: const Icon(Icons.text_decrease),
-                  ),
-                  IconButton(
-                    tooltip: 'Aumentar fonte',
-                    onPressed: () => _adjustSelectedTextSize(2),
-                    icon: const Icon(Icons.text_increase),
-                  ),
+                  IconButton(tooltip: 'Editar texto', onPressed: () => _editTextObject(selectedObject), icon: const Icon(Icons.edit_note)),
+                  IconButton(tooltip: 'Diminuir fonte', onPressed: () => _adjustSelectedTextSize(-2), icon: const Icon(Icons.text_decrease)),
+                  IconButton(tooltip: 'Aumentar fonte', onPressed: () => _adjustSelectedTextSize(2), icon: const Icon(Icons.text_increase)),
                 ],
-                IconButton(
-                  tooltip: 'Excluir objeto',
-                  onPressed: _deleteSelectedObject,
-                  icon: const Icon(Icons.delete_outline),
-                ),
+                IconButton(tooltip: 'Excluir objeto', onPressed: _deleteSelectedObject, icon: const Icon(Icons.delete_outline)),
               ],
             ],
             const SizedBox(width: 8),
@@ -598,11 +615,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
               label: const Text('Somente caneta'),
               onSelected: (value) => setState(() => _stylusOnly = value),
             ),
-            IconButton(
-              tooltip: 'Limpar página',
-              onPressed: _clearPage,
-              icon: const Icon(Icons.delete_sweep_outlined),
-            ),
+            IconButton(tooltip: 'Limpar página', onPressed: _clearPage, icon: const Icon(Icons.delete_sweep_outlined)),
           ],
         ),
       ),
@@ -628,11 +641,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         IconButton(tooltip: 'Copiar', onPressed: _copySelection, icon: const Icon(Icons.content_copy)),
         IconButton(tooltip: 'Duplicar', onPressed: _duplicateSelection, icon: const Icon(Icons.copy_all_outlined)),
         IconButton(tooltip: 'Recortar', onPressed: _cutSelection, icon: const Icon(Icons.content_cut)),
-        IconButton(
-          tooltip: 'Reconhecer forma do traço',
-          onPressed: _recognizeSelectedInk,
-          icon: const Icon(Icons.auto_awesome_outlined),
-        ),
+        IconButton(tooltip: 'Reconhecer forma do traço', onPressed: _recognizeSelectedInk, icon: const Icon(Icons.auto_awesome_outlined)),
       ];
 
   Future<void> _switchNotebook(String id) async {
@@ -656,6 +665,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _clipboardAvailable = false;
       _selectedObjectId = null;
     });
+    _history.clear();
   }
 
   Future<void> _createNotebook() async {
@@ -687,6 +697,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _objects = const [];
       _selectedObjectId = null;
     });
+    _history.clear();
   }
 
   Future<void> _renameNotebook() async {
@@ -734,6 +745,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _objects = objects;
       _selectedObjectId = null;
     });
+    _history.clear();
   }
 
   Future<void> _openPageAt(int index) async {
@@ -750,6 +762,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _clipboardAvailable = false;
       _selectedObjectId = null;
     });
+    _history.clear();
   }
 
   Future<void> _addPage() async {
@@ -810,6 +823,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _addShape(NotebookObjectType type) async {
     final page = _currentPage;
     if (page == null) return;
+    _recordHistory();
     final now = DateTime.now().toUtc();
     final isLinear = type == NotebookObjectType.line || type == NotebookObjectType.arrow;
     final object = NotebookObject(
@@ -842,12 +856,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Inserir texto'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 5,
-          decoration: const InputDecoration(hintText: 'Digite o texto'),
-        ),
+        content: TextField(controller: controller, autofocus: true, maxLines: 5, decoration: const InputDecoration(hintText: 'Digite o texto')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Inserir')),
@@ -856,6 +865,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
     controller.dispose();
     if (value == null || value.trim().isEmpty) return;
+    _recordHistory();
     final now = DateTime.now().toUtc();
     final object = NotebookObject(
       id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
@@ -884,10 +894,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _addImage() async {
     final page = _currentPage;
     if (page == null) return;
-    const group = XTypeGroup(
-      label: 'Imagens',
-      extensions: ['png', 'jpg', 'jpeg', 'webp'],
-    );
+    const group = XTypeGroup(label: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp']);
     final selected = await openFile(acceptedTypeGroups: const [group]);
     if (selected == null) return;
     final bytes = await selected.readAsBytes();
@@ -896,10 +903,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
     await assets.create(recursive: true);
     final now = DateTime.now().toUtc();
     final safeName = selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    final destination = File(
-      '${assets.path}${Platform.pathSeparator}${now.microsecondsSinceEpoch}-$safeName',
-    );
+    final destination = File('${assets.path}${Platform.pathSeparator}${now.microsecondsSinceEpoch}-$safeName');
     await destination.writeAsBytes(bytes, flush: true);
+    _recordHistory();
     final object = NotebookObject(
       id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
       pageId: page.id,
@@ -924,9 +930,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   void _handleObjectDoubleTap(NotebookObject object) {
-    if (object.type == NotebookObjectType.text) {
-      unawaited(_editTextObject(object));
-    }
+    if (object.type == NotebookObjectType.text) unawaited(_editTextObject(object));
   }
 
   Future<void> _editTextObject(NotebookObject object) async {
@@ -944,12 +948,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
     controller.dispose();
     if (value == null) return;
-    _onObjectChanged(
-      object.copyWith(
-        textValue: value,
-        updatedAt: DateTime.now().toUtc(),
-      ),
-    );
+    _onObjectChanged(object.copyWith(textValue: value, updatedAt: DateTime.now().toUtc()));
   }
 
   void _adjustSelectedTextSize(double delta) {
@@ -976,8 +975,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       }
       return;
     }
-    final id = ids.single;
-    final stroke = state.strokes.firstWhere((item) => item.id == id);
+    final stroke = state.strokes.firstWhere((item) => item.id == ids.single);
     final recognition = _shapeRecognizer.recognize(stroke);
     if (recognition == null) {
       if (mounted) {
@@ -987,39 +985,46 @@ class _NotebookScreenState extends State<NotebookScreen> {
       }
       return;
     }
-    final now = DateTime.now().toUtc();
-    final object = NotebookObject(
-      id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
-      pageId: stroke.pageId,
-      type: recognition.type,
-      x: recognition.x,
-      y: recognition.y,
-      width: recognition.width,
-      height: recognition.height,
-      rotation: 0,
-      colorValue: stroke.colorValue,
-      strokeWidth: stroke.width,
-      createdAt: now,
-      updatedAt: now,
-    );
-    await _objectStore.upsert(object);
-    final removed = state.deleteSelected();
-    for (final item in removed) {
-      await widget.inkStore.deleteStroke(item.id);
+    _recordHistory();
+    _suppressMutationHistory = true;
+    try {
+      final now = DateTime.now().toUtc();
+      final object = NotebookObject(
+        id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
+        pageId: stroke.pageId,
+        type: recognition.type,
+        x: recognition.x,
+        y: recognition.y,
+        width: recognition.width,
+        height: recognition.height,
+        rotation: 0,
+        colorValue: stroke.colorValue,
+        strokeWidth: stroke.width,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await _objectStore.upsert(object);
+      final removed = state.deleteSelected();
+      for (final item in removed) {
+        await widget.inkStore.deleteStroke(item.id);
+      }
+      if (!mounted) return;
+      setState(() {
+        _objects = [..._objects, object];
+        _objectMode = true;
+        _lassoMode = false;
+        _selectionCount = 0;
+        _selectedObjectId = object.id;
+      });
+    } finally {
+      _suppressMutationHistory = false;
     }
-    if (!mounted) return;
-    setState(() {
-      _objects = [..._objects, object];
-      _objectMode = true;
-      _lassoMode = false;
-      _selectionCount = 0;
-      _selectedObjectId = object.id;
-    });
   }
 
   void _onObjectChanged(NotebookObject object) {
     final index = _objects.indexWhere((item) => item.id == object.id);
     if (index < 0) return;
+    _recordHistory();
     final next = [..._objects]..[index] = object;
     setState(() => _objects = next);
     unawaited(_objectStore.upsert(object));
@@ -1031,23 +1036,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final step = math.pi / 12;
     final raw = object.rotation + delta;
     final snapped = (raw / step).round() * step;
-    _onObjectChanged(
-      object.copyWith(rotation: snapped, updatedAt: DateTime.now().toUtc()),
-    );
+    _onObjectChanged(object.copyWith(rotation: snapped, updatedAt: DateTime.now().toUtc()));
   }
 
   void _setSelectedObjectColor(int colorValue) {
     final object = _selectedObject;
     if (object == null) return;
-    _onObjectChanged(
-      object.copyWith(colorValue: colorValue, updatedAt: DateTime.now().toUtc()),
-    );
+    _onObjectChanged(object.copyWith(colorValue: colorValue, updatedAt: DateTime.now().toUtc()));
     setState(() => _colorValue = colorValue);
   }
 
   Future<void> _deleteSelectedObject() async {
     final id = _selectedObjectId;
     if (id == null) return;
+    _recordHistory();
     await _objectStore.delete(id);
     if (!mounted) return;
     setState(() {
@@ -1056,13 +1058,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
     });
   }
 
-  void _moveSelection(double dx, double dy) => _canvasKey.currentState?.moveSelected(dx, dy);
-  void _scaleSelection(double factor) => _canvasKey.currentState?.scaleSelected(factor);
-  void _rotateSelection(double angleRadians) => _canvasKey.currentState?.rotateSelected(angleRadians);
-  void _adjustSelectionWidth(double factor) => _canvasKey.currentState?.adjustSelectedWidth(factor);
+  void _moveSelection(double dx, double dy) =>
+      _runCanvasMutation(() => _canvasKey.currentState?.moveSelected(dx, dy));
+  void _scaleSelection(double factor) =>
+      _runCanvasMutation(() => _canvasKey.currentState?.scaleSelected(factor));
+  void _rotateSelection(double angleRadians) =>
+      _runCanvasMutation(() => _canvasKey.currentState?.rotateSelected(angleRadians));
+  void _adjustSelectionWidth(double factor) =>
+      _runCanvasMutation(() => _canvasKey.currentState?.adjustSelectedWidth(factor));
 
   void _setSelectionColor(int colorValue) {
+    _recordHistory();
+    _suppressMutationHistory = true;
     final updated = _canvasKey.currentState?.updateSelectedColor(colorValue) ?? const [];
+    _suppressMutationHistory = false;
     if (updated.isNotEmpty) setState(() => _colorValue = colorValue);
   }
 
@@ -1071,10 +1080,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (copied.isNotEmpty) setState(() => _clipboardAvailable = true);
   }
 
-  void _duplicateSelection() => _canvasKey.currentState?.duplicateSelected();
+  void _duplicateSelection() =>
+      _runCanvasMutation(() => _canvasKey.currentState?.duplicateSelected());
 
   void _cutSelection() {
+    _recordHistory();
+    _suppressMutationHistory = true;
     final removed = _canvasKey.currentState?.cutSelected() ?? const [];
+    _suppressMutationHistory = false;
     if (removed.isNotEmpty) {
       setState(() {
         _clipboardAvailable = true;
@@ -1083,27 +1096,35 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
   }
 
-  void _pasteClipboard() => _canvasKey.currentState?.pasteClipboard();
+  void _pasteClipboard() =>
+      _runCanvasMutation(() => _canvasKey.currentState?.pasteClipboard());
 
   Future<void> _deleteSelection() async {
-    final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
-    for (final stroke in removed) {
-      await widget.inkStore.deleteStroke(stroke.id);
+    _recordHistory();
+    _suppressMutationHistory = true;
+    try {
+      final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
+      for (final stroke in removed) {
+        await widget.inkStore.deleteStroke(stroke.id);
+      }
+    } finally {
+      _suppressMutationHistory = false;
     }
     if (mounted) setState(() => _selectionCount = 0);
-  }
-
-  Future<void> _undo() async {
-    final removed = _canvasKey.currentState?.undoLast();
-    if (removed != null) await widget.inkStore.deleteStroke(removed.id);
   }
 
   Future<void> _clearPage() async {
     final page = _currentPage;
     if (page == null) return;
-    await widget.inkStore.clearPage(page.id);
-    await _objectStore.clearPage(page.id);
-    _canvasKey.currentState?.clear();
+    _recordHistory();
+    _suppressMutationHistory = true;
+    try {
+      await widget.inkStore.clearPage(page.id);
+      await _objectStore.clearPage(page.id);
+      _canvasKey.currentState?.clear();
+    } finally {
+      _suppressMutationHistory = false;
+    }
     if (mounted) {
       setState(() {
         _currentStrokes = const [];

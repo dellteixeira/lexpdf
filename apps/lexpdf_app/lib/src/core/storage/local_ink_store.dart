@@ -179,6 +179,27 @@ class LocalInkStore {
   }
 
   Future<void> addStroke(InkStroke stroke) async {
+    _insertStroke(stroke);
+  }
+
+  Future<void> replacePageStrokes(String pageId, List<InkStroke> strokes) async {
+    db.database.execute('BEGIN IMMEDIATE;');
+    try {
+      db.database.execute('DELETE FROM ink_strokes WHERE page_id = ?;', [pageId]);
+      for (final stroke in strokes) {
+        if (stroke.pageId != pageId) {
+          throw StateError('Traço ${stroke.id} pertence a outra página.');
+        }
+        _insertStroke(stroke);
+      }
+      db.database.execute('COMMIT;');
+    } catch (_) {
+      db.database.execute('ROLLBACK;');
+      rethrow;
+    }
+  }
+
+  void _insertStroke(InkStroke stroke) {
     db.database.execute('''
       INSERT OR REPLACE INTO ink_strokes(
         id, page_id, tool, color_value, opacity, width, points_json, created_at

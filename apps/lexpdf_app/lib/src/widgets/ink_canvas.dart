@@ -17,6 +17,7 @@ class InkCanvas extends StatefulWidget {
     this.onStrokeUpdated,
     this.onStrokeErased,
     this.onSelectionChanged,
+    this.onWillMutate,
     this.stylusOnly = true,
     this.eraserMode = false,
     this.lassoMode = false,
@@ -37,6 +38,7 @@ class InkCanvas extends StatefulWidget {
   final ValueChanged<InkStroke>? onStrokeUpdated;
   final ValueChanged<InkStroke>? onStrokeErased;
   final ValueChanged<Set<String>>? onSelectionChanged;
+  final VoidCallback? onWillMutate;
 
   @override
   State<InkCanvas> createState() => InkCanvasState();
@@ -441,9 +443,10 @@ class InkCanvasState extends State<InkCanvas> {
       }
     }
     if (hit == null) return;
+    widget.onWillMutate?.call();
+    widget.onStrokeErased?.call(hit);
     _strokes.remove(hit);
     _selectedStrokeIds.remove(hit.id);
-    widget.onStrokeErased?.call(hit);
     _notifySelection();
     setState(() {});
   }
@@ -501,6 +504,7 @@ class InkCanvasState extends State<InkCanvas> {
   void _finishStroke(PointerEvent event) {
     _activePoints.add(_pointFromEvent(event));
     if (_activePoints.length >= 2) {
+      widget.onWillMutate?.call();
       final now = DateTime.now().toUtc();
       final stroke = InkStroke(
         id: now.microsecondsSinceEpoch.toRadixString(36),
@@ -512,8 +516,8 @@ class InkCanvasState extends State<InkCanvas> {
         points: List<InkPoint>.unmodifiable(_activePoints),
         createdAt: now,
       );
-      _strokes.add(stroke);
       widget.onStrokeCompleted(stroke);
+      _strokes.add(stroke);
     }
     _activePoints.clear();
     _activePointer = null;
