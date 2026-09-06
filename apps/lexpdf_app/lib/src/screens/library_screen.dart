@@ -124,48 +124,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildSection() {
     if (_selectedIndex == 1) {
-      return FutureBuilder<List<DocumentRef>>(
+      return _buildDocumentList(
         future: widget.catalog.list(limit: 100),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final documents = snapshot.data ?? const <DocumentRef>[];
-          if (documents.isEmpty) {
-            return const _EmptyState(
-              icon: Icons.history,
-              title: 'Nenhum PDF recente',
-              subtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
-            );
-          }
+        emptyIcon: Icons.history,
+        emptyTitle: 'Nenhum PDF recente',
+        emptySubtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
+      );
+    }
 
-          return ListView.separated(
-            itemCount: documents.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final document = documents[index];
-              return Card(
-                child: ListTile(
-                  leading: const Icon(Icons.picture_as_pdf_outlined),
-                  title: Text(
-                    document.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    document.availableOffline
-                        ? 'Disponível offline'
-                        : 'Necessita download',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: document.availableOffline
-                      ? () => _openDocument(document)
-                      : null,
-                ),
-              );
-            },
-          );
-        },
+    if (_selectedIndex == 2) {
+      return _buildDocumentList(
+        future: widget.catalog.listFavorites(limit: 100),
+        emptyIcon: Icons.star_border,
+        emptyTitle: 'Nenhum favorito',
+        emptySubtitle: 'Toque na estrela de um documento para mantê-lo aqui.',
       );
     }
 
@@ -207,6 +179,76 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Widget _buildDocumentList({
+    required Future<List<DocumentRef>> future,
+    required IconData emptyIcon,
+    required String emptyTitle,
+    required String emptySubtitle,
+  }) {
+    return FutureBuilder<List<DocumentRef>>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final documents = snapshot.data ?? const <DocumentRef>[];
+        if (documents.isEmpty) {
+          return _EmptyState(
+            icon: emptyIcon,
+            title: emptyTitle,
+            subtitle: emptySubtitle,
+          );
+        }
+
+        return ListView.separated(
+          itemCount: documents.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final document = documents[index];
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: Text(
+                  document.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  document.availableOffline
+                      ? 'Disponível offline'
+                      : 'Necessita download',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: document.favorite
+                          ? 'Remover dos favoritos'
+                          : 'Adicionar aos favoritos',
+                      icon: Icon(
+                        document.favorite ? Icons.star : Icons.star_border,
+                      ),
+                      onPressed: () => _toggleFavorite(document),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+                onTap: document.availableOffline
+                    ? () => _openDocument(document)
+                    : null,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleFavorite(DocumentRef document) async {
+    await widget.catalog.setFavorite(document.id, !document.favorite);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openPdf() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
@@ -215,7 +257,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final DocumentRef? document = await _picker.pickPdf();
       if (!mounted || document == null) return;
       await widget.catalog.upsert(document);
-      await _openDocument(document);
+      final stored = await widget.catalog.getById(document.id) ?? document;
+      await _openDocument(stored);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -242,10 +285,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _select(int index) {
     setState(() => _selectedIndex = index);
-    final scaffold = Scaffold.maybeOf(context);
-    if (scaffold?.isDrawerOpen ?? false) {
-      Navigator.of(context).pop();
-    }
   }
 }
 
