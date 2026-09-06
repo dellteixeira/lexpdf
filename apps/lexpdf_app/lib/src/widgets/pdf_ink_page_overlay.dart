@@ -146,14 +146,17 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
         pageHeight: _size.height,
         radius: widget.eraserRadius,
       );
-      if (result != null) {
-        if (widget.onEraseApplied != null) {
-          widget.onEraseApplied!(result);
-        } else {
-          widget.onStrokeErased?.call(stroke);
+      if (result == null) continue;
+
+      if (widget.onEraseApplied != null) {
+        widget.onEraseApplied!(result);
+      } else {
+        widget.onStrokeErased?.call(result.original);
+        for (final fragment in result.fragments) {
+          widget.onStrokeCompleted(fragment);
         }
-        return;
       }
+      return;
     }
   }
 
