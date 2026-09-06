@@ -66,6 +66,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _searchMode = false;
   bool _loadingAnnotations = false;
   bool _inkMode = false;
+  bool _inkEraserMode = false;
 
   @override
   void dispose() {
@@ -132,7 +133,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                     panEnabled: !_inkMode,
                     scaleEnabled: !_inkMode,
                     textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),
-                    customizeContextMenuItems: _inkMode ? null : _customizeContextMenuItems,
+                    customizeContextMenuItems:
+                        _inkMode ? null : _customizeContextMenuItems,
                     pagePaintCallbacks: [
                       _paintTextAnnotations,
                       _textSearcher.pageTextMatchPaintCallback,
@@ -140,7 +142,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                     pageOverlaysBuilder: (context, pageRect, page) => [
                       Positioned.fill(
                         child: PdfInkPageOverlay(
-                          key: ValueKey('pdf-ink-${page.pageNumber}-$_inkMode-${_pdfInkByPage[page.pageNumber]?.length ?? 0}'),
+                          key: ValueKey(
+                            'pdf-ink-${page.pageNumber}-$_inkMode-$_inkEraserMode-${_pdfInkByPage[page.pageNumber]?.length ?? 0}',
+                          ),
                           documentId: widget.document.id,
                           pageNumber: page.pageNumber,
                           strokes: _pdfInkByPage[page.pageNumber] ?? const [],
@@ -148,7 +152,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           tool: _inkTool,
                           colorValue: _inkColor,
                           strokeWidth: _effectiveInkWidth,
+                          eraserMode: _inkEraserMode,
                           onStrokeCompleted: _onPdfStrokeCompleted,
+                          onStrokeErased: _onPdfStrokeErased,
                         ),
                       ),
                     ],
@@ -177,16 +183,26 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   bottom: 16,
                   child: Card(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.edit, color: Color(_inkColor)),
+                          Icon(
+                            _inkEraserMode ? Icons.auto_fix_off : Icons.edit,
+                            color: _inkEraserMode ? null : Color(_inkColor),
+                          ),
                           const SizedBox(width: 8),
-                          Text('${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}'),
+                          Text(
+                            _inkEraserMode
+                                ? 'Borracha por traço'
+                                : '${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}',
+                          ),
                           const SizedBox(width: 8),
                           TextButton.icon(
-                            onPressed: _showInkSettings,
+                            onPressed: _inkEraserMode ? null : _showInkSettings,
                             icon: const Icon(Icons.tune),
                             label: const Text('Ajustar'),
                           ),
@@ -201,7 +217,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   bottom: 16,
                   child: Card(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -253,8 +272,19 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       ),
       if (_inkMode) ...[
         IconButton(
+          tooltip: _inkEraserMode ? 'Voltar para caneta' : 'Borracha por traço',
+          onPressed: () {
+            setState(() => _inkEraserMode = !_inkEraserMode);
+            _viewerController.invalidate();
+          },
+          icon: Icon(
+            _inkEraserMode ? Icons.edit_outlined : Icons.auto_fix_off,
+          ),
+          color: _inkEraserMode ? Theme.of(context).colorScheme.primary : null,
+        ),
+        IconButton(
           tooltip: 'Configurar caneta',
-          onPressed: _showInkSettings,
+          onPressed: _inkEraserMode ? null : _showInkSettings,
           icon: const Icon(Icons.tune),
         ),
         IconButton(
@@ -318,12 +348,16 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       ),
       IconButton(
         tooltip: 'Resultado anterior',
-        onPressed: matchCount == 0 ? null : () => unawaited(_textSearcher.goToPrevMatch()),
+        onPressed: matchCount == 0
+            ? null
+            : () => unawaited(_textSearcher.goToPrevMatch()),
         icon: const Icon(Icons.keyboard_arrow_up),
       ),
       IconButton(
         tooltip: 'Próximo resultado',
-        onPressed: matchCount == 0 ? null : () => unawaited(_textSearcher.goToNextMatch()),
+        onPressed: matchCount == 0
+            ? null
+            : () => unawaited(_textSearcher.goToNextMatch()),
         icon: const Icon(Icons.keyboard_arrow_down),
       ),
       IconButton(
@@ -337,7 +371,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   void _toggleInkMode() {
     _textSearcher.resetTextSearch();
     _searchMode = false;
-    setState(() => _inkMode = !_inkMode);
+    setState(() {
+      _inkMode = !_inkMode;
+      if (!_inkMode) _inkEraserMode = false;
+    });
     _viewerController.invalidate();
   }
 
@@ -361,6 +398,16 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       _pdfInkByPage.putIfAbsent(stroke.pageNumber, () => []).add(stroke);
     });
     unawaited(widget.pdfInkStore.addStroke(stroke));
+  }
+
+  void _onPdfStrokeErased(PdfInkStroke stroke) {
+    final strokes = _pdfInkByPage[stroke.pageNumber];
+    if (strokes == null) return;
+    final removed = strokes.removeWhere((candidate) => candidate.id == stroke.id);
+    if (removed == 0) return;
+    setState(() {});
+    unawaited(widget.pdfInkStore.deleteStroke(stroke.id));
+    _viewerController.invalidate();
   }
 
   Future<void> _undoPdfInk() async {
@@ -389,16 +436,32 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Caneta sobre PDF', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  'Caneta sobre PDF',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 14),
                 SegmentedButton<InkTool>(
                   segments: const [
-                    ButtonSegment(value: InkTool.pen, icon: Icon(Icons.edit), label: Text('Caneta')),
-                    ButtonSegment(value: InkTool.pencil, icon: Icon(Icons.draw_outlined), label: Text('Lápis')),
-                    ButtonSegment(value: InkTool.highlighter, icon: Icon(Icons.border_color_outlined), label: Text('Marca-texto')),
+                    ButtonSegment(
+                      value: InkTool.pen,
+                      icon: Icon(Icons.edit),
+                      label: Text('Caneta'),
+                    ),
+                    ButtonSegment(
+                      value: InkTool.pencil,
+                      icon: Icon(Icons.draw_outlined),
+                      label: Text('Lápis'),
+                    ),
+                    ButtonSegment(
+                      value: InkTool.highlighter,
+                      icon: Icon(Icons.border_color_outlined),
+                      label: Text('Marca-texto'),
+                    ),
                   ],
                   selected: {tool},
-                  onSelectionChanged: (value) => setSheetState(() => tool = value.first),
+                  onSelectionChanged: (value) =>
+                      setSheetState(() => tool = value.first),
                 ),
                 const SizedBox(height: 16),
                 Wrap(
@@ -415,7 +478,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                             color: Color(value),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: value == color ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                              color: value == color
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.transparent,
                               width: 3,
                             ),
                           ),
@@ -429,7 +494,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   min: 1,
                   max: 10,
                   value: width,
-                  onChanged: (value) => setSheetState(() => width = value),
+                  onChanged: (value) =>
+                      setSheetState(() => width = value),
                 ),
                 Align(
                   alignment: Alignment.centerRight,
@@ -439,6 +505,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                         _inkTool = tool;
                         _inkColor = color;
                         _inkWidth = width;
+                        _inkEraserMode = false;
                       });
                       Navigator.of(sheetContext).pop();
                     },
@@ -454,7 +521,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   }
 
   Future<void> _showInkSummary() async {
-    final total = _pdfInkByPage.values.fold<int>(0, (sum, value) => sum + value.length);
+    final total =
+        _pdfInkByPage.values.fold<int>(0, (sum, value) => sum + value.length);
     final pages = _pdfInkByPage.keys.toList()..sort();
     await showModalBottomSheet<void>(
       context: context,
@@ -466,7 +534,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Escrita manuscrita', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Escrita manuscrita',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 10),
               Text('$total traços em ${pages.length} página(s).'),
               if (pages.isNotEmpty) ...[
@@ -474,7 +545,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 Text('Páginas: ${pages.join(', ')}'),
               ],
               const SizedBox(height: 10),
-              const Text('Os traços são vetoriais, ficam salvos offline e não alteram o PDF original.'),
+              const Text(
+                'Os traços são vetoriais, ficam salvos offline e não alteram o PDF original.',
+              ),
             ],
           ),
         ),
@@ -552,13 +625,18 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   Future<void> _loadSavedAnnotations(PdfDocument document) async {
     if (mounted) setState(() => _loadingAnnotations = true);
     try {
-      final saved = await widget.annotations.listForDocument(widget.document.id);
+      final saved =
+          await widget.annotations.listForDocument(widget.document.id);
       final byPage = <int, List<_RenderedAnnotation>>{};
       final pageTexts = <int, PdfPageText>{};
       for (final annotation in saved) {
-        if (annotation.pageNumber < 1 || annotation.pageNumber > document.pages.length) continue;
+        if (annotation.pageNumber < 1 ||
+            annotation.pageNumber > document.pages.length) {
+          continue;
+        }
         final pageText = pageTexts[annotation.pageNumber] ??=
-            await document.pages[annotation.pageNumber - 1].loadStructuredText();
+            await document.pages[annotation.pageNumber - 1]
+                .loadStructuredText();
         if (annotation.startIndex > pageText.fullText.length ||
             annotation.endIndex > pageText.fullText.length) {
           continue;
@@ -591,21 +669,29 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       final annotation = rendered.annotation;
       final color = Color(annotation.colorValue);
       for (final fragment in rendered.range.enumerateFragmentBoundingRects()) {
-        final rect = fragment.bounds.toRectInDocument(page: page, pageRect: pageRect);
+        final rect =
+            fragment.bounds.toRectInDocument(page: page, pageRect: pageRect);
         switch (annotation.type) {
           case TextAnnotationType.highlight:
-            canvas.drawRect(rect, Paint()..color = color.withValues(alpha: annotation.opacity));
+            canvas.drawRect(
+              rect,
+              Paint()..color = color.withValues(alpha: annotation.opacity),
+            );
           case TextAnnotationType.underline:
             canvas.drawLine(
               Offset(rect.left, rect.bottom - 1),
               Offset(rect.right, rect.bottom - 1),
-              Paint()..color = color..strokeWidth = 2,
+              Paint()
+                ..color = color
+                ..strokeWidth = 2,
             );
           case TextAnnotationType.strikeout:
             canvas.drawLine(
               Offset(rect.left, rect.center.dy),
               Offset(rect.right, rect.center.dy),
-              Paint()..color = color..strokeWidth = 2,
+              Paint()
+                ..color = color
+                ..strokeWidth = 2,
             );
         }
       }
@@ -629,7 +715,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   child: Container(
                     width: 44,
                     height: 44,
-                    decoration: BoxDecoration(color: Color(value), shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: Color(value),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
             ],
@@ -637,11 +726,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         ),
       ),
     );
-    if (chosen != null && mounted) setState(() => _selectedAnnotationColor = chosen);
+    if (chosen != null && mounted) {
+      setState(() => _selectedAnnotationColor = chosen);
+    }
   }
 
   Future<void> _showAnnotationsPanel() async {
-    final annotations = await widget.annotations.listForDocument(widget.document.id);
+    final annotations =
+        await widget.annotations.listForDocument(widget.document.id);
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -675,13 +767,17 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text('${_annotationTypeLabel(annotation.type)} · Página ${annotation.pageNumber}'),
+                        subtitle: Text(
+                          '${_annotationTypeLabel(annotation.type)} · Página ${annotation.pageNumber}',
+                        ),
                         onTap: () {
                           Navigator.of(sheetContext).pop();
-                          unawaited(_viewerController.goToPage(
-                            pageNumber: annotation.pageNumber,
-                            anchor: PdfPageAnchor.center,
-                          ));
+                          unawaited(
+                            _viewerController.goToPage(
+                              pageNumber: annotation.pageNumber,
+                              anchor: PdfPageAnchor.center,
+                            ),
+                          );
                         },
                         trailing: IconButton(
                           tooltip: 'Excluir anotação',
