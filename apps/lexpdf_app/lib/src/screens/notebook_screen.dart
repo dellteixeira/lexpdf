@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../core/ink/ink_models.dart';
 import '../core/storage/local_ink_store.dart';
 import '../widgets/ink_canvas.dart';
+import '../widgets/notebook_page_background.dart';
 
 class NotebookScreen extends StatefulWidget {
   const NotebookScreen({required this.inkStore, super.key});
@@ -14,12 +15,6 @@ class NotebookScreen extends StatefulWidget {
 
   @override
   State<NotebookScreen> createState() => _NotebookScreenState();
-}
-
-class _NotebookSession {
-  const _NotebookSession(this.page, this.strokes);
-  final InkNotebookPage page;
-  final List<InkStroke> strokes;
 }
 
 class _NotebookScreenState extends State<NotebookScreen> {
@@ -31,7 +26,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const double _widthUp = 1.15;
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
-  late final Future<_NotebookSession> _session = _loadSession();
+  late final Future<void> _loadFuture = _loadInitial();
+
+  List<InkNotebook> _notebooks = const [];
+  List<InkNotebookPage> _pages = const [];
+  InkNotebook? _currentNotebook;
+  InkNotebookPage? _currentPage;
+  List<InkStroke> _currentStrokes = const [];
 
   InkTool _tool = InkTool.pen;
   int _colorValue = 0xFF1C1B1F;
@@ -53,18 +54,85 @@ class _NotebookScreenState extends State<NotebookScreen> {
     0xFF00ACC1,
   ];
 
-  Future<_NotebookSession> _loadSession() async {
+  Future<void> _loadInitial() async {
     final page = await widget.inkStore.ensureDefaultPage();
-    final strokes = await widget.inkStore.listStrokes(page.id);
-    return _NotebookSession(page, strokes);
+    final notebooks = await widget.inkStore.listNotebooks();
+    final notebook = notebooks.firstWhere(
+      (item) => item.id == page.notebookId,
+      orElse: () => notebooks.first,
+    );
+    final pages = await widget.inkStore.listPages(notebook.id);
+    final target = pages.firstWhere(
+      (item) => item.id == page.id,
+      orElse: () => pages.first,
+    );
+    final strokes = await widget.inkStore.listStrokes(target.id);
+    _notebooks = notebooks;
+    _currentNotebook = notebook;
+    _pages = pages;
+    _currentPage = target;
+    _currentStrokes = strokes;
+  }
+
+  Future<void> _reloadCurrent({String? pageId}) async {
+    final notebook = _currentNotebook;
+    if (notebook == null) return;
+    final notebooks = await widget.inkStore.listNotebooks();
+    final currentNotebook = notebooks.firstWhere(
+      (item) => item.id == notebook.id,
+      orElse: () => notebooks.first,
+    );
+    var pages = await widget.inkStore.listPages(currentNotebook.id);
+    if (pages.isEmpty) {
+      await widget.inkStore.createPage(currentNotebook.id);
+      pages = await widget.inkStore.listPages(currentNotebook.id);
+    }
+    final target = pageId == null
+        ? pages.firstWhere(
+            (item) => item.id == _currentPage?.id,
+            orElse: () => pages.first,
+          )
+        : pages.firstWhere(
+            (item) => item.id == pageId,
+            orElse: () => pages.first,
+          );
+    final strokes = await widget.inkStore.listStrokes(target.id);
+    if (!mounted) return;
+    setState(() {
+      _notebooks = notebooks;
+      _currentNotebook = currentNotebook;
+      _pages = pages;
+      _currentPage = target;
+      _currentStrokes = strokes;
+      _selectionCount = 0;
+      _lassoMode = false;
+      _eraserMode = false;
+      _clipboardAvailable = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Meu caderno'),
+        title: Text(_currentNotebook?.title ?? 'Cadernos'),
         actions: [
+          IconButton(
+            tooltip: 'Novo caderno',
+            onPressed: _createNotebook,
+            icon: const Icon(Icons.create_new_folder_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Opções do caderno',
+            onSelected: (value) {
+              if (value == 'rename') unawaited(_renameNotebook());
+              if (value == 'delete') unawaited(_deleteNotebook());
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'rename', child: Text('Renomear caderno')),
+              PopupMenuItem(value: 'delete', child: Text('Excluir caderno')),
+            ],
+          ),
           IconButton(
             tooltip: _lassoMode ? 'Sair do laço' : 'Selecionar com laço',
             onPressed: () => setState(() {
@@ -98,15 +166,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onPressed: _undo,
             icon: const Icon(Icons.undo),
           ),
-          IconButton(
-            tooltip: 'Limpar página',
-            onPressed: _clearPage,
-            icon: const Icon(Icons.delete_sweep_outlined),
-          ),
         ],
       ),
-      body: FutureBuilder<_NotebookSession>(
-        future: _session,
+      body: FutureBuilder<void>(
+        future: _loadFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -116,9 +179,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
               child: Text('Não foi possível abrir o caderno: ${snapshot.error}'),
             );
           }
-          final session = snapshot.requireData;
+          final page = _currentPage;
+          if (page == null) {
+            return const Center(child: Text('Nenhuma página disponível.'));
+          }
           return Column(
             children: [
+              _buildNotebookNavigation(),
+              const Divider(height: 1),
               _buildToolbar(),
               const Divider(height: 1),
               Expanded(
@@ -126,7 +194,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   color: Theme.of(context).colorScheme.surfaceContainerLowest,
                   child: Center(
                     child: AspectRatio(
-                      aspectRatio: session.page.width / session.page.height,
+                      aspectRatio: page.width / page.height,
                       child: Container(
                         margin: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -137,29 +205,35 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           ],
                         ),
                         clipBehavior: Clip.antiAlias,
-                        child: InkCanvas(
-                          key: _canvasKey,
-                          initialStrokes: session.strokes,
-                          pageId: session.page.id,
-                          tool: _tool,
-                          colorValue: _colorValue,
-                          strokeWidth: _effectiveWidth,
-                          stylusOnly: _stylusOnly,
-                          eraserMode: _eraserMode,
-                          lassoMode: _lassoMode,
-                          onStrokeCompleted: (stroke) {
-                            unawaited(widget.inkStore.addStroke(stroke));
-                          },
-                          onStrokeUpdated: (stroke) {
-                            unawaited(widget.inkStore.addStroke(stroke));
-                          },
-                          onStrokeErased: (stroke) {
-                            unawaited(widget.inkStore.deleteStroke(stroke.id));
-                          },
-                          onSelectionChanged: (ids) {
-                            if (!mounted) return;
-                            setState(() => _selectionCount = ids.length);
-                          },
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            NotebookPageBackground(background: page.background),
+                            InkCanvas(
+                              key: _canvasKey,
+                              initialStrokes: _currentStrokes,
+                              pageId: page.id,
+                              tool: _tool,
+                              colorValue: _colorValue,
+                              strokeWidth: _effectiveWidth,
+                              stylusOnly: _stylusOnly,
+                              eraserMode: _eraserMode,
+                              lassoMode: _lassoMode,
+                              onStrokeCompleted: (stroke) {
+                                unawaited(widget.inkStore.addStroke(stroke));
+                              },
+                              onStrokeUpdated: (stroke) {
+                                unawaited(widget.inkStore.addStroke(stroke));
+                              },
+                              onStrokeErased: (stroke) {
+                                unawaited(widget.inkStore.deleteStroke(stroke.id));
+                              },
+                              onSelectionChanged: (ids) {
+                                if (!mounted) return;
+                                setState(() => _selectionCount = ids.length);
+                              },
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -172,6 +246,96 @@ class _NotebookScreenState extends State<NotebookScreen> {
       ),
     );
   }
+
+  Widget _buildNotebookNavigation() {
+    final notebook = _currentNotebook;
+    final page = _currentPage;
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            DropdownButton<String>(
+              value: notebook?.id,
+              items: _notebooks
+                  .map(
+                    (item) => DropdownMenuItem(
+                      value: item.id,
+                      child: Text(item.title),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (id) {
+                if (id != null) unawaited(_switchNotebook(id));
+              },
+            ),
+            const SizedBox(width: 16),
+            IconButton(
+              tooltip: 'Página anterior',
+              onPressed: _pageIndex > 0 ? () => _openPageAt(_pageIndex - 1) : null,
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text('Página ${page?.pageNumber ?? 0} de ${_pages.length}'),
+            IconButton(
+              tooltip: 'Próxima página',
+              onPressed: _pageIndex >= 0 && _pageIndex < _pages.length - 1
+                  ? () => _openPageAt(_pageIndex + 1)
+                  : null,
+              icon: const Icon(Icons.chevron_right),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Adicionar página',
+              onPressed: _addPage,
+              icon: const Icon(Icons.note_add_outlined),
+            ),
+            IconButton(
+              tooltip: 'Duplicar página',
+              onPressed: page == null ? null : _duplicatePage,
+              icon: const Icon(Icons.copy_all_outlined),
+            ),
+            IconButton(
+              tooltip: 'Mover página para a esquerda',
+              onPressed: _pageIndex > 0 ? () => _movePage(-1) : null,
+              icon: const Icon(Icons.keyboard_double_arrow_left),
+            ),
+            IconButton(
+              tooltip: 'Mover página para a direita',
+              onPressed: _pageIndex >= 0 && _pageIndex < _pages.length - 1
+                  ? () => _movePage(1)
+                  : null,
+              icon: const Icon(Icons.keyboard_double_arrow_right),
+            ),
+            IconButton(
+              tooltip: 'Excluir página',
+              onPressed: _pages.length > 1 ? _deletePage : null,
+              icon: const Icon(Icons.delete_outline),
+            ),
+            const SizedBox(width: 12),
+            DropdownButton<InkPageBackground>(
+              value: page?.background,
+              hint: const Text('Template'),
+              items: InkPageBackground.values
+                  .map(
+                    (value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(_backgroundLabel(value)),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value != null) unawaited(_setBackground(value));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int get _pageIndex => _pages.indexWhere((item) => item.id == _currentPage?.id);
 
   double get _effectiveWidth => switch (_tool) {
         InkTool.pen => _width,
@@ -243,75 +407,60 @@ class _NotebookScreenState extends State<NotebookScreen> {
               const SizedBox(width: 8),
               const Text('Mover'),
               IconButton(
-                tooltip: 'Mover seleção para a esquerda',
                 onPressed: () => _moveSelection(-_moveStep, 0),
                 icon: const Icon(Icons.arrow_left),
               ),
               IconButton(
-                tooltip: 'Mover seleção para cima',
                 onPressed: () => _moveSelection(0, -_moveStep),
                 icon: const Icon(Icons.arrow_upward),
               ),
               IconButton(
-                tooltip: 'Mover seleção para baixo',
                 onPressed: () => _moveSelection(0, _moveStep),
                 icon: const Icon(Icons.arrow_downward),
               ),
               IconButton(
-                tooltip: 'Mover seleção para a direita',
                 onPressed: () => _moveSelection(_moveStep, 0),
                 icon: const Icon(Icons.arrow_right),
               ),
-              const SizedBox(width: 8),
               const Text('Tamanho'),
               IconButton(
-                tooltip: 'Diminuir seleção',
                 onPressed: () => _scaleSelection(_scaleDown),
                 icon: const Icon(Icons.zoom_in_map),
               ),
               IconButton(
-                tooltip: 'Aumentar seleção',
                 onPressed: () => _scaleSelection(_scaleUp),
                 icon: const Icon(Icons.zoom_out_map),
               ),
-              const SizedBox(width: 8),
               const Text('Girar'),
               IconButton(
-                tooltip: 'Girar seleção 15° à esquerda',
                 onPressed: () => _rotateSelection(-_rotationStep),
                 icon: const Icon(Icons.rotate_left),
               ),
               IconButton(
-                tooltip: 'Girar seleção 15° à direita',
                 onPressed: () => _rotateSelection(_rotationStep),
                 icon: const Icon(Icons.rotate_right),
               ),
-              const SizedBox(width: 8),
               const Text('Traço'),
               IconButton(
-                tooltip: 'Reduzir espessura da seleção',
                 onPressed: () => _adjustSelectionWidth(_widthDown),
                 icon: const Icon(Icons.remove),
               ),
               IconButton(
-                tooltip: 'Aumentar espessura da seleção',
                 onPressed: () => _adjustSelectionWidth(_widthUp),
                 icon: const Icon(Icons.add),
               ),
-              const SizedBox(width: 8),
-              const Text('Editar'),
               IconButton(
-                tooltip: 'Copiar seleção',
+                tooltip: 'Copiar',
                 onPressed: _copySelection,
                 icon: const Icon(Icons.content_copy),
               ),
               IconButton(
-                tooltip: 'Duplicar seleção',
+                tooltip: 'Duplicar',
                 onPressed: _duplicateSelection,
                 icon: const Icon(Icons.copy_all_outlined),
               ),
               IconButton(
-                tooltip: 'Recortar seleção',
+                tooltip: 'Recortar',
                 onPressed: _cutSelection,
                 icon: const Icon(Icons.content_cut),
               ),
@@ -373,30 +522,201 @@ class _NotebookScreenState extends State<NotebookScreen> {
               label: const Text('Somente caneta'),
               onSelected: (value) => setState(() => _stylusOnly = value),
             ),
+            IconButton(
+              tooltip: 'Limpar página',
+              onPressed: _clearPage,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            ),
           ],
         ),
       ),
     );
   }
 
-  void _moveSelection(double dx, double dy) {
-    _canvasKey.currentState?.moveSelected(dx, dy);
+  Future<void> _switchNotebook(String id) async {
+    final notebook = _notebooks.firstWhere((item) => item.id == id);
+    var pages = await widget.inkStore.listPages(id);
+    if (pages.isEmpty) {
+      await widget.inkStore.createPage(id);
+      pages = await widget.inkStore.listPages(id);
+    }
+    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    if (!mounted) return;
+    setState(() {
+      _currentNotebook = notebook;
+      _pages = pages;
+      _currentPage = pages.first;
+      _currentStrokes = strokes;
+      _selectionCount = 0;
+      _clipboardAvailable = false;
+    });
   }
 
-  void _scaleSelection(double factor) {
-    _canvasKey.currentState?.scaleSelected(factor);
+  Future<void> _createNotebook() async {
+    final controller = TextEditingController(text: 'Novo caderno');
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Novo caderno'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Criar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (title == null) return;
+    final notebook = await widget.inkStore.createNotebook(title);
+    final pages = await widget.inkStore.listPages(notebook.id);
+    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    if (!mounted) return;
+    setState(() {
+      _notebooks = [..._notebooks, notebook];
+      _currentNotebook = notebook;
+      _pages = pages;
+      _currentPage = pages.first;
+      _currentStrokes = strokes;
+    });
   }
 
-  void _rotateSelection(double angleRadians) {
-    _canvasKey.currentState?.rotateSelected(angleRadians);
+  Future<void> _renameNotebook() async {
+    final notebook = _currentNotebook;
+    if (notebook == null) return;
+    final controller = TextEditingController(text: notebook.title);
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Renomear caderno'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (title == null || title.trim().isEmpty) return;
+    await widget.inkStore.renameNotebook(notebook.id, title);
+    await _reloadCurrent();
   }
 
-  void _adjustSelectionWidth(double factor) {
-    _canvasKey.currentState?.adjustSelectedWidth(factor);
+  Future<void> _deleteNotebook() async {
+    final notebook = _currentNotebook;
+    if (notebook == null || _notebooks.length <= 1) return;
+    await widget.inkStore.deleteNotebook(notebook.id);
+    final notebooks = await widget.inkStore.listNotebooks();
+    final next = notebooks.first;
+    var pages = await widget.inkStore.listPages(next.id);
+    if (pages.isEmpty) {
+      await widget.inkStore.createPage(next.id);
+      pages = await widget.inkStore.listPages(next.id);
+    }
+    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    if (!mounted) return;
+    setState(() {
+      _notebooks = notebooks;
+      _currentNotebook = next;
+      _pages = pages;
+      _currentPage = pages.first;
+      _currentStrokes = strokes;
+    });
   }
+
+  Future<void> _openPageAt(int index) async {
+    if (index < 0 || index >= _pages.length) return;
+    final page = _pages[index];
+    final strokes = await widget.inkStore.listStrokes(page.id);
+    if (!mounted) return;
+    setState(() {
+      _currentPage = page;
+      _currentStrokes = strokes;
+      _selectionCount = 0;
+      _clipboardAvailable = false;
+    });
+  }
+
+  Future<void> _addPage() async {
+    final notebook = _currentNotebook;
+    if (notebook == null) return;
+    final page = await widget.inkStore.createPage(
+      notebook.id,
+      background: _currentPage?.background ?? InkPageBackground.blank,
+    );
+    await _reloadCurrent(pageId: page.id);
+  }
+
+  Future<void> _duplicatePage() async {
+    final page = _currentPage;
+    if (page == null) return;
+    final duplicate = await widget.inkStore.duplicatePage(page);
+    await _reloadCurrent(pageId: duplicate.id);
+  }
+
+  Future<void> _deletePage() async {
+    final page = _currentPage;
+    if (page == null || _pages.length <= 1) return;
+    final index = _pageIndex;
+    await widget.inkStore.deletePage(page.id);
+    final pages = await widget.inkStore.listPages(page.notebookId);
+    final safeIndex = index.clamp(0, pages.length - 1).toInt();
+    await _reloadCurrent(pageId: pages[safeIndex].id);
+  }
+
+  Future<void> _movePage(int delta) async {
+    final index = _pageIndex;
+    final target = index + delta;
+    if (index < 0 || target < 0 || target >= _pages.length) return;
+    final ids = _pages.map((item) => item.id).toList();
+    final moved = ids.removeAt(index);
+    ids.insert(target, moved);
+    await widget.inkStore.reorderPages(_currentNotebook!.id, ids);
+    await _reloadCurrent(pageId: moved);
+  }
+
+  Future<void> _setBackground(InkPageBackground background) async {
+    final page = _currentPage;
+    if (page == null) return;
+    await widget.inkStore.updatePageBackground(page.id, background);
+    await _reloadCurrent(pageId: page.id);
+  }
+
+  String _backgroundLabel(InkPageBackground value) => switch (value) {
+        InkPageBackground.blank => 'Branco',
+        InkPageBackground.ruled => 'Pautado',
+        InkPageBackground.grid => 'Quadriculado',
+        InkPageBackground.dotted => 'Pontilhado',
+        InkPageBackground.cornell => 'Cornell',
+        InkPageBackground.planner => 'Planner',
+      };
+
+  void _moveSelection(double dx, double dy) =>
+      _canvasKey.currentState?.moveSelected(dx, dy);
+
+  void _scaleSelection(double factor) =>
+      _canvasKey.currentState?.scaleSelected(factor);
+
+  void _rotateSelection(double angleRadians) =>
+      _canvasKey.currentState?.rotateSelected(angleRadians);
+
+  void _adjustSelectionWidth(double factor) =>
+      _canvasKey.currentState?.adjustSelectedWidth(factor);
 
   void _setSelectionColor(int colorValue) {
-    final updated = _canvasKey.currentState?.updateSelectedColor(colorValue) ?? const [];
+    final updated =
+        _canvasKey.currentState?.updateSelectedColor(colorValue) ?? const [];
     if (updated.isNotEmpty) setState(() => _colorValue = colorValue);
   }
 
@@ -405,9 +725,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (copied.isNotEmpty) setState(() => _clipboardAvailable = true);
   }
 
-  void _duplicateSelection() {
-    _canvasKey.currentState?.duplicateSelected();
-  }
+  void _duplicateSelection() => _canvasKey.currentState?.duplicateSelected();
 
   void _cutSelection() {
     final removed = _canvasKey.currentState?.cutSelected() ?? const [];
@@ -419,9 +737,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
   }
 
-  void _pasteClipboard() {
-    _canvasKey.currentState?.pasteClipboard();
-  }
+  void _pasteClipboard() => _canvasKey.currentState?.pasteClipboard();
 
   Future<void> _deleteSelection() async {
     final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
@@ -437,21 +753,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   Future<void> _clearPage() async {
-    final state = _canvasKey.currentState;
-    if (state == null) return;
-    await widget.inkStore.clearPage(
-      state.strokes.firstOrNull?.pageId ?? 'default-page-1',
-    );
-    state.clear();
+    final page = _currentPage;
+    if (page == null) return;
+    await widget.inkStore.clearPage(page.id);
+    _canvasKey.currentState?.clear();
     if (mounted) {
       setState(() {
+        _currentStrokes = const [];
         _selectionCount = 0;
         _clipboardAvailable = false;
       });
     }
   }
-}
-
-extension _FirstOrNull<T> on List<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

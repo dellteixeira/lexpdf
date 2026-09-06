@@ -4,6 +4,26 @@ import 'package:flutter/foundation.dart';
 
 enum InkTool { pen, pencil, highlighter }
 
+enum InkPageBackground {
+  blank,
+  ruled,
+  grid,
+  dotted,
+  cornell,
+  planner;
+
+  String get dbValue => name;
+
+  static InkPageBackground fromDb(String value) => switch (value) {
+        'ruled' => InkPageBackground.ruled,
+        'grid' => InkPageBackground.grid,
+        'dotted' => InkPageBackground.dotted,
+        'cornell' => InkPageBackground.cornell,
+        'planner' => InkPageBackground.planner,
+        _ => InkPageBackground.blank,
+      };
+}
+
 @immutable
 class InkPoint {
   const InkPoint({
@@ -70,6 +90,21 @@ class InkStroke {
 }
 
 @immutable
+class InkNotebook {
+  const InkNotebook({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
+@immutable
 class InkNotebookPage {
   const InkNotebookPage({
     required this.id,
@@ -77,6 +112,7 @@ class InkNotebookPage {
     required this.pageNumber,
     required this.width,
     required this.height,
+    this.background = InkPageBackground.blank,
   });
 
   final String id;
@@ -84,4 +120,5 @@ class InkNotebookPage {
   final int pageNumber;
   final double width;
   final double height;
+  final InkPageBackground background;
 }
