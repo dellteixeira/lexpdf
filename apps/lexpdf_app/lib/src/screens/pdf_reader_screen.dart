@@ -403,8 +403,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   void _onPdfStrokeErased(PdfInkStroke stroke) {
     final strokes = _pdfInkByPage[stroke.pageNumber];
     if (strokes == null) return;
-    final removed = strokes.removeWhere((candidate) => candidate.id == stroke.id);
-    if (removed == 0) return;
+    final previousLength = strokes.length;
+    strokes.removeWhere((candidate) => candidate.id == stroke.id);
+    if (strokes.length == previousLength) return;
+    if (strokes.isEmpty) {
+      _pdfInkByPage.remove(stroke.pageNumber);
+    }
     setState(() {});
     unawaited(widget.pdfInkStore.deleteStroke(stroke.id));
     _viewerController.invalidate();
