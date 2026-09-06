@@ -34,6 +34,17 @@ class _RenderedAnnotation {
 }
 
 class _PdfReaderScreenState extends State<PdfReaderScreen> {
+  static const _annotationPalette = <int>[
+    0xFFFFD54F,
+    0xFF81C784,
+    0xFF64B5F6,
+    0xFFF48FB1,
+    0xFFFFB74D,
+    0xFFBA68C8,
+    0xFFEF5350,
+    0xFF26C6DA,
+  ];
+
   late final Future<ReadingProgressState?> _initialProgress =
       widget.readingProgress.get(widget.document.id);
   final PdfViewerController _viewerController = PdfViewerController();
@@ -44,6 +55,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   final Map<int, List<_RenderedAnnotation>> _renderedAnnotations = {};
 
   int? _currentPage;
+  int _selectedAnnotationColor = _annotationPalette.first;
   bool _searchMode = false;
   bool _loadingAnnotations = false;
 
@@ -182,12 +194,31 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         onPressed: () => setState(() => _searchMode = true),
         icon: const Icon(Icons.search),
       ),
+      IconButton(
+        tooltip: 'Cor das novas marcações',
+        onPressed: _showColorPalette,
+        icon: Stack(
+          alignment: Alignment.bottomRight,
+          children: [
+            const Icon(Icons.palette_outlined),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: Color(_selectedAnnotationColor),
+                shape: BoxShape.circle,
+                border: Border.all(color: Theme.of(context).colorScheme.surface),
+              ),
+            ),
+          ],
+        ),
+      ),
       Badge(
         isLabelVisible: annotationCount > 0,
         label: Text('$annotationCount'),
         child: IconButton(
           tooltip: 'Anotações textuais',
-          onPressed: _showAnnotationHelp,
+          onPressed: _showAnnotationsPanel,
           icon: const Icon(Icons.draw_outlined),
         ),
       ),
@@ -285,7 +316,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
 
     final now = DateTime.now().toUtc();
     final baseId = now.microsecondsSinceEpoch.toRadixString(36);
-    final style = _styleFor(type);
+    final opacity = type == TextAnnotationType.highlight ? 0.35 : 1.0;
 
     for (var index = 0; index < ranges.length; index++) {
       final range = ranges[index];
@@ -297,8 +328,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         endIndex: range.end,
         type: type,
         selectedText: range.text,
-        colorValue: style.$1,
-        opacity: style.$2,
+        colorValue: _selectedAnnotationColor,
+        opacity: opacity,
         createdAt: now,
         updatedAt: now,
       );
@@ -310,12 +341,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       await _loadSavedAnnotations(_viewerController.document);
     }
   }
-
-  (int, double) _styleFor(TextAnnotationType type) => switch (type) {
-        TextAnnotationType.highlight => (0xFFFFD54F, 0.35),
-        TextAnnotationType.underline => (0xFF1976D2, 1.0),
-        TextAnnotationType.strikeout => (0xFFD32F2F, 1.0),
-      };
 
   Future<void> _loadSavedAnnotations(PdfDocument document) async {
     if (mounted) setState(() => _loadingAnnotations = true);
@@ -396,30 +421,165 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     }
   }
 
-  void _showAnnotationHelp() {
-    showModalBottomSheet<void>(
+  Future<void> _showColorPalette() async {
+    final chosen = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
-      builder: (context) => const SafeArea(
+      builder: (context) => SafeArea(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(24, 8, 24, 32),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Anotações textuais',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                'Cor das novas marcações',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              SizedBox(height: 12),
-              Text(
-                'Selecione uma palavra ou frase no PDF e escolha Grifar, Sublinhar ou Tachar no menu de seleção.',
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: [
+                  for (final value in _annotationPalette)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: () => Navigator.of(context).pop(value),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Color(value),
+                          shape: BoxShape.circle,
+                          border: value == _selectedAnnotationColor
+                              ? Border.all(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  width: 4,
+                                )
+                              : null,
+                        ),
+                        child: value == _selectedAnnotationColor
+                            ? const Icon(Icons.check, color: Colors.black87)
+                            : null,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'O grifo usa transparência para manter o texto totalmente legível.',
               ),
             ],
           ),
         ),
       ),
     );
+
+    if (chosen != null && mounted) {
+      setState(() => _selectedAnnotationColor = chosen);
+    }
+  }
+
+  Future<void> _showAnnotationsPanel() async {
+    final annotations = await widget.annotations.listForDocument(widget.document.id);
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * 0.65,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 12, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Anotações (${annotations.length})',
+                        style: Theme.of(sheetContext).textTheme.titleLarge,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: annotations.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'Selecione um texto no PDF para criar a primeira marcação.',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: annotations.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final annotation = annotations[index];
+                          return Card(
+                            child: ListTile(
+                              leading: Container(
+                                width: 12,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: Color(annotation.colorValue),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                              ),
+                              title: Text(
+                                annotation.selectedText?.trim().isNotEmpty == true
+                                    ? annotation.selectedText!.trim()
+                                    : _annotationTypeLabel(annotation.type),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${_annotationTypeLabel(annotation.type)} · Página ${annotation.pageNumber}',
+                              ),
+                              onTap: () {
+                                Navigator.of(sheetContext).pop();
+                                unawaited(
+                                  _viewerController.goToPage(
+                                    pageNumber: annotation.pageNumber,
+                                    anchor: PdfPageAnchor.center,
+                                  ),
+                                );
+                              },
+                              trailing: IconButton(
+                                tooltip: 'Excluir anotação',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () {
+                                  Navigator.of(sheetContext).pop();
+                                  unawaited(_deleteAnnotation(annotation.id));
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _annotationTypeLabel(TextAnnotationType type) => switch (type) {
+        TextAnnotationType.highlight => 'Grifo',
+        TextAnnotationType.underline => 'Sublinhado',
+        TextAnnotationType.strikeout => 'Tachado',
+      };
+
+  Future<void> _deleteAnnotation(String id) async {
+    await widget.annotations.delete(id);
+    if (_viewerController.isReady) {
+      await _loadSavedAnnotations(_viewerController.document);
+    }
   }
 
   void _startSearch(String value) {
