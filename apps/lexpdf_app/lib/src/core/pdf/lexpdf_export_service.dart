@@ -312,28 +312,30 @@ class LexPdfExportService {
         pw.Positioned(
           left: object.x * pageWidth,
           top: object.y * pageHeight,
-          width: object.width * pageWidth,
-          height: object.height * pageHeight,
-          child: pw.Container(
-            padding: object.type == PdfAnnotationObjectType.note
-                ? const pw.EdgeInsets.all(4)
-                : pw.EdgeInsets.zero,
-            color: background,
-            decoration: object.type == PdfAnnotationObjectType.stamp
-                ? pw.BoxDecoration(
-                    border: pw.Border.all(color: color, width: object.strokeWidth),
-                  )
-                : null,
-            child: pw.Center(
-              child: pw.Text(
-                text,
-                maxLines: 5,
-                style: pw.TextStyle(
-                  color: color,
-                  fontSize: object.type == PdfAnnotationObjectType.stamp ? 13 : 11,
-                  fontWeight: object.type == PdfAnnotationObjectType.stamp
-                      ? pw.FontWeight.bold
-                      : pw.FontWeight.normal,
+          child: pw.SizedBox(
+            width: object.width * pageWidth,
+            height: object.height * pageHeight,
+            child: pw.Container(
+              padding: object.type == PdfAnnotationObjectType.note
+                  ? const pw.EdgeInsets.all(4)
+                  : pw.EdgeInsets.zero,
+              color: background,
+              decoration: object.type == PdfAnnotationObjectType.stamp
+                  ? pw.BoxDecoration(
+                      border: pw.Border.all(color: color, width: object.strokeWidth),
+                    )
+                  : null,
+              child: pw.Center(
+                child: pw.Text(
+                  text,
+                  maxLines: 5,
+                  style: pw.TextStyle(
+                    color: color,
+                    fontSize: object.type == PdfAnnotationObjectType.stamp ? 13 : 11,
+                    fontWeight: object.type == PdfAnnotationObjectType.stamp
+                        ? pw.FontWeight.bold
+                        : pw.FontWeight.normal,
+                  ),
                 ),
               ),
             ),
