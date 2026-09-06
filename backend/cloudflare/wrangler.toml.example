@@ -1,0 +1,23 @@
+name = "lexpdf-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Bindings will be enabled only after the Cloudflare account is linked.
+# Never commit API tokens or secret access keys.
+
+# [[r2_buckets]]
+# binding = "LEXPDF_FILES"
+# bucket_name = "lexpdf-files"
+
+# [[queues.producers]]
+# binding = "LEXPDF_JOBS"
+# queue = "lexpdf-jobs"
+
+# [[queues.consumers]]
+# queue = "lexpdf-jobs"
+# max_batch_size = 10
+# max_batch_timeout = 5
+
+[vars]
+ENVIRONMENT = "development"
