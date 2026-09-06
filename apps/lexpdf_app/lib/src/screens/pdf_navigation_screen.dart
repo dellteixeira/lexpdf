@@ -3,11 +3,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/documents/document_provider.dart';
+import '../core/storage/local_pdf_form_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import 'pdf_export_screen.dart';
+import 'pdf_forms_screen.dart';
 import 'pdf_page_tools_screen.dart';
+import 'pdf_print_screen.dart';
 
 class PdfNavigationScreen extends StatefulWidget {
   const PdfNavigationScreen({
@@ -110,6 +114,11 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
             ),
           ),
           IconButton(
+            tooltip: 'Formulários',
+            onPressed: _openForms,
+            icon: const Icon(Icons.checklist_outlined),
+          ),
+          IconButton(
             tooltip: 'Gerenciar páginas',
             onPressed: _openPageTools,
             icon: const Icon(Icons.view_week_outlined),
@@ -118,6 +127,11 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
             tooltip: 'Exportar PDF anotado',
             onPressed: _openExport,
             icon: const Icon(Icons.ios_share_outlined),
+          ),
+          IconButton(
+            tooltip: 'Imprimir',
+            onPressed: _openPrint,
+            icon: const Icon(Icons.print_outlined),
           ),
           PopupMenuButton<_PdfViewMode>(
             tooltip: 'Modo de visualização',
@@ -160,6 +174,11 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
           },
           linkHandlerParams: PdfLinkHandlerParams(
             onLinkTap: (link) {
+              final url = link.url;
+              if (url != null) {
+                unawaited(_openExternalLink(url));
+                return;
+              }
               final dest = link.dest;
               if (dest != null) {
                 unawaited(_controller.goToDest(dest));
@@ -171,6 +190,52 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
             unawaited(_loadOutline(document));
           },
           onPageChanged: _onPageChanged,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openExternalLink(Uri uri) async {
+    if (!mounted) return;
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'https' && scheme != 'http' && scheme != 'mailto') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Link bloqueado por segurança: $scheme')),
+      );
+      return;
+    }
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Abrir link externo?'),
+        content: SelectableText(uri.toString()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Abrir'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir o link.')),
+      );
+    }
+  }
+
+  Future<void> _openForms() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfFormsScreen(
+          document: widget.document,
+          store: LocalPdfFormStore(widget.store.db),
         ),
       ),
     );
@@ -190,6 +255,17 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
         builder: (_) => PdfExportScreen(
           document: widget.document,
           db: widget.store.db,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPrint() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfPrintScreen(
+          document: widget.document,
+          navigationStore: widget.store,
         ),
       ),
     );
