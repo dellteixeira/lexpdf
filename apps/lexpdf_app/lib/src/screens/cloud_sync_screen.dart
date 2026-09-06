@@ -50,7 +50,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     final account = TextEditingController();
     final display = TextEditingController();
     final gateway = TextEditingController(
-      text: const BackendConfig.fromEnvironment.cloudGatewayUrl,
+      text: BackendConfig.fromEnvironment.cloudGatewayUrl,
     );
     final token = TextEditingController();
     final accepted = await showDialog<bool>(
@@ -209,7 +209,10 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       subtitle: Text('${account.provider} • ${account.status}'),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => CloudFilesScreen(account: account),
+                          builder: (_) => CloudFilesScreen(
+                            account: account,
+                            syncStore: _sync,
+                          ),
                         ),
                       ),
                       trailing: IconButton(
