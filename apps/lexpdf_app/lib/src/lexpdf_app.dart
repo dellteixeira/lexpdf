@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/storage/local_database.dart';
 import 'core/storage/local_document_catalog.dart';
 import 'core/storage/local_reading_progress_store.dart';
+import 'core/storage/local_text_annotation_store.dart';
 import 'screens/library_screen.dart';
 
 class LexPdfApp extends StatefulWidget {
@@ -22,6 +23,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
       LocalDocumentCatalog(widget.database);
   late final LocalReadingProgressStore _readingProgress =
       LocalReadingProgressStore(widget.database);
+  late final LocalTextAnnotationStore _annotations =
+      LocalTextAnnotationStore(widget.database);
 
   @override
   void dispose() {
@@ -47,6 +50,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
       home: LibraryScreen(
         catalog: _catalog,
         readingProgress: _readingProgress,
+        annotations: _annotations,
       ),
     );
   }

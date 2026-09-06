@@ -16,7 +16,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
@@ -116,6 +116,42 @@ class LocalDatabase {
           ['2', 'schema_version'],
         );
         database.userVersion = 2;
+        database.execute('COMMIT;');
+        version = 2;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 3) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          CREATE TABLE annotations (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL
+              REFERENCES documents(id) ON DELETE CASCADE,
+            page_number INTEGER NOT NULL CHECK(page_number >= 1),
+            start_index INTEGER NOT NULL CHECK(start_index >= 0),
+            end_index INTEGER NOT NULL CHECK(end_index >= start_index),
+            type TEXT NOT NULL CHECK(type IN ('highlight', 'underline', 'strikeout')),
+            selected_text TEXT,
+            color_value INTEGER NOT NULL,
+            opacity REAL NOT NULL DEFAULT 1.0 CHECK(opacity >= 0 AND opacity <= 1),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        ''');
+        database.execute('''
+          CREATE INDEX annotations_document_page_idx
+          ON annotations(document_id, page_number);
+        ''');
+        database.execute(
+          'UPDATE app_metadata SET value = ? WHERE key = ?;',
+          ['3', 'schema_version'],
+        );
+        database.userVersion = 3;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');
