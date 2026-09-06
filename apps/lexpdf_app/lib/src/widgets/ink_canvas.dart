@@ -65,7 +65,8 @@ class InkCanvasState extends State<InkCanvas> {
   @override
   void didUpdateWidget(covariant InkCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialStrokes != widget.initialStrokes && _activePointer == null) {
+    if (oldWidget.initialStrokes != widget.initialStrokes &&
+        _activePointer == null) {
       _strokes
         ..clear()
         ..addAll(widget.initialStrokes);
@@ -129,6 +130,61 @@ class InkCanvasState extends State<InkCanvas> {
       _strokes[index] = moved;
       updated.add(moved);
       widget.onStrokeUpdated?.call(moved);
+    }
+    setState(() {});
+    return List.unmodifiable(updated);
+  }
+
+  List<InkStroke> scaleSelected(double factor) {
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
+      return const [];
+    }
+    final selected = _strokes
+        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
+        .toList(growable: false);
+    final points = selected.expand((stroke) => stroke.points).toList();
+    if (points.isEmpty) return const [];
+
+    var minX = points.first.x;
+    var minY = points.first.y;
+    var maxX = minX;
+    var maxY = minY;
+    for (final point in points.skip(1)) {
+      minX = math.min(minX, point.x);
+      minY = math.min(minY, point.y);
+      maxX = math.max(maxX, point.x);
+      maxY = math.max(maxY, point.y);
+    }
+    final centerX = (minX + maxX) / 2;
+    final centerY = (minY + maxY) / 2;
+
+    final updated = <InkStroke>[];
+    for (var index = 0; index < _strokes.length; index++) {
+      final stroke = _strokes[index];
+      if (!_selectedStrokeIds.contains(stroke.id)) continue;
+      final scaled = InkStroke(
+        id: stroke.id,
+        pageId: stroke.pageId,
+        tool: stroke.tool,
+        colorValue: stroke.colorValue,
+        opacity: stroke.opacity,
+        width: (stroke.width * factor).clamp(0.25, 100).toDouble(),
+        points: List<InkPoint>.unmodifiable(
+          stroke.points.map(
+            (point) => InkPoint(
+              x: centerX + (point.x - centerX) * factor,
+              y: centerY + (point.y - centerY) * factor,
+              pressure: point.pressure,
+              tilt: point.tilt,
+              timestampMicros: point.timestampMicros,
+            ),
+          ),
+        ),
+        createdAt: stroke.createdAt,
+      );
+      _strokes[index] = scaled;
+      updated.add(scaled);
+      widget.onStrokeUpdated?.call(scaled);
     }
     setState(() {});
     return List.unmodifiable(updated);
@@ -210,7 +266,10 @@ class InkCanvasState extends State<InkCanvas> {
     }
     if (widget.lassoMode) {
       _lassoPoints.add(event.localPosition);
-      final selected = _lasso.selectStrokes(strokes: _strokes, polygon: _lassoPoints);
+      final selected = _lasso.selectStrokes(
+        strokes: _strokes,
+        polygon: _lassoPoints,
+      );
       _selectedStrokeIds
         ..clear()
         ..addAll(selected);
@@ -279,7 +338,15 @@ class InkCanvasState extends State<InkCanvas> {
     for (var index = 1; index < stroke.points.length; index++) {
       final a = stroke.points[index - 1];
       final b = stroke.points[index];
-      if (_distanceToSegmentSquared(position.dx, position.dy, a.x, a.y, b.x, b.y) <= radiusSquared) {
+      if (_distanceToSegmentSquared(
+            position.dx,
+            position.dy,
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+          ) <=
+          radiusSquared) {
         return true;
       }
     }
@@ -395,8 +462,17 @@ class _InkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _paintStroke(canvas, stroke.points, stroke.tool, stroke.colorValue, stroke.width, stroke.opacity);
-      if (selectedStrokeIds.contains(stroke.id)) _paintSelectionBounds(canvas, stroke);
+      _paintStroke(
+        canvas,
+        stroke.points,
+        stroke.tool,
+        stroke.colorValue,
+        stroke.width,
+        stroke.opacity,
+      );
+      if (selectedStrokeIds.contains(stroke.id)) {
+        _paintSelectionBounds(canvas, stroke);
+      }
     }
     if (activePoints.length >= 2) {
       _paintStroke(
