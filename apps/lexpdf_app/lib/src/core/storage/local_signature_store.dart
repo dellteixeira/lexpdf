@@ -6,7 +6,26 @@ class LocalSignatureStore {
 
   final LocalDatabase db;
 
+  void _ensureTable() {
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS saved_signatures (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        strokes_json TEXT NOT NULL,
+        color_value INTEGER NOT NULL,
+        stroke_width REAL NOT NULL CHECK(stroke_width > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS saved_signatures_updated_idx
+      ON saved_signatures(updated_at DESC);
+    ''');
+  }
+
   Future<List<SavedSignature>> listAll() async {
+    _ensureTable();
     final rows = db.database.select('''
       SELECT * FROM saved_signatures
       ORDER BY updated_at DESC, created_at DESC;
@@ -15,6 +34,7 @@ class LocalSignatureStore {
   }
 
   Future<SavedSignature?> getById(String id) async {
+    _ensureTable();
     final rows = db.database.select(
       'SELECT * FROM saved_signatures WHERE id = ? LIMIT 1;',
       [id],
@@ -25,6 +45,7 @@ class LocalSignatureStore {
 
   Future<void> upsert(SavedSignature signature) async {
     signature.validate();
+    _ensureTable();
     db.database.execute('''
       INSERT INTO saved_signatures(
         id, name, strokes_json, color_value, stroke_width, created_at, updated_at
@@ -47,6 +68,7 @@ class LocalSignatureStore {
   }
 
   Future<void> delete(String id) async {
+    _ensureTable();
     db.database.execute('DELETE FROM saved_signatures WHERE id = ?;', [id]);
   }
 
