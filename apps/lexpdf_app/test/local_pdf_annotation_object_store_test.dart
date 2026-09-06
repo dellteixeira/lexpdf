@@ -42,7 +42,7 @@ void main() {
     );
   }
 
-  test('schema 7 persists every advanced PDF annotation type', () async {
+  test('current schema persists every advanced PDF annotation type', () async {
     final (db, store) = await setup();
     addTearDown(db.close);
 
@@ -51,7 +51,7 @@ void main() {
     }
 
     final loaded = await store.listForDocument('doc-annotations');
-    expect(LocalDatabase.schemaVersion, 7);
+    expect(db.database.userVersion, LocalDatabase.schemaVersion);
     expect(loaded, hasLength(PdfAnnotationObjectType.values.length));
     expect(
       loaded.map((value) => value.type).toSet(),
