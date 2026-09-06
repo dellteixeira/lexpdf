@@ -103,48 +103,65 @@ class InkCanvasState extends State<InkCanvas> {
 
   List<InkStroke> moveSelected(double dx, double dy) {
     if (_selectedStrokeIds.isEmpty || (dx == 0 && dy == 0)) return const [];
-    final updated = <InkStroke>[];
-    for (var index = 0; index < _strokes.length; index++) {
-      final stroke = _strokes[index];
-      if (!_selectedStrokeIds.contains(stroke.id)) continue;
-      final moved = InkStroke(
-        id: stroke.id,
-        pageId: stroke.pageId,
-        tool: stroke.tool,
-        colorValue: stroke.colorValue,
-        opacity: stroke.opacity,
-        width: stroke.width,
-        points: List<InkPoint>.unmodifiable(
-          stroke.points.map(
-            (point) => InkPoint(
-              x: point.x + dx,
-              y: point.y + dy,
-              pressure: point.pressure,
-              tilt: point.tilt,
-              timestampMicros: point.timestampMicros,
-            ),
-          ),
-        ),
-        createdAt: stroke.createdAt,
+    return _transformSelected((stroke) {
+      return _copyStroke(
+        stroke,
+        points: stroke.points
+            .map((point) => _copyPoint(point, x: point.x + dx, y: point.y + dy))
+            .toList(growable: false),
       );
-      _strokes[index] = moved;
-      updated.add(moved);
-      widget.onStrokeUpdated?.call(moved);
-    }
-    setState(() {});
-    return List.unmodifiable(updated);
+    });
   }
 
   List<InkStroke> scaleSelected(double factor) {
-    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
-      return const [];
-    }
-    final selected = _strokes
-        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
-        .toList(growable: false);
-    final points = selected.expand((stroke) => stroke.points).toList();
-    if (points.isEmpty) return const [];
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    final center = _selectionCenter();
+    if (center == null) return const [];
+    return _transformSelected((stroke) {
+      return _copyStroke(
+        stroke,
+        width: (stroke.width * factor).clamp(0.25, 100).toDouble(),
+        points: stroke.points
+            .map(
+              (point) => _copyPoint(
+                point,
+                x: center.dx + (point.x - center.dx) * factor,
+                y: center.dy + (point.y - center.dy) * factor,
+              ),
+            )
+            .toList(growable: false),
+      );
+    });
+  }
 
+  List<InkStroke> rotateSelected(double angleRadians) {
+    if (_selectedStrokeIds.isEmpty || angleRadians == 0) return const [];
+    final center = _selectionCenter();
+    if (center == null) return const [];
+    final cosAngle = math.cos(angleRadians);
+    final sinAngle = math.sin(angleRadians);
+    return _transformSelected((stroke) {
+      return _copyStroke(
+        stroke,
+        points: stroke.points.map((point) {
+          final dx = point.x - center.dx;
+          final dy = point.y - center.dy;
+          return _copyPoint(
+            point,
+            x: center.dx + dx * cosAngle - dy * sinAngle,
+            y: center.dy + dx * sinAngle + dy * cosAngle,
+          );
+        }).toList(growable: false),
+      );
+    });
+  }
+
+  Offset? _selectionCenter() {
+    final points = _strokes
+        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
+        .expand((stroke) => stroke.points)
+        .toList(growable: false);
+    if (points.isEmpty) return null;
     var minX = points.first.x;
     var minY = points.first.y;
     var maxX = minX;
@@ -155,39 +172,48 @@ class InkCanvasState extends State<InkCanvas> {
       maxX = math.max(maxX, point.x);
       maxY = math.max(maxY, point.y);
     }
-    final centerX = (minX + maxX) / 2;
-    final centerY = (minY + maxY) / 2;
+    return Offset((minX + maxX) / 2, (minY + maxY) / 2);
+  }
 
+  List<InkStroke> _transformSelected(InkStroke Function(InkStroke) transform) {
     final updated = <InkStroke>[];
     for (var index = 0; index < _strokes.length; index++) {
       final stroke = _strokes[index];
       if (!_selectedStrokeIds.contains(stroke.id)) continue;
-      final scaled = InkStroke(
-        id: stroke.id,
-        pageId: stroke.pageId,
-        tool: stroke.tool,
-        colorValue: stroke.colorValue,
-        opacity: stroke.opacity,
-        width: (stroke.width * factor).clamp(0.25, 100).toDouble(),
-        points: List<InkPoint>.unmodifiable(
-          stroke.points.map(
-            (point) => InkPoint(
-              x: centerX + (point.x - centerX) * factor,
-              y: centerY + (point.y - centerY) * factor,
-              pressure: point.pressure,
-              tilt: point.tilt,
-              timestampMicros: point.timestampMicros,
-            ),
-          ),
-        ),
-        createdAt: stroke.createdAt,
-      );
-      _strokes[index] = scaled;
-      updated.add(scaled);
-      widget.onStrokeUpdated?.call(scaled);
+      final transformed = transform(stroke);
+      _strokes[index] = transformed;
+      updated.add(transformed);
+      widget.onStrokeUpdated?.call(transformed);
     }
     setState(() {});
     return List.unmodifiable(updated);
+  }
+
+  InkStroke _copyStroke(
+    InkStroke stroke, {
+    List<InkPoint>? points,
+    double? width,
+  }) {
+    return InkStroke(
+      id: stroke.id,
+      pageId: stroke.pageId,
+      tool: stroke.tool,
+      colorValue: stroke.colorValue,
+      opacity: stroke.opacity,
+      width: width ?? stroke.width,
+      points: List<InkPoint>.unmodifiable(points ?? stroke.points),
+      createdAt: stroke.createdAt,
+    );
+  }
+
+  InkPoint _copyPoint(InkPoint point, {required double x, required double y}) {
+    return InkPoint(
+      x: x,
+      y: y,
+      pressure: point.pressure,
+      tilt: point.tilt,
+      timestampMicros: point.timestampMicros,
+    );
   }
 
   void clearSelection() => _clearSelection();
@@ -223,7 +249,6 @@ class InkCanvasState extends State<InkCanvas> {
     }
     if (_activePointer != null || !_accept(event)) return;
     _activePointer = event.pointer;
-
     if (widget.lassoMode) {
       _lassoPoints
         ..clear()
