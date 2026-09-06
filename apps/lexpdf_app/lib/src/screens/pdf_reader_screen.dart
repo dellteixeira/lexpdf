@@ -53,7 +53,7 @@ class PdfReaderScreen extends StatelessWidget {
         child: PdfViewer.file(
           path,
           params: const PdfViewerParams(
-            enableTextSelection: true,
+            textSelectionParams: PdfTextSelectionParams(enabled: true),
           ),
         ),
       ),
