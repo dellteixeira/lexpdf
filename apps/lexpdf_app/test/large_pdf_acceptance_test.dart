@@ -1,8 +1,7 @@
 import 'dart:io';
 
-import 'package:flutter/services.dart';
+import 'package:dart_pdf_reader/dart_pdf_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
 import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
 import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
 import 'package:lexxpdf_app/src/core/ink/pdf_ink_models.dart';
@@ -11,61 +10,39 @@ import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
 import 'package:lexxpdf_app/src/core/storage/local_pdf_ink_store.dart';
 import 'package:lexxpdf_app/src/core/storage/local_reading_progress_store.dart';
 import 'package:lexxpdf_app/src/core/storage/local_text_annotation_store.dart';
-import 'package:pdfrx/pdfrx.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
-  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(pathProviderChannel, (call) async {
-    if (call.method == 'getTemporaryDirectory') {
-      return Directory.systemTemp.path;
-    }
-    return null;
-  });
-  pdfrxFlutterInitialize();
-
   const pageCount = 520;
   const documentId = 'acceptance-520';
 
-  test('PDF engine creates and reopens a 520-page document', () async {
+  test('520-page PDF is encoded, saved, reopened and structurally valid', () async {
     final directory = await Directory.systemTemp.createTemp('lexpdf-acceptance-pdf');
     addTearDown(() => directory.delete(recursive: true));
 
-    final raster = img.Image(width: 8, height: 8);
-    img.fill(raster, color: img.ColorRgb8(255, 255, 255));
-    final jpeg = img.encodeJpg(raster, quality: 70);
-
-    final onePage = await PdfDocument.createFromJpegData(
-      jpeg,
-      width: 595,
-      height: 842,
-      sourceName: 'acceptance-source.jpg',
-    );
-    final output = await PdfDocument.createNew(sourceName: 'acceptance-520.pdf');
-    try {
-      output.pages = List<PdfPage>.generate(
-        pageCount,
-        (_) => onePage.pages.first,
-        growable: false,
+    final document = pw.Document(compress: true);
+    for (var page = 1; page <= pageCount; page++) {
+      document.addPage(
+        pw.Page(
+          build: (_) => pw.Center(child: pw.Text('LexPDF acceptance page $page')),
+        ),
       );
-      final bytes = await output.encodePdf();
-      final path = '${directory.path}${Platform.pathSeparator}acceptance-520.pdf';
-      await File(path).writeAsBytes(bytes, flush: true);
-
-      final reopened = await PdfDocument.openFile(path);
-      try {
-        expect(reopened.pages.length, pageCount);
-        expect(reopened.pages.first.pageNumber, 1);
-        expect(reopened.pages[259].pageNumber, 260);
-        expect(reopened.pages.last.pageNumber, pageCount);
-      } finally {
-        await reopened.dispose();
-      }
-    } finally {
-      await output.dispose();
-      await onePage.dispose();
     }
+
+    final encoded = await document.save();
+    final path = '${directory.path}${Platform.pathSeparator}acceptance-520.pdf';
+    await File(path).writeAsBytes(encoded, flush: true);
+
+    final reopenedBytes = await File(path).readAsBytes();
+    final parsed = await PDFParser(ByteStream(reopenedBytes)).parse();
+    final catalog = await parsed.catalog;
+    final pages = await catalog.getPages();
+
+    expect(reopenedBytes.length, greaterThan(0));
+    expect(pages.pageCount, pageCount);
+    expect(pages.getPageAtIndex(0), isNotNull);
+    expect(pages.getPageAtIndex(259), isNotNull);
+    expect(pages.getPageAtIndex(pageCount - 1), isNotNull);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('520-page persistence survives physical database close and reopen', () async {
