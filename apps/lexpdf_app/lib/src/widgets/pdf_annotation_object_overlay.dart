@@ -237,7 +237,7 @@ class _PdfAnnotationObjectOverlayState
           type == PdfAnnotationObjectType.note ? 0xFFFFF59D : null,
       opacity: 1,
       strokeWidth: 2,
-      textValue: text!.trim(),
+      textValue: text.trim(),
       createdAt: now,
       updatedAt: now,
     );
@@ -648,7 +648,7 @@ class _PdfAnnotationPainter extends CustomPainter {
       case PdfAnnotationObjectType.stamp:
         canvas.drawRRect(
           RRect.fromRectAndRadius(rect, const Radius.circular(4)),
-          paint..strokeWidth = math.max(2, object.strokeWidth),
+          paint..strokeWidth = math.max(2.0, object.strokeWidth),
         );
         _drawText(
           canvas,
@@ -707,7 +707,7 @@ class _PdfAnnotationPainter extends CustomPainter {
       textAlign: centered ? TextAlign.center : TextAlign.left,
       maxLines: 5,
       ellipsis: '…',
-    )..layout(maxWidth: math.max(0, rect.width));
+    )..layout(maxWidth: math.max(0.0, rect.width));
     final dx = centered ? rect.left + (rect.width - painter.width) / 2 : rect.left;
     final dy = centered ? rect.top + (rect.height - painter.height) / 2 : rect.top;
     painter.paint(canvas, Offset(dx, dy));
