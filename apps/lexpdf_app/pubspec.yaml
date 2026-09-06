@@ -21,6 +21,9 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.42
   url_launcher: ^6.3.2
 
+dependency_overrides:
+  pdfrx: ^2.6.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
