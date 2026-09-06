@@ -1,0 +1,167 @@
+import 'package:flutter/material.dart';
+
+class LibraryScreen extends StatefulWidget {
+  const LibraryScreen({super.key});
+
+  @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  int _selectedIndex = 0;
+
+  static const _destinations = <(IconData, String)>[
+    (Icons.folder_outlined, 'Biblioteca'),
+    (Icons.history, 'Recentes'),
+    (Icons.star_border, 'Favoritos'),
+    (Icons.edit_note, 'Cadernos'),
+    (Icons.offline_pin_outlined, 'Offline'),
+    (Icons.cloud_outlined, 'Nuvens'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 720;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.picture_as_pdf_outlined),
+            SizedBox(width: 10),
+            Text('LexPDF'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Buscar',
+            onPressed: () {},
+            icon: const Icon(Icons.search),
+          ),
+          IconButton(
+            tooltip: 'Abrir arquivo',
+            onPressed: () {},
+            icon: const Icon(Icons.file_open_outlined),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(right: 12),
+            child: Chip(
+              avatar: Icon(Icons.offline_bolt_outlined, size: 18),
+              label: Text('Offline'),
+            ),
+          ),
+        ],
+      ),
+      drawer: compact ? Drawer(child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select)) : null,
+      body: Row(
+        children: [
+          if (!compact)
+            SizedBox(
+              width: 232,
+              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+            ),
+          const VerticalDivider(width: 1),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _destinations[_selectedIndex].$2,
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Seus PDFs e cadernos permanecem disponíveis localmente. A sincronização é opcional.',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 24),
+                  Expanded(
+                    child: GridView.extent(
+                      maxCrossAxisExtent: 280,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      children: const [
+                        _QuickAction(icon: Icons.file_open_outlined, title: 'Abrir PDF', subtitle: 'Neste dispositivo'),
+                        _QuickAction(icon: Icons.note_add_outlined, title: 'Novo caderno', subtitle: 'Escrita e desenhos'),
+                        _QuickAction(icon: Icons.cloud_outlined, title: 'Conectar nuvem', subtitle: 'Google, OneDrive ou iCloud'),
+                        _QuickAction(icon: Icons.backup_outlined, title: 'Backup', subtitle: 'Local ou em nuvem'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _select(int index) {
+    setState(() => _selectedIndex = index);
+    if (Scaffold.maybeOf(context)?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
+class _Navigation extends StatelessWidget {
+  const _Navigation({required this.selectedIndex, required this.onSelect});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: NavigationDrawer(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onSelect,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(28, 18, 16, 10),
+            child: Text('DOCUMENTOS'),
+          ),
+          for (final destination in _LibraryScreenState._destinations)
+            NavigationDrawerDestination(icon: Icon(destination.$1), label: Text(destination.$2)),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({required this.icon, required this.title, required this.subtitle});
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {},
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(icon, size: 42),
+              const Spacer(),
+              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(subtitle),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
