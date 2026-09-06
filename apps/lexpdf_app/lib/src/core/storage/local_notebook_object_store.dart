@@ -41,6 +41,39 @@ class LocalNotebookObjectStore {
     ]);
   }
 
+  Future<List<NotebookObject>> copyPageObjects(
+    String sourcePageId,
+    String targetPageId,
+  ) async {
+    final source = await listObjects(sourcePageId);
+    final now = DateTime.now().toUtc();
+    final copied = <NotebookObject>[];
+    for (var index = 0; index < source.length; index++) {
+      final object = source[index];
+      final clone = NotebookObject(
+        id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}-$index',
+        pageId: targetPageId,
+        type: object.type,
+        x: object.x,
+        y: object.y,
+        width: object.width,
+        height: object.height,
+        rotation: object.rotation,
+        colorValue: object.colorValue,
+        fillColorValue: object.fillColorValue,
+        strokeWidth: object.strokeWidth,
+        textValue: object.textValue,
+        fontSize: object.fontSize,
+        imagePath: object.imagePath,
+        createdAt: now.add(Duration(microseconds: index)),
+        updatedAt: now.add(Duration(microseconds: index)),
+      );
+      await upsert(clone);
+      copied.add(clone);
+    }
+    return List.unmodifiable(copied);
+  }
+
   Future<void> delete(String id) async {
     db.database.execute('DELETE FROM notebook_objects WHERE id = ?;', [id]);
   }
