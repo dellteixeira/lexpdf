@@ -146,7 +146,14 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
             _PdfViewMode.horizontal => _horizontalLayout,
             _PdfViewMode.facing => _facingLayout,
           },
-          linkHandlerParams: const PdfLinkHandlerParams(),
+          linkHandlerParams: PdfLinkHandlerParams(
+            onLinkTap: (link) {
+              final dest = link.dest;
+              if (dest != null) {
+                unawaited(_controller.goToDest(dest));
+              }
+            },
+          ),
           onViewerReady: (document, controller) {
             _document = document;
             unawaited(_loadOutline(document));
