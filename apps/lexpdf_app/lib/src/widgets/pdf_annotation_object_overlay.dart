@@ -4,7 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/annotations/pdf_annotation_object.dart';
+import '../core/annotations/saved_signature.dart';
 import '../core/storage/local_pdf_annotation_object_store.dart';
+import '../core/storage/local_signature_store.dart';
+import 'signature_library_dialog.dart';
 
 class PdfAnnotationObjectOverlay extends StatefulWidget {
   const PdfAnnotationObjectOverlay({
@@ -50,6 +53,8 @@ class _PdfAnnotationObjectOverlayState
   Offset? _current;
   PdfAnnotationObject? _dragOrigin;
   bool _loading = true;
+
+  LocalSignatureStore get _signatureStore => LocalSignatureStore(widget.store.db);
 
   @override
   void initState() {
@@ -137,8 +142,9 @@ class _PdfAnnotationObjectOverlayState
     _current = end;
     if (_tool == _AnnotationTool.select) {
       final selected = _selectedObject;
+      final hadDragOrigin = _dragOrigin != null;
       _resetGesture();
-      if (selected != null && _dragOrigin != null) {
+      if (selected != null && hadDragOrigin) {
         unawaited(widget.store.upsert(selected));
         widget.onChanged?.call();
       }
@@ -149,7 +155,9 @@ class _PdfAnnotationObjectOverlayState
     final tool = _tool;
     final start = _start!;
     _resetGesture();
-    if (_isTextual(tool)) {
+    if (tool == _AnnotationTool.signature) {
+      unawaited(_createSignature(start));
+    } else if (_isTextual(tool)) {
       unawaited(_createTextual(tool, start));
     } else {
       unawaited(_createShape(tool, start, end));
@@ -169,23 +177,49 @@ class _PdfAnnotationObjectOverlayState
 
   bool _contains(PdfAnnotationObject object, Offset point) {
     const padding = 0.012;
-    final left = object.x - padding;
-    final top = object.y - padding;
-    final right = object.x + object.width + padding;
-    final bottom = object.y + object.height + padding;
-    return point.dx >= left &&
-        point.dx <= right &&
-        point.dy >= top &&
-        point.dy <= bottom;
+    return point.dx >= object.x - padding &&
+        point.dx <= object.x + object.width + padding &&
+        point.dy >= object.y - padding &&
+        point.dy <= object.y + object.height + padding;
   }
 
   bool _isTextual(_AnnotationTool tool) => switch (tool) {
         _AnnotationTool.note ||
         _AnnotationTool.text ||
-        _AnnotationTool.stamp ||
-        _AnnotationTool.signature => true,
+        _AnnotationTool.stamp => true,
         _ => false,
       };
+
+  Future<void> _createSignature(Offset point) async {
+    final signature = await showSignatureLibraryDialog(context, _signatureStore);
+    if (signature == null || !mounted) return;
+    const size = Size(0.30, 0.11);
+    final now = DateTime.now().toUtc();
+    final object = PdfAnnotationObject(
+      id: 'pdf-annotation-${now.microsecondsSinceEpoch.toRadixString(36)}',
+      documentId: widget.documentId,
+      pageNumber: widget.pageNumber,
+      type: PdfAnnotationObjectType.signature,
+      x: point.dx.clamp(0.0, 1.0 - size.width),
+      y: point.dy.clamp(0.0, 1.0 - size.height),
+      width: size.width,
+      height: size.height,
+      colorValue: signature.colorValue,
+      opacity: 1,
+      strokeWidth: signature.strokeWidth,
+      textValue: signature.strokesJson,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await widget.store.upsert(object);
+    if (!mounted) return;
+    setState(() {
+      _objects.add(object);
+      _selectedId = object.id;
+      _tool = _AnnotationTool.select;
+    });
+    widget.onChanged?.call();
+  }
 
   Future<void> _createTextual(_AnnotationTool tool, Offset point) async {
     String? text;
@@ -193,33 +227,23 @@ class _PdfAnnotationObjectOverlayState
       text = 'APROVADO';
     } else {
       text = await _askText(
-        title: switch (tool) {
-          _AnnotationTool.note => 'Nova nota',
-          _AnnotationTool.text => 'Caixa de texto',
-          _AnnotationTool.signature => 'Assinatura textual',
-          _ => 'Texto',
-        },
-        hint: switch (tool) {
-          _AnnotationTool.note => 'Digite o comentário',
-          _AnnotationTool.signature => 'Digite o nome a assinar',
-          _ => 'Digite o texto',
-        },
+        title: tool == _AnnotationTool.note ? 'Nova nota' : 'Caixa de texto',
+        hint: tool == _AnnotationTool.note
+            ? 'Digite o comentário'
+            : 'Digite o texto',
       );
       if (text == null || text.trim().isEmpty) return;
     }
-
     final type = switch (tool) {
       _AnnotationTool.note => PdfAnnotationObjectType.note,
       _AnnotationTool.text => PdfAnnotationObjectType.text,
       _AnnotationTool.stamp => PdfAnnotationObjectType.stamp,
-      _AnnotationTool.signature => PdfAnnotationObjectType.signature,
       _ => throw StateError('Not a textual tool'),
     };
     final size = switch (type) {
       PdfAnnotationObjectType.note => const Size(0.24, 0.13),
       PdfAnnotationObjectType.text => const Size(0.30, 0.10),
       PdfAnnotationObjectType.stamp => const Size(0.22, 0.08),
-      PdfAnnotationObjectType.signature => const Size(0.30, 0.09),
       _ => const Size(0.2, 0.1),
     };
     final now = DateTime.now().toUtc();
@@ -352,8 +376,28 @@ class _PdfAnnotationObjectOverlayState
           ? object.strokeWidth
           : (object.strokeWidth + strokeDelta).clamp(0.5, 20),
     );
+    await _replaceSelected(updated);
+  }
+
+  Future<void> _resizeSelected(double factor) async {
+    final object = _selectedObject;
+    if (object == null) return;
+    final centerX = object.x + object.width / 2;
+    final centerY = object.y + object.height / 2;
+    final width = (object.width * factor).clamp(0.03, 0.9);
+    final height = (object.height * factor).clamp(0.02, 0.9);
+    final updated = object.copyWith(
+      x: (centerX - width / 2).clamp(0.0, 1.0 - width),
+      y: (centerY - height / 2).clamp(0.0, 1.0 - height),
+      width: width,
+      height: height,
+    );
+    await _replaceSelected(updated);
+  }
+
+  Future<void> _replaceSelected(PdfAnnotationObject updated) async {
     await widget.store.upsert(updated);
-    final index = _objects.indexWhere((value) => value.id == object.id);
+    final index = _objects.indexWhere((value) => value.id == updated.id);
     if (!mounted || index < 0) return;
     setState(() => _objects[index] = updated);
     widget.onChanged?.call();
@@ -361,7 +405,11 @@ class _PdfAnnotationObjectOverlayState
 
   Future<void> _editSelectedText() async {
     final object = _selectedObject;
-    if (object == null || object.textValue == null) return;
+    if (object == null ||
+        object.textValue == null ||
+        object.type == PdfAnnotationObjectType.signature) {
+      return;
+    }
     final controller = TextEditingController(text: object.textValue);
     final text = await showDialog<String>(
       context: context,
@@ -387,12 +435,7 @@ class _PdfAnnotationObjectOverlayState
     );
     controller.dispose();
     if (text == null || text.trim().isEmpty) return;
-    final updated = object.copyWith(textValue: text.trim());
-    await widget.store.upsert(updated);
-    final index = _objects.indexWhere((value) => value.id == object.id);
-    if (!mounted || index < 0) return;
-    setState(() => _objects[index] = updated);
-    widget.onChanged?.call();
+    await _replaceSelected(object.copyWith(textValue: text.trim()));
   }
 
   @override
@@ -446,12 +489,23 @@ class _PdfAnnotationObjectOverlayState
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (selected.textValue != null)
+                      if (selected.textValue != null &&
+                          selected.type != PdfAnnotationObjectType.signature)
                         IconButton(
                           tooltip: 'Editar texto',
                           onPressed: _editSelectedText,
                           icon: const Icon(Icons.edit_note),
                         ),
+                      IconButton(
+                        tooltip: 'Diminuir objeto',
+                        onPressed: () => _resizeSelected(0.85),
+                        icon: const Icon(Icons.zoom_out_map_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Aumentar objeto',
+                        onPressed: () => _resizeSelected(1.15),
+                        icon: const Icon(Icons.zoom_in_map_outlined),
+                      ),
                       IconButton(
                         tooltip: 'Aplicar cor atual',
                         onPressed: () => _updateSelected(recolor: true),
@@ -517,7 +571,7 @@ class _Toolbar extends StatelessWidget {
             _button(_AnnotationTool.rectangle, Icons.crop_square, 'Retângulo'),
             _button(_AnnotationTool.ellipse, Icons.circle_outlined, 'Elipse'),
             _button(_AnnotationTool.stamp, Icons.approval_outlined, 'Carimbo'),
-            _button(_AnnotationTool.signature, Icons.draw_outlined, 'Assinatura'),
+            _button(_AnnotationTool.signature, Icons.draw_outlined, 'Assinatura manuscrita'),
           ],
         ),
       ),
@@ -572,7 +626,8 @@ class _PdfAnnotationPainter extends CustomPainter {
       }
     }
 
-    if (start != null && current != null &&
+    if (start != null &&
+        current != null &&
         previewTool != _AnnotationTool.select &&
         previewTool != _AnnotationTool.note &&
         previewTool != _AnnotationTool.text &&
@@ -611,6 +666,8 @@ class _PdfAnnotationPainter extends CustomPainter {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = object.strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
       ..color = color;
 
     canvas.save();
@@ -637,12 +694,8 @@ class _PdfAnnotationPainter extends CustomPainter {
             ..color = Color(object.fillColorValue ?? 0xFFFFF59D)
                 .withValues(alpha: object.opacity),
         );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-          paint,
-        );
-        _drawText(canvas, rect.deflate(6), object.textValue ?? '', color,
-            fontSize: 12);
+        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(6)), paint);
+        _drawText(canvas, rect.deflate(6), object.textValue ?? '', color, fontSize: 12);
       case PdfAnnotationObjectType.text:
         _drawText(canvas, rect, object.textValue ?? '', color, fontSize: 14);
       case PdfAnnotationObjectType.stamp:
@@ -660,17 +713,38 @@ class _PdfAnnotationPainter extends CustomPainter {
           centered: true,
         );
       case PdfAnnotationObjectType.signature:
-        _drawText(
-          canvas,
-          rect,
-          object.textValue ?? '',
-          color,
-          fontSize: 18,
-          italic: true,
-          centered: true,
-        );
+        _drawVectorSignature(canvas, rect, object.textValue, paint);
     }
     canvas.restore();
+  }
+
+  void _drawVectorSignature(
+    Canvas canvas,
+    Rect rect,
+    String? encoded,
+    Paint paint,
+  ) {
+    if (encoded == null || encoded.isEmpty) return;
+    try {
+      final strokes = SavedSignature.decodeStrokes(encoded);
+      for (final stroke in strokes) {
+        if (stroke.length < 2) continue;
+        final path = Path()
+          ..moveTo(
+            rect.left + stroke.first.x * rect.width,
+            rect.top + stroke.first.y * rect.height,
+          );
+        for (final point in stroke.skip(1)) {
+          path.lineTo(
+            rect.left + point.x * rect.width,
+            rect.top + point.y * rect.height,
+          );
+        }
+        canvas.drawPath(path, paint);
+      }
+    } catch (_) {
+      _drawText(canvas, rect, encoded, paint.color, fontSize: 18, italic: true, centered: true);
+    }
   }
 
   void _fillIfNeeded(Canvas canvas, Rect rect, PdfAnnotationObject object) {
@@ -678,8 +752,7 @@ class _PdfAnnotationPainter extends CustomPainter {
     if (value == null) return;
     canvas.drawRect(
       rect,
-      Paint()
-        ..color = Color(value).withValues(alpha: object.opacity * 0.2),
+      Paint()..color = Color(value).withValues(alpha: object.opacity * 0.2),
     );
   }
 
