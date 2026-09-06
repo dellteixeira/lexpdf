@@ -20,10 +20,12 @@ void main() {
         width: 3,
         points: const [
           InkPoint(x: 0.1, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 1),
-          InkPoint(x: 0.3, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 2),
-          InkPoint(x: 0.5, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 3),
-          InkPoint(x: 0.7, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 4),
-          InkPoint(x: 0.9, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 5),
+          InkPoint(x: 0.2, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 2),
+          InkPoint(x: 0.3, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 3),
+          InkPoint(x: 0.5, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 4),
+          InkPoint(x: 0.7, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 5),
+          InkPoint(x: 0.8, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 6),
+          InkPoint(x: 0.9, y: 0.5, pressure: 1, tilt: 0, timestampMicros: 7),
         ],
         createdAt: DateTime.utc(2026, 9, 6),
       );
@@ -64,8 +66,14 @@ void main() {
 
       expect(erased?.id, original.id);
       expect(completed, hasLength(2));
-      expect(completed.every((fragment) => fragment.id.startsWith('stroke-1-e')), isTrue);
-      expect(completed.every((fragment) => fragment.points.length >= 2), isTrue);
+      expect(
+        completed.every((fragment) => fragment.id.startsWith('stroke-1-e')),
+        isTrue,
+      );
+      expect(
+        completed.every((fragment) => fragment.points.length >= 2),
+        isTrue,
+      );
     },
   );
 }
