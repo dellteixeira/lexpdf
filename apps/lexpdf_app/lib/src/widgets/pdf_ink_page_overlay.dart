@@ -529,11 +529,12 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
                   child: const SizedBox.expand(),
                 ),
               ),
-              Positioned(
-                top: 8,
-                right: 8,
-                child: _buildSelectionControls(context),
-              ),
+              if (!widget.eraserMode)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: _buildSelectionControls(context),
+                ),
             ],
           ),
         );
