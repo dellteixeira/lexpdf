@@ -12,12 +12,12 @@ import '../core/storage/local_document_catalog.dart';
 class CloudFilesScreen extends StatefulWidget {
   const CloudFilesScreen({
     required this.account,
-    required this.catalog,
+    this.catalog,
     super.key,
   });
 
   final LocalCloudAccount account;
-  final LocalDocumentCatalog catalog;
+  final LocalDocumentCatalog? catalog;
 
   @override
   State<CloudFilesScreen> createState() => _CloudFilesScreenState();
@@ -75,7 +75,7 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
         availableOffline: true,
         syncState: DocumentSyncState.synced,
       );
-      await widget.catalog.upsert(cached);
+      await widget.catalog?.upsert(cached);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Disponível offline em: $path')),
@@ -104,7 +104,7 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
     setState(() => _busy = true);
     try {
       final uploaded = await provider.upload(file.path);
-      await widget.catalog.upsert(uploaded);
+      await widget.catalog?.upsert(uploaded);
       await _refresh();
     } catch (error) {
       if (mounted) {
