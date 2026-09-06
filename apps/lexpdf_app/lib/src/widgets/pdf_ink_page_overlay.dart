@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,9 @@ class PdfInkPageOverlay extends StatefulWidget {
     required this.colorValue,
     required this.strokeWidth,
     required this.onStrokeCompleted,
+    this.onStrokeErased,
+    this.eraserMode = false,
+    this.eraserRadius = 18,
     super.key,
   });
 
@@ -25,7 +29,10 @@ class PdfInkPageOverlay extends StatefulWidget {
   final InkTool tool;
   final int colorValue;
   final double strokeWidth;
+  final bool eraserMode;
+  final double eraserRadius;
   final ValueChanged<PdfInkStroke> onStrokeCompleted;
+  final ValueChanged<PdfInkStroke>? onStrokeErased;
 
   @override
   State<PdfInkPageOverlay> createState() => _PdfInkPageOverlayState();
@@ -42,6 +49,9 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
         event.kind == PointerDeviceKind.mouse;
   }
 
+  bool _isErasing(PointerEvent event) =>
+      widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus;
+
   InkPoint _point(PointerEvent event) {
     final pressure = event.pressureMax > event.pressureMin
         ? ((event.pressure - event.pressureMin) /
@@ -49,8 +59,12 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
             .clamp(0.0, 1.0)
         : 1.0;
     return InkPoint(
-      x: _size.width == 0 ? 0 : (event.localPosition.dx / _size.width).clamp(0.0, 1.0),
-      y: _size.height == 0 ? 0 : (event.localPosition.dy / _size.height).clamp(0.0, 1.0),
+      x: _size.width == 0
+          ? 0
+          : (event.localPosition.dx / _size.width).clamp(0.0, 1.0),
+      y: _size.height == 0
+          ? 0
+          : (event.localPosition.dy / _size.height).clamp(0.0, 1.0),
       pressure: pressure,
       tilt: event.tilt,
       timestampMicros: event.timeStamp.inMicroseconds,
@@ -60,6 +74,10 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
   void _down(PointerDownEvent event) {
     if (!widget.enabled || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
+    if (_isErasing(event)) {
+      _eraseAt(event.localPosition);
+      return;
+    }
     _active
       ..clear()
       ..add(_point(event));
@@ -68,12 +86,22 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
 
   void _move(PointerMoveEvent event) {
     if (_pointer != event.pointer) return;
+    if (_isErasing(event)) {
+      _eraseAt(event.localPosition);
+      return;
+    }
     _active.add(_point(event));
     setState(() {});
   }
 
   void _up(PointerUpEvent event) {
     if (_pointer != event.pointer) return;
+    if (_isErasing(event)) {
+      _pointer = null;
+      _active.clear();
+      setState(() {});
+      return;
+    }
     _active.add(_point(event));
     if (_active.length >= 2) {
       final now = DateTime.now().toUtc();
@@ -101,6 +129,70 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
     _pointer = null;
     _active.clear();
     setState(() {});
+  }
+
+  void _eraseAt(Offset position) {
+    if (widget.strokes.isEmpty || _size.isEmpty) return;
+    PdfInkStroke? hit;
+    for (final stroke in widget.strokes.reversed) {
+      if (_strokeHits(stroke, position, widget.eraserRadius)) {
+        hit = stroke;
+        break;
+      }
+    }
+    if (hit != null) widget.onStrokeErased?.call(hit);
+  }
+
+  bool _strokeHits(PdfInkStroke stroke, Offset position, double radius) {
+    final radiusSquared = radius * radius;
+    final points = stroke.points;
+    for (final point in points) {
+      final dx = point.x * _size.width - position.dx;
+      final dy = point.y * _size.height - position.dy;
+      if (dx * dx + dy * dy <= radiusSquared) return true;
+    }
+
+    for (var index = 1; index < points.length; index++) {
+      final a = points[index - 1];
+      final b = points[index];
+      if (_distanceToSegmentSquared(
+            position.dx,
+            position.dy,
+            a.x * _size.width,
+            a.y * _size.height,
+            b.x * _size.width,
+            b.y * _size.height,
+          ) <=
+          radiusSquared) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  double _distanceToSegmentSquared(
+    double px,
+    double py,
+    double ax,
+    double ay,
+    double bx,
+    double by,
+  ) {
+    final abx = bx - ax;
+    final aby = by - ay;
+    final lengthSquared = abx * abx + aby * aby;
+    if (lengthSquared == 0) {
+      final dx = px - ax;
+      final dy = py - ay;
+      return dx * dx + dy * dy;
+    }
+    final t = (((px - ax) * abx + (py - ay) * aby) / lengthSquared)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final nearestX = ax + abx * t;
+    final nearestY = ay + aby * t;
+    return math.pow(px - nearestX, 2).toDouble() +
+        math.pow(py - nearestY, 2).toDouble();
   }
 
   @override
@@ -151,12 +243,26 @@ class _PdfInkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _paintStroke(canvas, size, stroke.points, stroke.tool, stroke.colorValue,
-          stroke.width, stroke.opacity);
+      _paintStroke(
+        canvas,
+        size,
+        stroke.points,
+        stroke.tool,
+        stroke.colorValue,
+        stroke.width,
+        stroke.opacity,
+      );
     }
     if (active.length >= 2) {
-      _paintStroke(canvas, size, active, tool, colorValue, width,
-          tool == InkTool.highlighter ? 0.28 : 1.0);
+      _paintStroke(
+        canvas,
+        size,
+        active,
+        tool,
+        colorValue,
+        width,
+        tool == InkTool.highlighter ? 0.28 : 1.0,
+      );
     }
   }
 
