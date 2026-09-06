@@ -1,0 +1,217 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../core/backup/lex_backup_service.dart';
+import '../core/backup/squid_import_service.dart';
+import '../core/storage/local_database.dart';
+
+class BackupMigrationScreen extends StatefulWidget {
+  const BackupMigrationScreen({required this.db, super.key});
+
+  final LocalDatabase db;
+
+  @override
+  State<BackupMigrationScreen> createState() => _BackupMigrationScreenState();
+}
+
+class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
+  late final LexBackupService _backup = LexBackupService(widget.db);
+  static const SquidImportService _squid = SquidImportService();
+  bool _busy = false;
+
+  Future<String?> _saveBytes(List<int> bytes, String suggestedName) async {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final location = await getSaveLocation(suggestedName: suggestedName);
+      if (location == null) return null;
+      await XFile.fromData(bytes, name: suggestedName).saveTo(location.path);
+      return location.path;
+    }
+    final directory = await getApplicationDocumentsDirectory();
+    final folder = Directory('${directory.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}backups');
+    await folder.create(recursive: true);
+    final path = '${folder.path}${Platform.pathSeparator}$suggestedName';
+    await File(path).writeAsBytes(bytes, flush: true);
+    return path;
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Operação não concluída: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _createBackup() => _run(() async {
+        final bytes = await _backup.createBackup();
+        final path = await _saveBytes(
+          bytes,
+          'lexpdf_${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}.lexbackup',
+        );
+        if (mounted && path != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Backup validado e salvo em: $path')),
+          );
+        }
+      });
+
+  Future<void> _restoreBackup() => _run(() async {
+        const type = XTypeGroup(label: 'LexPDF backup', extensions: ['lexbackup']);
+        final file = await openFile(acceptedTypeGroups: const [type]);
+        if (file == null) return;
+        final bytes = await file.readAsBytes();
+        final validation = await _backup.validate(bytes);
+        if (!validation.valid) {
+          throw FormatException(validation.error ?? 'Backup inválido.');
+        }
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Restaurar backup?'),
+            content: Text(
+              'Backup válido: ${validation.tableCount} tabelas e ${validation.fileCount} documentos. A restauração substituirá o estado local atual.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restaurar')),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+        final documents = await getApplicationDocumentsDirectory();
+        final target = Directory('${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}restored-documents');
+        await _backup.restore(bytes, documentDirectory: target);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Backup restaurado e validado.')),
+          );
+        }
+      });
+
+  Future<void> _exportLexNote() => _run(() async {
+        final rows = widget.db.database.select(
+          'SELECT id, title FROM notebooks ORDER BY updated_at DESC;',
+        );
+        if (rows.isEmpty) throw StateError('Nenhum caderno disponível.');
+        if (!mounted) return;
+        final notebookId = await showDialog<String>(
+          context: context,
+          builder: (context) => SimpleDialog(
+            title: const Text('Exportar .lexnote'),
+            children: [
+              for (final row in rows)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, row['id'] as String),
+                  child: Text(row['title'] as String),
+                ),
+            ],
+          ),
+        );
+        if (notebookId == null) return;
+        final bytes = _backup.exportNotebook(notebookId);
+        final path = await _saveBytes(bytes, 'caderno.lexnote');
+        if (mounted && path != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('.lexnote salvo em: $path')),
+          );
+        }
+      });
+
+  Future<void> _importSquid() => _run(() async {
+        const type = XTypeGroup(
+          label: 'Squid/PDF',
+          extensions: ['squid', 'zip', 'pdf'],
+        );
+        final file = await openFile(acceptedTypeGroups: const [type]);
+        if (file == null) return;
+        final documents = await getApplicationDocumentsDirectory();
+        final destination = Directory('${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}imports');
+        final result = await _squid.importSafely(file.path, destination: destination);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${result.importedFiles.length} arquivo(s) importado(s). ${result.warnings.join(' ')}')),
+          );
+        }
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Backup e migração')),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text('Proteção dos dados', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          const Text('Backups são validados por checksum antes da restauração. O estado local continua sendo a fonte primária offline.'),
+          const SizedBox(height: 24),
+          _ActionTile(
+            icon: Icons.backup_outlined,
+            title: 'Criar .lexbackup',
+            subtitle: 'Banco local + documentos disponíveis offline',
+            onTap: _busy ? null : _createBackup,
+          ),
+          _ActionTile(
+            icon: Icons.restore_outlined,
+            title: 'Validar e restaurar .lexbackup',
+            subtitle: 'Restauração transacional com verificação de integridade',
+            onTap: _busy ? null : _restoreBackup,
+          ),
+          _ActionTile(
+            icon: Icons.note_outlined,
+            title: 'Exportar caderno .lexnote',
+            subtitle: 'Formato editável portátil do LexPDF',
+            onTap: _busy ? null : _exportLexNote,
+          ),
+          _ActionTile(
+            icon: Icons.system_update_alt,
+            title: 'Importar Squid com fallback seguro',
+            subtitle: 'Importa PDFs reconhecíveis sem inventar camadas proprietárias',
+            onTap: _busy ? null : _importSquid,
+          ),
+          if (_busy) ...[
+            const SizedBox(height: 20),
+            const LinearProgressIndicator(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      );
+}
