@@ -16,7 +16,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
@@ -230,6 +230,43 @@ class LocalDatabase {
         ''');
         database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['6', 'schema_version']);
         database.userVersion = 6;
+        database.execute('COMMIT;');
+        version = 6;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 7) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          CREATE TABLE pdf_annotation_objects (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            page_number INTEGER NOT NULL CHECK(page_number >= 1),
+            type TEXT NOT NULL CHECK(type IN ('note', 'text', 'line', 'arrow', 'rectangle', 'ellipse', 'stamp', 'signature')),
+            x REAL NOT NULL CHECK(x >= 0 AND x <= 1),
+            y REAL NOT NULL CHECK(y >= 0 AND y <= 1),
+            width REAL NOT NULL CHECK(width >= 0),
+            height REAL NOT NULL CHECK(height >= 0),
+            rotation REAL NOT NULL DEFAULT 0,
+            color_value INTEGER NOT NULL,
+            fill_color_value INTEGER,
+            opacity REAL NOT NULL DEFAULT 1 CHECK(opacity >= 0 AND opacity <= 1),
+            stroke_width REAL NOT NULL DEFAULT 2 CHECK(stroke_width > 0),
+            text_value TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        ''');
+        database.execute('''
+          CREATE INDEX pdf_annotation_objects_document_page_idx
+          ON pdf_annotation_objects(document_id, page_number, created_at);
+        ''');
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['7', 'schema_version']);
+        database.userVersion = 7;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');
