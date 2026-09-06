@@ -16,17 +16,10 @@ void main() {
         createdAt: DateTime.utc(2026, 9, 6),
       );
 
-  test('divide um traço quando a borracha cruza seu trecho central', () {
+  test('corta exatamente nas bordas do círculo e interpola metadados', () {
     final stroke = strokeWith(const [
-      InkPoint(x: 0.10, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 1),
-      InkPoint(x: 0.20, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 2),
-      InkPoint(x: 0.30, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 3),
-      InkPoint(x: 0.40, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 4),
-      InkPoint(x: 0.50, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 5),
-      InkPoint(x: 0.60, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 6),
-      InkPoint(x: 0.70, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 7),
-      InkPoint(x: 0.80, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 8),
-      InkPoint(x: 0.90, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 9),
+      InkPoint(x: 0.30, y: 0.50, pressure: 0.2, tilt: 0.1, timestampMicros: 100),
+      InkPoint(x: 0.70, y: 0.50, pressure: 1.0, tilt: 0.5, timestampMicros: 500),
     ]);
 
     final result = const PdfInkEraser().eraseAt(
@@ -40,10 +33,18 @@ void main() {
 
     expect(result, isNotNull);
     expect(result!.fragments, hasLength(2));
-    expect(result.fragments.first.points.first.x, 0.10);
-    expect(result.fragments.first.points.last.x, 0.30);
-    expect(result.fragments.last.points.first.x, 0.70);
-    expect(result.fragments.last.points.last.x, 0.90);
+    final leftCut = result.fragments.first.points.last;
+    final rightCut = result.fragments.last.points.first;
+    expect(leftCut.x, closeTo(0.44, 1e-9));
+    expect(rightCut.x, closeTo(0.56, 1e-9));
+    expect(leftCut.pressure, closeTo(0.48, 1e-9));
+    expect(rightCut.pressure, closeTo(0.72, 1e-9));
+    expect(leftCut.tilt, closeTo(0.24, 1e-9));
+    expect(rightCut.tilt, closeTo(0.36, 1e-9));
+    expect(leftCut.timestampMicros, 240);
+    expect(rightCut.timestampMicros, 360);
+    expect(result.fragments.first.id, startsWith('stroke-1-e-'));
+    expect(result.fragments.last.id, isNot(result.fragments.first.id));
   });
 
   test('não altera o traço quando a borracha não o alcança', () {
@@ -65,7 +66,7 @@ void main() {
     expect(result, isNull);
   });
 
-  test('remove todo o traço quando não sobra fragmento desenhável', () {
+  test('remove todo o traço quando ele fica dentro da borracha', () {
     final stroke = strokeWith(const [
       InkPoint(x: 0.49, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 1),
       InkPoint(x: 0.51, y: 0.50, pressure: 1, tilt: 0, timestampMicros: 2),
