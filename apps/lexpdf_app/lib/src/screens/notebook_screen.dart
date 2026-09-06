@@ -34,6 +34,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
   double _width = 3.0;
   bool _stylusOnly = true;
   bool _eraserMode = false;
+  bool _lassoMode = false;
+  int _selectionCount = 0;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -59,9 +61,33 @@ class _NotebookScreenState extends State<NotebookScreen> {
         title: const Text('Meu caderno'),
         actions: [
           IconButton(
+            tooltip: _lassoMode ? 'Sair do laço' : 'Selecionar com laço',
+            onPressed: () => setState(() {
+              _lassoMode = !_lassoMode;
+              _eraserMode = false;
+              if (!_lassoMode) _selectionCount = 0;
+            }),
+            icon: Icon(_lassoMode ? Icons.close : Icons.gesture),
+            color: _lassoMode ? Theme.of(context).colorScheme.primary : null,
+          ),
+          if (_lassoMode && _selectionCount > 0)
+            IconButton(
+              tooltip: 'Excluir $_selectionCount selecionado(s)',
+              onPressed: _deleteSelection,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          IconButton(
             tooltip: _eraserMode ? 'Voltar para escrita' : 'Borracha por traço',
-            onPressed: () => setState(() => _eraserMode = !_eraserMode),
-            icon: Icon(_eraserMode ? Icons.edit_outlined : Icons.auto_fix_normal_outlined),
+            onPressed: () => setState(() {
+              _eraserMode = !_eraserMode;
+              _lassoMode = false;
+              _selectionCount = 0;
+            }),
+            icon: Icon(
+              _eraserMode
+                  ? Icons.edit_outlined
+                  : Icons.auto_fix_normal_outlined,
+            ),
             color: _eraserMode ? Theme.of(context).colorScheme.primary : null,
           ),
           IconButton(
@@ -83,7 +109,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Não foi possível abrir o caderno: ${snapshot.error}'));
+            return Center(
+              child: Text('Não foi possível abrir o caderno: ${snapshot.error}'),
+            );
           }
           final session = snapshot.requireData;
           return Column(
@@ -102,7 +130,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: const [
-                            BoxShadow(blurRadius: 12, color: Color(0x22000000)),
+                            BoxShadow(
+                              blurRadius: 12,
+                              color: Color(0x22000000),
+                            ),
                           ],
                         ),
                         clipBehavior: Clip.antiAlias,
@@ -115,11 +146,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           strokeWidth: _effectiveWidth,
                           stylusOnly: _stylusOnly,
                           eraserMode: _eraserMode,
+                          lassoMode: _lassoMode,
                           onStrokeCompleted: (stroke) {
                             unawaited(widget.inkStore.addStroke(stroke));
                           },
                           onStrokeErased: (stroke) {
                             unawaited(widget.inkStore.deleteStroke(stroke.id));
+                          },
+                          onSelectionChanged: (ids) {
+                            if (!mounted) return;
+                            setState(() => _selectionCount = ids.length);
                           },
                         ),
                       ),
@@ -150,14 +186,28 @@ class _NotebookScreenState extends State<NotebookScreen> {
           children: [
             SegmentedButton<InkTool>(
               segments: const [
-                ButtonSegment(value: InkTool.pen, icon: Icon(Icons.edit_outlined), label: Text('Caneta')),
-                ButtonSegment(value: InkTool.pencil, icon: Icon(Icons.draw_outlined), label: Text('Lápis')),
-                ButtonSegment(value: InkTool.highlighter, icon: Icon(Icons.border_color_outlined), label: Text('Marca-texto')),
+                ButtonSegment(
+                  value: InkTool.pen,
+                  icon: Icon(Icons.edit_outlined),
+                  label: Text('Caneta'),
+                ),
+                ButtonSegment(
+                  value: InkTool.pencil,
+                  icon: Icon(Icons.draw_outlined),
+                  label: Text('Lápis'),
+                ),
+                ButtonSegment(
+                  value: InkTool.highlighter,
+                  icon: Icon(Icons.border_color_outlined),
+                  label: Text('Marca-texto'),
+                ),
               ],
               selected: {_tool},
               onSelectionChanged: (selection) => setState(() {
                 _tool = selection.first;
                 _eraserMode = false;
+                _lassoMode = false;
+                _selectionCount = 0;
               }),
             ),
             const SizedBox(width: 12),
@@ -165,7 +215,26 @@ class _NotebookScreenState extends State<NotebookScreen> {
               selected: _eraserMode,
               avatar: const Icon(Icons.auto_fix_normal_outlined, size: 18),
               label: const Text('Borracha'),
-              onSelected: (value) => setState(() => _eraserMode = value),
+              onSelected: (value) => setState(() {
+                _eraserMode = value;
+                if (value) {
+                  _lassoMode = false;
+                  _selectionCount = 0;
+                }
+              }),
+            ),
+            const SizedBox(width: 8),
+            FilterChip(
+              selected: _lassoMode,
+              avatar: const Icon(Icons.gesture, size: 18),
+              label: Text(
+                _selectionCount > 0 ? 'Laço ($_selectionCount)' : 'Laço',
+              ),
+              onSelected: (value) => setState(() {
+                _lassoMode = value;
+                _eraserMode = false;
+                if (!value) _selectionCount = 0;
+              }),
             ),
             const SizedBox(width: 16),
             for (final value in _palette)
@@ -173,7 +242,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 3),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
-                  onTap: _eraserMode ? null : () => setState(() => _colorValue = value),
+                  onTap: _eraserMode || _lassoMode
+                      ? null
+                      : () => setState(() => _colorValue = value),
                   child: Container(
                     width: 28,
                     height: 28,
@@ -198,7 +269,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 min: 1,
                 max: 10,
                 value: _width,
-                onChanged: _eraserMode ? null : (value) => setState(() => _width = value),
+                onChanged: _eraserMode || _lassoMode
+                    ? null
+                    : (value) => setState(() => _width = value),
               ),
             ),
             const SizedBox(width: 8),
@@ -214,6 +287,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
+  Future<void> _deleteSelection() async {
+    final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
+    for (final stroke in removed) {
+      await widget.inkStore.deleteStroke(stroke.id);
+    }
+    if (mounted) setState(() => _selectionCount = 0);
+  }
+
   Future<void> _undo() async {
     final removed = _canvasKey.currentState?.undoLast();
     if (removed != null) {
@@ -224,8 +305,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _clearPage() async {
     final state = _canvasKey.currentState;
     if (state == null) return;
-    await widget.inkStore.clearPage(state.strokes.firstOrNull?.pageId ?? 'default-page-1');
+    await widget.inkStore.clearPage(
+      state.strokes.firstOrNull?.pageId ?? 'default-page-1',
+    );
     state.clear();
+    if (mounted) setState(() => _selectionCount = 0);
   }
 }
 
