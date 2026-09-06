@@ -70,8 +70,8 @@ void main() {
       base.id,
     );
     expect(await layers.listLayers(page.id), hasLength(1));
-    expect(
-      () => layers.deleteLayer(base.id),
+    await expectLater(
+      layers.deleteLayer(base.id),
       throwsA(isA<StateError>()),
     );
   });
@@ -103,8 +103,8 @@ void main() {
       ),
     );
 
-    expect(
-      () => layers.assignStroke(firstLayer.id, 'second-page-stroke'),
+    await expectLater(
+      layers.assignStroke(firstLayer.id, 'second-page-stroke'),
       throwsA(isA<ArgumentError>()),
     );
 
