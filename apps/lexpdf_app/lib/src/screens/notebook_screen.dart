@@ -26,6 +26,8 @@ class _NotebookSession {
 
 class _NotebookScreenState extends State<NotebookScreen> {
   static const double _moveStep = 12;
+  static const double _scaleDown = 0.9;
+  static const double _scaleUp = 1.1;
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
   late final Future<_NotebookSession> _session = _loadSession();
@@ -260,6 +262,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 onPressed: () => _moveSelection(_moveStep, 0),
                 icon: const Icon(Icons.arrow_right),
               ),
+              const SizedBox(width: 8),
+              const Text('Tamanho'),
+              IconButton(
+                tooltip: 'Diminuir seleção',
+                onPressed: () => _scaleSelection(_scaleDown),
+                icon: const Icon(Icons.zoom_in_map),
+              ),
+              IconButton(
+                tooltip: 'Aumentar seleção',
+                onPressed: () => _scaleSelection(_scaleUp),
+                icon: const Icon(Icons.zoom_out_map),
+              ),
             ],
             const SizedBox(width: 16),
             for (final value in _palette)
@@ -314,6 +328,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _moveSelection(double dx, double dy) {
     _canvasKey.currentState?.moveSelected(dx, dy);
+  }
+
+  void _scaleSelection(double factor) {
+    _canvasKey.currentState?.scaleSelected(factor);
   }
 
   Future<void> _deleteSelection() async {
