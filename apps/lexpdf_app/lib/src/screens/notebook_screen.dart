@@ -27,6 +27,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const double _scaleDown = 0.9;
   static const double _scaleUp = 1.1;
   static const double _rotationStep = math.pi / 12;
+  static const double _widthDown = 0.85;
+  static const double _widthUp = 1.15;
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
   late final Future<_NotebookSession> _session = _loadSession();
@@ -285,6 +287,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 icon: const Icon(Icons.rotate_right),
               ),
               const SizedBox(width: 8),
+              const Text('Traço'),
+              IconButton(
+                tooltip: 'Reduzir espessura da seleção',
+                onPressed: () => _adjustSelectionWidth(_widthDown),
+                icon: const Icon(Icons.remove),
+              ),
+              IconButton(
+                tooltip: 'Aumentar espessura da seleção',
+                onPressed: () => _adjustSelectionWidth(_widthUp),
+                icon: const Icon(Icons.add),
+              ),
+              const SizedBox(width: 8),
               const Text('Editar'),
               IconButton(
                 tooltip: 'Copiar seleção',
@@ -302,22 +316,27 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 icon: const Icon(Icons.content_cut),
               ),
             ],
-            if (_lassoMode && _clipboardAvailable) ...[
+            if (_lassoMode && _clipboardAvailable)
               IconButton(
                 tooltip: 'Colar',
                 onPressed: _pasteClipboard,
                 icon: const Icon(Icons.content_paste),
               ),
-            ],
             const SizedBox(width: 16),
             for (final value in _palette)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
-                  onTap: _eraserMode || _lassoMode
+                  onTap: _eraserMode || (_lassoMode && _selectionCount == 0)
                       ? null
-                      : () => setState(() => _colorValue = value),
+                      : () {
+                          if (_lassoMode) {
+                            _setSelectionColor(value);
+                          } else {
+                            setState(() => _colorValue = value);
+                          }
+                        },
                   child: Container(
                     width: 28,
                     height: 28,
@@ -370,6 +389,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _rotateSelection(double angleRadians) {
     _canvasKey.currentState?.rotateSelected(angleRadians);
+  }
+
+  void _adjustSelectionWidth(double factor) {
+    _canvasKey.currentState?.adjustSelectedWidth(factor);
+  }
+
+  void _setSelectionColor(int colorValue) {
+    final updated = _canvasKey.currentState?.updateSelectedColor(colorValue) ?? const [];
+    if (updated.isNotEmpty) setState(() => _colorValue = colorValue);
   }
 
   void _copySelection() {
