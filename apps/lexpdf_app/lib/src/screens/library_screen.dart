@@ -8,6 +8,8 @@ import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import 'backup_migration_screen.dart';
+import 'cloud_sync_screen.dart';
 import 'global_search_screen.dart';
 import 'library_organizer_screen.dart';
 import 'notebook_export_screen.dart';
@@ -76,6 +78,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
             icon: const Icon(Icons.search),
           ),
           IconButton(
+            tooltip: 'Nuvem e sincronização',
+            onPressed: _openCloudSync,
+            icon: const Icon(Icons.cloud_sync_outlined),
+          ),
+          IconButton(
             tooltip: 'Abrir arquivo',
             onPressed: _openingDocument ? null : _openPdf,
             icon: _openingDocument
@@ -89,7 +96,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             padding: EdgeInsets.only(right: 12),
             child: Chip(
               avatar: Icon(Icons.offline_bolt_outlined, size: 18),
-              label: Text('Offline'),
+              label: Text('Offline-first'),
             ),
           ),
         ],
@@ -171,11 +178,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       );
     }
-    if (_selectedIndex != 0) {
-      return const _EmptyState(
-        icon: Icons.construction_outlined,
-        title: 'Módulo em construção',
-        subtitle: 'Esta área já está reservada na arquitetura do LexPDF.',
+    if (_selectedIndex == 4) {
+      return _buildDocumentList(
+        future: _offlineDocuments(),
+        emptyIcon: Icons.offline_pin_outlined,
+        emptyTitle: 'Nenhum documento em cache offline',
+        emptySubtitle: 'Downloads da nuvem aparecerão aqui automaticamente.',
+      );
+    }
+    if (_selectedIndex == 5) {
+      return GridView.extent(
+        maxCrossAxisExtent: 340,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        children: [
+          _QuickAction(
+            icon: Icons.cloud_sync_outlined,
+            title: 'Contas e sincronização',
+            subtitle: 'Google Drive, OneDrive, iCloud e LexPDF Cloud/R2',
+            onTap: _openCloudSync,
+          ),
+          _QuickAction(
+            icon: Icons.backup_outlined,
+            title: 'Backup e migração',
+            subtitle: '.lexbackup, .lexnote e importação Squid segura',
+            onTap: _openBackupMigration,
+          ),
+        ],
       );
     }
     return GridView.extent(
@@ -225,10 +254,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
           subtitle: 'Escrita e desenhos',
           onTap: _openNotebook,
         ),
-        const _QuickAction(icon: Icons.cloud_outlined, title: 'Conectar nuvem', subtitle: 'Google, OneDrive ou iCloud'),
-        const _QuickAction(icon: Icons.backup_outlined, title: 'Backup', subtitle: 'Local ou em nuvem'),
+        _QuickAction(
+          icon: Icons.cloud_outlined,
+          title: 'Conectar nuvem',
+          subtitle: 'Google Drive, OneDrive, iCloud ou R2',
+          onTap: _openCloudSync,
+        ),
+        _QuickAction(
+          icon: Icons.backup_outlined,
+          title: 'Backup',
+          subtitle: 'Criar, validar, restaurar ou migrar',
+          onTap: _openBackupMigration,
+        ),
       ],
     );
+  }
+
+  Future<List<DocumentRef>> _offlineDocuments() async {
+    final documents = await widget.catalog.list(limit: 500);
+    return documents.where((document) => document.availableOffline).toList(growable: false);
   }
 
   Widget _buildDocumentList({
@@ -450,6 +494,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
           catalog: widget.catalog,
           store: _navigationStore,
         ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openCloudSync() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CloudSyncScreen(db: widget.annotations.db),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openBackupMigration() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BackupMigrationScreen(db: widget.annotations.db),
       ),
     );
     if (mounted) setState(() {});
