@@ -11,6 +11,7 @@ class NotebookObjectLayer extends StatefulWidget {
     required this.enabled,
     required this.onObjectChanged,
     required this.onSelectionChanged,
+    this.onObjectDoubleTap,
     this.selectedId,
     super.key,
   });
@@ -20,6 +21,7 @@ class NotebookObjectLayer extends StatefulWidget {
   final String? selectedId;
   final ValueChanged<NotebookObject> onObjectChanged;
   final ValueChanged<String?> onSelectionChanged;
+  final ValueChanged<NotebookObject>? onObjectDoubleTap;
 
   @override
   State<NotebookObjectLayer> createState() => _NotebookObjectLayerState();
@@ -62,6 +64,10 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => widget.onSelectionChanged(object.id),
+          onDoubleTap: () {
+            widget.onSelectionChanged(object.id);
+            widget.onObjectDoubleTap?.call(object);
+          },
           onPanStart: (_) {
             widget.onSelectionChanged(object.id);
             _working = object;
@@ -148,6 +154,7 @@ class _ObjectVisual extends StatelessWidget {
         alignment: Alignment.centerLeft,
         child: Text(
           object.textValue ?? '',
+          maxLines: null,
           style: TextStyle(
             color: Color(object.colorValue),
             fontSize: object.fontSize ?? 18,
@@ -161,7 +168,7 @@ class _ObjectVisual extends StatelessWidget {
       return ClipRect(
         child: Image.file(
           File(path),
-          fit: BoxFit.contain,
+          fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => const Center(
             child: Icon(Icons.broken_image_outlined),
           ),
