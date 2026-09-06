@@ -261,7 +261,7 @@ class _PdfAnnotationObjectOverlayState
           type == PdfAnnotationObjectType.note ? 0xFFFFF59D : null,
       opacity: 1,
       strokeWidth: 2,
-      textValue: text!.trim(),
+      textValue: text.trim(),
       createdAt: now,
       updatedAt: now,
     );
@@ -743,7 +743,6 @@ class _PdfAnnotationPainter extends CustomPainter {
         canvas.drawPath(path, paint);
       }
     } catch (_) {
-      // Legacy textual signatures remain readable after the vector upgrade.
       _drawText(canvas, rect, encoded, paint.color, fontSize: 18, italic: true, centered: true);
     }
   }
