@@ -183,7 +183,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
             const SizedBox(width: 8),
             FilterChip(
               selected: _stylusOnly,
-              avatar: const Icon(Icons.stylus_outlined, size: 18),
+              avatar: const Icon(Icons.edit_outlined, size: 18),
               label: const Text('Somente caneta'),
               onSelected: (value) => setState(() => _stylusOnly = value),
             ),
