@@ -7,7 +7,36 @@ class LocalPdfInkStore {
 
   final LocalDatabase db;
 
-  Future<void> addStroke(PdfInkStroke stroke) async {
+  Future<void> addStroke(PdfInkStroke stroke) async => _insertStroke(stroke);
+
+  Future<void> replaceStrokeWithFragments(
+    PdfInkStroke original,
+    List<PdfInkStroke> fragments,
+  ) async {
+    for (final fragment in fragments) {
+      if (fragment.documentId != original.documentId ||
+          fragment.pageNumber != original.pageNumber) {
+        throw ArgumentError('Fragmento não pertence ao mesmo documento/página.');
+      }
+    }
+
+    db.database.execute('BEGIN IMMEDIATE;');
+    try {
+      db.database.execute(
+        'DELETE FROM pdf_ink_strokes WHERE id = ?;',
+        [original.id],
+      );
+      for (final fragment in fragments) {
+        _insertStroke(fragment);
+      }
+      db.database.execute('COMMIT;');
+    } catch (_) {
+      db.database.execute('ROLLBACK;');
+      rethrow;
+    }
+  }
+
+  void _insertStroke(PdfInkStroke stroke) {
     db.database.execute('''
       INSERT OR REPLACE INTO pdf_ink_strokes(
         id, document_id, page_number, tool, color_value,

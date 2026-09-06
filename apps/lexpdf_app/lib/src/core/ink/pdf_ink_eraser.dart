@@ -24,107 +24,170 @@ class PdfInkEraser {
     required double pageHeight,
     required double radius,
   }) {
-    if (stroke.points.length < 2 || pageWidth <= 0 || pageHeight <= 0) {
+    if (stroke.points.length < 2 ||
+        pageWidth <= 0 ||
+        pageHeight <= 0 ||
+        radius <= 0) {
       return null;
     }
 
-    final keep = List<bool>.filled(stroke.points.length, true);
+    final fragments = <List<InkPoint>>[];
+    var current = <InkPoint>[];
     var touched = false;
-    final radiusSquared = radius * radius;
 
-    for (var index = 0; index < stroke.points.length; index++) {
-      final point = stroke.points[index];
-      final px = point.x * pageWidth;
-      final py = point.y * pageHeight;
-      final dx = px - localX;
-      final dy = py - localY;
-      if (dx * dx + dy * dy <= radiusSquared) {
-        keep[index] = false;
-        touched = true;
+    void append(InkPoint point) {
+      if (current.isNotEmpty && _samePoint(current.last, point)) return;
+      current.add(point);
+    }
+
+    void flush() {
+      if (current.length >= 2) {
+        fragments.add(List<InkPoint>.unmodifiable(current));
       }
+      current = <InkPoint>[];
     }
 
     for (var index = 1; index < stroke.points.length; index++) {
       final a = stroke.points[index - 1];
       final b = stroke.points[index];
-      if (_distanceToSegmentSquared(
-            localX,
-            localY,
-            a.x * pageWidth,
-            a.y * pageHeight,
-            b.x * pageWidth,
-            b.y * pageHeight,
-          ) <=
-          radiusSquared) {
-        keep[index - 1] = false;
-        keep[index] = false;
+      final intervals = _outsideIntervals(
+        a: a,
+        b: b,
+        localX: localX,
+        localY: localY,
+        pageWidth: pageWidth,
+        pageHeight: pageHeight,
+        radius: radius,
+      );
+
+      if (intervals.length != 1 ||
+          intervals.first.$1 > 1e-9 ||
+          intervals.first.$2 < 1 - 1e-9) {
         touched = true;
       }
-    }
 
-    if (!touched) return null;
-
-    final fragments = <PdfInkStroke>[];
-    final current = <InkPoint>[];
-    var fragmentIndex = 0;
-
-    void flush() {
-      if (current.length >= 2) {
-        fragments.add(
-          PdfInkStroke(
-            id: '${stroke.id}-e$fragmentIndex',
-            documentId: stroke.documentId,
-            pageNumber: stroke.pageNumber,
-            tool: stroke.tool,
-            colorValue: stroke.colorValue,
-            opacity: stroke.opacity,
-            width: stroke.width,
-            points: List<InkPoint>.unmodifiable(current),
-            createdAt: stroke.createdAt,
-          ),
-        );
-        fragmentIndex++;
-      }
-      current.clear();
-    }
-
-    for (var index = 0; index < stroke.points.length; index++) {
-      if (keep[index]) {
-        current.add(stroke.points[index]);
-      } else {
+      if (intervals.isEmpty) {
         flush();
+        continue;
+      }
+
+      for (var intervalIndex = 0;
+          intervalIndex < intervals.length;
+          intervalIndex++) {
+        final interval = intervals[intervalIndex];
+        final start = _interpolate(a, b, interval.$1);
+        final end = _interpolate(a, b, interval.$2);
+
+        if (current.isNotEmpty && !_samePoint(current.last, start)) {
+          flush();
+        }
+        append(start);
+        append(end);
+
+        if (intervalIndex < intervals.length - 1 || interval.$2 < 1 - 1e-9) {
+          flush();
+        }
       }
     }
     flush();
 
+    if (!touched) return null;
+
+    final stamp = DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(36);
+    final resultFragments = <PdfInkStroke>[];
+    for (var index = 0; index < fragments.length; index++) {
+      resultFragments.add(
+        PdfInkStroke(
+          id: '${stroke.id}-e-$stamp-$index',
+          documentId: stroke.documentId,
+          pageNumber: stroke.pageNumber,
+          tool: stroke.tool,
+          colorValue: stroke.colorValue,
+          opacity: stroke.opacity,
+          width: stroke.width,
+          points: fragments[index],
+          createdAt: stroke.createdAt,
+        ),
+      );
+    }
+
     return PdfInkEraseResult(
       original: stroke,
-      fragments: List<PdfInkStroke>.unmodifiable(fragments),
+      fragments: List<PdfInkStroke>.unmodifiable(resultFragments),
     );
   }
 
-  double _distanceToSegmentSquared(
-    double px,
-    double py,
-    double ax,
-    double ay,
-    double bx,
-    double by,
-  ) {
-    final abx = bx - ax;
-    final aby = by - ay;
-    final lengthSquared = abx * abx + aby * aby;
-    if (lengthSquared == 0) {
-      final dx = px - ax;
-      final dy = py - ay;
-      return dx * dx + dy * dy;
+  List<(double, double)> _outsideIntervals({
+    required InkPoint a,
+    required InkPoint b,
+    required double localX,
+    required double localY,
+    required double pageWidth,
+    required double pageHeight,
+    required double radius,
+  }) {
+    final ax = a.x * pageWidth - localX;
+    final ay = a.y * pageHeight - localY;
+    final bx = b.x * pageWidth - localX;
+    final by = b.y * pageHeight - localY;
+    final dx = bx - ax;
+    final dy = by - ay;
+    final qa = dx * dx + dy * dy;
+
+    if (qa <= 1e-18) {
+      final outside = ax * ax + ay * ay > radius * radius;
+      return outside ? const [(0.0, 1.0)] : const [];
     }
-    final t = (((px - ax) * abx + (py - ay) * aby) / lengthSquared)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final nearestX = ax + abx * t;
-    final nearestY = ay + aby * t;
-    return math.pow(px - nearestX, 2).toDouble() +
-        math.pow(py - nearestY, 2).toDouble();
+
+    final qb = 2 * (ax * dx + ay * dy);
+    final qc = ax * ax + ay * ay - radius * radius;
+    final discriminant = qb * qb - 4 * qa * qc;
+    final cuts = <double>[0, 1];
+
+    if (discriminant >= 0) {
+      final root = math.sqrt(discriminant);
+      final t1 = (-qb - root) / (2 * qa);
+      final t2 = (-qb + root) / (2 * qa);
+      if (t1 > 1e-9 && t1 < 1 - 1e-9) cuts.add(t1);
+      if (t2 > 1e-9 && t2 < 1 - 1e-9) cuts.add(t2);
+    }
+
+    cuts.sort();
+    final unique = <double>[];
+    for (final value in cuts) {
+      if (unique.isEmpty || (value - unique.last).abs() > 1e-9) {
+        unique.add(value);
+      }
+    }
+
+    final outside = <(double, double)>[];
+    for (var index = 1; index < unique.length; index++) {
+      final start = unique[index - 1];
+      final end = unique[index];
+      final mid = (start + end) / 2;
+      final mx = ax + dx * mid;
+      final my = ay + dy * mid;
+      if (mx * mx + my * my > radius * radius + 1e-9) {
+        outside.add((start, end));
+      }
+    }
+    return outside;
   }
+
+  InkPoint _interpolate(InkPoint a, InkPoint b, double t) {
+    if (t <= 1e-9) return a;
+    if (t >= 1 - 1e-9) return b;
+    return InkPoint(
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+      pressure: a.pressure + (b.pressure - a.pressure) * t,
+      tilt: a.tilt + (b.tilt - a.tilt) * t,
+      timestampMicros: (a.timestampMicros +
+              (b.timestampMicros - a.timestampMicros) * t)
+          .round(),
+    );
+  }
+
+  bool _samePoint(InkPoint a, InkPoint b) =>
+      (a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9;
 }
