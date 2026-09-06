@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
@@ -14,6 +15,14 @@ import 'package:pdfrx/pdfrx.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(pathProviderChannel, (call) async {
+    if (call.method == 'getTemporaryDirectory') {
+      return Directory.systemTemp.path;
+    }
+    return null;
+  });
   pdfrxFlutterInitialize();
 
   const pageCount = 520;
