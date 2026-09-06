@@ -129,6 +129,23 @@ class InkCanvasState extends State<InkCanvas> {
     return _insertCopies(_clipboard);
   }
 
+  List<InkStroke> updateSelectedColor(int colorValue) {
+    if (_selectedStrokeIds.isEmpty) return const [];
+    return _transformSelected(
+      (stroke) => _copyStroke(stroke, colorValue: colorValue),
+    );
+  }
+
+  List<InkStroke> adjustSelectedWidth(double factor) {
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    return _transformSelected(
+      (stroke) => _copyStroke(
+        stroke,
+        width: (stroke.width * factor).clamp(0.25, 100).toDouble(),
+      ),
+    );
+  }
+
   List<InkStroke> _insertCopies(List<InkStroke> source) {
     final now = DateTime.now().toUtc();
     final inserted = <InkStroke>[];
@@ -269,12 +286,13 @@ class InkCanvasState extends State<InkCanvas> {
     InkStroke stroke, {
     List<InkPoint>? points,
     double? width,
+    int? colorValue,
   }) {
     return InkStroke(
       id: stroke.id,
       pageId: stroke.pageId,
       tool: stroke.tool,
-      colorValue: stroke.colorValue,
+      colorValue: colorValue ?? stroke.colorValue,
       opacity: stroke.opacity,
       width: width ?? stroke.width,
       points: List<InkPoint>.unmodifiable(points ?? stroke.points),
@@ -564,9 +582,16 @@ class _InkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _paintStroke(canvas, stroke.points, stroke.tool, stroke.colorValue, stroke.width, stroke.opacity);
-      if (selectedStrokeIds.contains(stroke.id)) _paintSelectionBounds(canvas, stroke);
+      _paintStroke(
+        canvas,
+        stroke.points,
+        stroke.tool,
+        stroke.colorValue,
+        stroke.width,
+        stroke.opacity,
+      );
     }
+    _paintSelectionBounds(canvas);
     if (activePoints.length >= 2) {
       _paintStroke(
         canvas,
@@ -592,20 +617,24 @@ class _InkPainter extends CustomPainter {
     }
   }
 
-  void _paintSelectionBounds(Canvas canvas, InkStroke stroke) {
-    if (stroke.points.isEmpty) return;
-    var minX = stroke.points.first.x;
-    var minY = stroke.points.first.y;
+  void _paintSelectionBounds(Canvas canvas) {
+    final points = strokes
+        .where((stroke) => selectedStrokeIds.contains(stroke.id))
+        .expand((stroke) => stroke.points)
+        .toList(growable: false);
+    if (points.isEmpty) return;
+    var minX = points.first.x;
+    var minY = points.first.y;
     var maxX = minX;
     var maxY = minY;
-    for (final point in stroke.points.skip(1)) {
+    for (final point in points.skip(1)) {
       minX = math.min(minX, point.x);
       minY = math.min(minY, point.y);
       maxX = math.max(maxX, point.x);
       maxY = math.max(maxY, point.y);
     }
     canvas.drawRect(
-      Rect.fromLTRB(minX, minY, maxX, maxY).inflate(4),
+      Rect.fromLTRB(minX, minY, maxX, maxY).inflate(6),
       Paint()
         ..color = Colors.blueGrey.withValues(alpha: 0.9)
         ..strokeWidth = 1.5
