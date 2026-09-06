@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -12,7 +13,10 @@ class InkCanvas extends StatefulWidget {
     required this.colorValue,
     required this.strokeWidth,
     required this.onStrokeCompleted,
+    this.onStrokeErased,
     this.stylusOnly = true,
+    this.eraserMode = false,
+    this.eraserRadius = 18,
     super.key,
   });
 
@@ -22,7 +26,10 @@ class InkCanvas extends StatefulWidget {
   final int colorValue;
   final double strokeWidth;
   final bool stylusOnly;
+  final bool eraserMode;
+  final double eraserRadius;
   final ValueChanged<InkStroke> onStrokeCompleted;
+  final ValueChanged<InkStroke>? onStrokeErased;
 
   @override
   State<InkCanvas> createState() => InkCanvasState();
@@ -31,7 +38,9 @@ class InkCanvas extends StatefulWidget {
 class InkCanvasState extends State<InkCanvas> {
   final List<InkStroke> _strokes = <InkStroke>[];
   final List<InkPoint> _activePoints = <InkPoint>[];
+  final Set<int> _ignoredTouchPointers = <int>{};
   int? _activePointer;
+  bool _stylusActive = false;
 
   List<InkStroke> get strokes => List.unmodifiable(_strokes);
 
@@ -61,22 +70,41 @@ class InkCanvasState extends State<InkCanvas> {
   void clear() {
     _strokes.clear();
     _activePoints.clear();
+    _ignoredTouchPointers.clear();
     _activePointer = null;
+    _stylusActive = false;
     setState(() {});
   }
 
+  bool _isStylus(PointerEvent event) =>
+      event.kind == PointerDeviceKind.stylus ||
+      event.kind == PointerDeviceKind.invertedStylus;
+
   bool _accept(PointerEvent event) {
-    if (event.kind == PointerDeviceKind.stylus ||
-        event.kind == PointerDeviceKind.invertedStylus) {
-      return true;
-    }
+    if (_isStylus(event)) return true;
+    if (_stylusActive && event.kind == PointerDeviceKind.touch) return false;
     if (event.kind == PointerDeviceKind.mouse) return true;
     return !widget.stylusOnly && event.kind == PointerDeviceKind.touch;
   }
 
   void _onPointerDown(PointerDownEvent event) {
+    if (_isStylus(event)) {
+      _stylusActive = true;
+    }
+
+    if (event.kind == PointerDeviceKind.touch && _stylusActive) {
+      _ignoredTouchPointers.add(event.pointer);
+      return;
+    }
+
     if (_activePointer != null || !_accept(event)) return;
     _activePointer = event.pointer;
+
+    if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
+      _eraseAt(event.localPosition);
+      return;
+    }
+
     _activePoints
       ..clear()
       ..add(_pointFromEvent(event));
@@ -84,21 +112,110 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    if (_ignoredTouchPointers.contains(event.pointer)) return;
     if (_activePointer != event.pointer) return;
+
+    if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
+      _eraseAt(event.localPosition);
+      return;
+    }
+
     _activePoints.add(_pointFromEvent(event));
     setState(() {});
   }
 
   void _onPointerUp(PointerUpEvent event) {
-    if (_activePointer != event.pointer) return;
+    if (_ignoredTouchPointers.remove(event.pointer)) return;
+    if (_activePointer != event.pointer) {
+      if (_isStylus(event)) _stylusActive = false;
+      return;
+    }
+
+    if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
+      _activePointer = null;
+      if (_isStylus(event)) _stylusActive = false;
+      setState(() {});
+      return;
+    }
+
     _finishStroke(event);
+    if (_isStylus(event)) _stylusActive = false;
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
-    if (_activePointer != event.pointer) return;
-    _activePoints.clear();
-    _activePointer = null;
+    _ignoredTouchPointers.remove(event.pointer);
+    if (_activePointer == event.pointer) {
+      _activePoints.clear();
+      _activePointer = null;
+    }
+    if (_isStylus(event)) _stylusActive = false;
     setState(() {});
+  }
+
+  void _eraseAt(Offset position) {
+    if (_strokes.isEmpty) return;
+    InkStroke? hit;
+    for (final stroke in _strokes.reversed) {
+      if (_strokeHits(stroke, position, widget.eraserRadius)) {
+        hit = stroke;
+        break;
+      }
+    }
+    if (hit == null) return;
+    _strokes.remove(hit);
+    widget.onStrokeErased?.call(hit);
+    setState(() {});
+  }
+
+  bool _strokeHits(InkStroke stroke, Offset position, double radius) {
+    final radiusSquared = radius * radius;
+    for (final point in stroke.points) {
+      final dx = point.x - position.dx;
+      final dy = point.y - position.dy;
+      if (dx * dx + dy * dy <= radiusSquared) return true;
+    }
+
+    for (var index = 1; index < stroke.points.length; index++) {
+      final a = stroke.points[index - 1];
+      final b = stroke.points[index];
+      if (_distanceToSegmentSquared(
+            position.dx,
+            position.dy,
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+          ) <=
+          radiusSquared) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  double _distanceToSegmentSquared(
+    double px,
+    double py,
+    double ax,
+    double ay,
+    double bx,
+    double by,
+  ) {
+    final abx = bx - ax;
+    final aby = by - ay;
+    final lengthSquared = abx * abx + aby * aby;
+    if (lengthSquared == 0) {
+      final dx = px - ax;
+      final dy = py - ay;
+      return dx * dx + dy * dy;
+    }
+    final t = (((px - ax) * abx + (py - ay) * aby) / lengthSquared)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final nearestX = ax + abx * t;
+    final nearestY = ay + aby * t;
+    return math.pow(px - nearestX, 2).toDouble() +
+        math.pow(py - nearestY, 2).toDouble();
   }
 
   void _finishStroke(PointerEvent event) {

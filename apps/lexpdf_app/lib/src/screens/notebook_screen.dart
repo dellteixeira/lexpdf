@@ -33,6 +33,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   int _colorValue = 0xFF1C1B1F;
   double _width = 3.0;
   bool _stylusOnly = true;
+  bool _eraserMode = false;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -57,6 +58,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
       appBar: AppBar(
         title: const Text('Meu caderno'),
         actions: [
+          IconButton(
+            tooltip: _eraserMode ? 'Voltar para escrita' : 'Borracha por traço',
+            onPressed: () => setState(() => _eraserMode = !_eraserMode),
+            icon: Icon(_eraserMode ? Icons.edit_outlined : Icons.auto_fix_normal_outlined),
+            color: _eraserMode ? Theme.of(context).colorScheme.primary : null,
+          ),
           IconButton(
             tooltip: 'Desfazer último traço',
             onPressed: _undo,
@@ -107,8 +114,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           colorValue: _colorValue,
                           strokeWidth: _effectiveWidth,
                           stylusOnly: _stylusOnly,
+                          eraserMode: _eraserMode,
                           onStrokeCompleted: (stroke) {
                             unawaited(widget.inkStore.addStroke(stroke));
+                          },
+                          onStrokeErased: (stroke) {
+                            unawaited(widget.inkStore.deleteStroke(stroke.id));
                           },
                         ),
                       ),
@@ -144,7 +155,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 ButtonSegment(value: InkTool.highlighter, icon: Icon(Icons.border_color_outlined), label: Text('Marca-texto')),
               ],
               selected: {_tool},
-              onSelectionChanged: (selection) => setState(() => _tool = selection.first),
+              onSelectionChanged: (selection) => setState(() {
+                _tool = selection.first;
+                _eraserMode = false;
+              }),
+            ),
+            const SizedBox(width: 12),
+            FilterChip(
+              selected: _eraserMode,
+              avatar: const Icon(Icons.auto_fix_normal_outlined, size: 18),
+              label: const Text('Borracha'),
+              onSelected: (value) => setState(() => _eraserMode = value),
             ),
             const SizedBox(width: 16),
             for (final value in _palette)
@@ -152,7 +173,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 3),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
-                  onTap: () => setState(() => _colorValue = value),
+                  onTap: _eraserMode ? null : () => setState(() => _colorValue = value),
                   child: Container(
                     width: 28,
                     height: 28,
@@ -177,7 +198,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 min: 1,
                 max: 10,
                 value: _width,
-                onChanged: (value) => setState(() => _width = value),
+                onChanged: _eraserMode ? null : (value) => setState(() => _width = value),
               ),
             ),
             const SizedBox(width: 8),
