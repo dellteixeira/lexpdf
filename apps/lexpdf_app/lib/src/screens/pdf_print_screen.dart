@@ -113,10 +113,10 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
 
     try {
       if (pages.length == pageCount && pages.first == 1 && pages.last == pageCount) {
-        return File(workingPath).readAsBytes();
+        return await File(workingPath).readAsBytes();
       }
       final service = const PdfPageManipulationService();
-      return service.compose(
+      return await service.compose(
         pages
             .map((page) => PdfPageSpec(sourcePath: workingPath, pageNumber: page))
             .toList(growable: false),
