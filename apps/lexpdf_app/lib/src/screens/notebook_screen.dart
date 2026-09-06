@@ -20,12 +20,13 @@ class NotebookScreen extends StatefulWidget {
 
 class _NotebookSession {
   const _NotebookSession(this.page, this.strokes);
-
   final InkNotebookPage page;
   final List<InkStroke> strokes;
 }
 
 class _NotebookScreenState extends State<NotebookScreen> {
+  static const double _moveStep = 12;
+
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
   late final Future<_NotebookSession> _session = _loadSession();
 
@@ -130,10 +131,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: const [
-                            BoxShadow(
-                              blurRadius: 12,
-                              color: Color(0x22000000),
-                            ),
+                            BoxShadow(blurRadius: 12, color: Color(0x22000000)),
                           ],
                         ),
                         clipBehavior: Clip.antiAlias,
@@ -148,6 +146,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           eraserMode: _eraserMode,
                           lassoMode: _lassoMode,
                           onStrokeCompleted: (stroke) {
+                            unawaited(widget.inkStore.addStroke(stroke));
+                          },
+                          onStrokeUpdated: (stroke) {
                             unawaited(widget.inkStore.addStroke(stroke));
                           },
                           onStrokeErased: (stroke) {
@@ -236,6 +237,30 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 if (!value) _selectionCount = 0;
               }),
             ),
+            if (_lassoMode && _selectionCount > 0) ...[
+              const SizedBox(width: 8),
+              const Text('Mover'),
+              IconButton(
+                tooltip: 'Mover seleção para a esquerda',
+                onPressed: () => _moveSelection(-_moveStep, 0),
+                icon: const Icon(Icons.arrow_left),
+              ),
+              IconButton(
+                tooltip: 'Mover seleção para cima',
+                onPressed: () => _moveSelection(0, -_moveStep),
+                icon: const Icon(Icons.arrow_upward),
+              ),
+              IconButton(
+                tooltip: 'Mover seleção para baixo',
+                onPressed: () => _moveSelection(0, _moveStep),
+                icon: const Icon(Icons.arrow_downward),
+              ),
+              IconButton(
+                tooltip: 'Mover seleção para a direita',
+                onPressed: () => _moveSelection(_moveStep, 0),
+                icon: const Icon(Icons.arrow_right),
+              ),
+            ],
             const SizedBox(width: 16),
             for (final value in _palette)
               Padding(
@@ -287,6 +312,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
+  void _moveSelection(double dx, double dy) {
+    _canvasKey.currentState?.moveSelected(dx, dy);
+  }
+
   Future<void> _deleteSelection() async {
     final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
     for (final stroke in removed) {
@@ -297,9 +326,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   Future<void> _undo() async {
     final removed = _canvasKey.currentState?.undoLast();
-    if (removed != null) {
-      await widget.inkStore.deleteStroke(removed.id);
-    }
+    if (removed != null) await widget.inkStore.deleteStroke(removed.id);
   }
 
   Future<void> _clearPage() async {
