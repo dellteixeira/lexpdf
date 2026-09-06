@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../core/documents/document_picker_service.dart';
+import '../core/documents/document_provider.dart';
+import 'pdf_reader_screen.dart';
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -9,6 +13,8 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   int _selectedIndex = 0;
+  bool _openingDocument = false;
+  final DocumentPickerService _picker = const DocumentPickerService();
 
   static const _destinations = <(IconData, String)>[
     (Icons.folder_outlined, 'Biblioteca'),
@@ -42,8 +48,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           IconButton(
             tooltip: 'Abrir arquivo',
-            onPressed: () {},
-            icon: const Icon(Icons.file_open_outlined),
+            onPressed: _openingDocument ? null : _openPdf,
+            icon: _openingDocument
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.file_open_outlined),
           ),
           const Padding(
             padding: EdgeInsets.only(right: 12),
@@ -54,13 +65,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ],
       ),
-      drawer: compact ? Drawer(child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select)) : null,
+      drawer: compact
+          ? Drawer(
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
+            )
+          : null,
       body: Row(
         children: [
           if (!compact)
             SizedBox(
               width: 232,
-              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
             ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -71,7 +92,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 children: [
                   Text(
                     _destinations[_selectedIndex].$2,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -84,11 +108,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       maxCrossAxisExtent: 280,
                       mainAxisSpacing: 16,
                       crossAxisSpacing: 16,
-                      children: const [
-                        _QuickAction(icon: Icons.file_open_outlined, title: 'Abrir PDF', subtitle: 'Neste dispositivo'),
-                        _QuickAction(icon: Icons.note_add_outlined, title: 'Novo caderno', subtitle: 'Escrita e desenhos'),
-                        _QuickAction(icon: Icons.cloud_outlined, title: 'Conectar nuvem', subtitle: 'Google, OneDrive ou iCloud'),
-                        _QuickAction(icon: Icons.backup_outlined, title: 'Backup', subtitle: 'Local ou em nuvem'),
+                      children: [
+                        _QuickAction(
+                          icon: Icons.file_open_outlined,
+                          title: 'Abrir PDF',
+                          subtitle: 'Neste dispositivo',
+                          onTap: _openingDocument ? null : _openPdf,
+                        ),
+                        const _QuickAction(
+                          icon: Icons.note_add_outlined,
+                          title: 'Novo caderno',
+                          subtitle: 'Escrita e desenhos',
+                        ),
+                        const _QuickAction(
+                          icon: Icons.cloud_outlined,
+                          title: 'Conectar nuvem',
+                          subtitle: 'Google, OneDrive ou iCloud',
+                        ),
+                        const _QuickAction(
+                          icon: Icons.backup_outlined,
+                          title: 'Backup',
+                          subtitle: 'Local ou em nuvem',
+                        ),
                       ],
                     ),
                   ),
@@ -101,11 +142,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _openPdf() async {
+    if (_openingDocument) return;
+    setState(() => _openingDocument = true);
+
+    try {
+      final DocumentRef? document = await _picker.pickPdf();
+      if (!mounted || document == null) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PdfReaderScreen(document: document),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível abrir o PDF: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingDocument = false);
+    }
+  }
+
   void _select(int index) {
     setState(() => _selectedIndex = index);
-    if (Scaffold.maybeOf(context)?.isDrawerOpen ?? false) {
-      Navigator.of(context).pop();
-    }
   }
 }
 
@@ -127,7 +187,10 @@ class _Navigation extends StatelessWidget {
             child: Text('DOCUMENTOS'),
           ),
           for (final destination in _LibraryScreenState._destinations)
-            NavigationDrawerDestination(icon: Icon(destination.$1), label: Text(destination.$2)),
+            NavigationDrawerDestination(
+              icon: Icon(destination.$1),
+              label: Text(destination.$2),
+            ),
         ],
       ),
     );
@@ -135,18 +198,24 @@ class _Navigation extends StatelessWidget {
 }
 
 class _QuickAction extends StatelessWidget {
-  const _QuickAction({required this.icon, required this.title, required this.subtitle});
+  const _QuickAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+  });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {},
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -155,7 +224,13 @@ class _QuickAction extends StatelessWidget {
             children: [
               Icon(icon, size: 42),
               const Spacer(),
-              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Text(subtitle),
             ],
