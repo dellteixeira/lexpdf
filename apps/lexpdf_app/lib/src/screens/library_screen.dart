@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import 'notebook_screen.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -12,12 +14,14 @@ class LibraryScreen extends StatefulWidget {
     required this.catalog,
     required this.readingProgress,
     required this.annotations,
+    required this.inkStore,
     super.key,
   });
 
   final LocalDocumentCatalog catalog;
   final LocalReadingProgressStore readingProgress;
   final LocalTextAnnotationStore annotations;
+  final LocalInkStore inkStore;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -53,11 +57,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Buscar',
-            onPressed: () {},
-            icon: const Icon(Icons.search),
-          ),
+          IconButton(tooltip: 'Buscar', onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(
             tooltip: 'Abrir arquivo',
             onPressed: _openingDocument ? null : _openPdf,
@@ -144,6 +144,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
+    if (_selectedIndex == 3) {
+      return GridView.extent(
+        maxCrossAxisExtent: 320,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        children: [
+          _QuickAction(
+            icon: Icons.stylus_outlined,
+            title: 'Meu caderno',
+            subtitle: 'Caneta, pressão e marca-texto',
+            onTap: _openNotebook,
+          ),
+          const _QuickAction(
+            icon: Icons.add_box_outlined,
+            title: 'Novo caderno',
+            subtitle: 'Em breve: vários cadernos e páginas',
+          ),
+        ],
+      );
+    }
+
     if (_selectedIndex != 0) {
       return const _EmptyState(
         icon: Icons.construction_outlined,
@@ -163,10 +184,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           subtitle: 'Neste dispositivo',
           onTap: _openingDocument ? null : _openPdf,
         ),
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.note_add_outlined,
           title: 'Novo caderno',
           subtitle: 'Escrita e desenhos',
+          onTap: _openNotebook,
         ),
         const _QuickAction(
           icon: Icons.cloud_outlined,
@@ -196,11 +218,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
         final documents = snapshot.data ?? const <DocumentRef>[];
         if (documents.isEmpty) {
-          return _EmptyState(
-            icon: emptyIcon,
-            title: emptyTitle,
-            subtitle: emptySubtitle,
-          );
+          return _EmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
         }
 
         return ListView.separated(
@@ -211,15 +229,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.picture_as_pdf_outlined),
-                title: Text(
-                  document.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                title: Text(document.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(
-                  document.availableOffline
-                      ? 'Disponível offline'
-                      : 'Necessita download',
+                  document.availableOffline ? 'Disponível offline' : 'Necessita download',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -228,17 +240,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       tooltip: document.favorite
                           ? 'Remover dos favoritos'
                           : 'Adicionar aos favoritos',
-                      icon: Icon(
-                        document.favorite ? Icons.star : Icons.star_border,
-                      ),
+                      icon: Icon(document.favorite ? Icons.star : Icons.star_border),
                       onPressed: () => _toggleFavorite(document),
                     ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
-                onTap: document.availableOffline
-                    ? () => _openDocument(document)
-                    : null,
+                onTap: document.availableOffline ? () => _openDocument(document) : null,
               ),
             );
           },
@@ -255,7 +263,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _openPdf() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
-
     try {
       final DocumentRef? document = await _picker.pickPdf();
       if (!mounted || document == null) return;
@@ -285,6 +292,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _openNotebook() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NotebookScreen(inkStore: widget.inkStore),
+      ),
+    );
   }
 
   void _select(int index) {
@@ -385,17 +400,9 @@ class _EmptyState extends StatelessWidget {
           children: [
             Icon(icon, size: 56),
             const SizedBox(height: 16),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodyLarge,
-              textAlign: TextAlign.center,
-            ),
+            Text(subtitle, style: Theme.of(context).textTheme.bodyLarge, textAlign: TextAlign.center),
           ],
         ),
       ),
