@@ -11,6 +11,7 @@ import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../widgets/pdf_ink_page_overlay.dart';
+import 'ai_study_screen.dart';
 
 class PdfReaderScreen extends StatefulWidget {
   const PdfReaderScreen({
@@ -295,6 +296,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
           icon: const Icon(Icons.undo),
         ),
       ] else ...[
+        IconButton(
+          tooltip: 'Estudar documento',
+          onPressed: _openDocumentStudy,
+          icon: const Icon(Icons.auto_awesome_outlined),
+        ),
         IconButton(
           tooltip: 'Pesquisar no PDF',
           onPressed: () => setState(() => _searchMode = true),
@@ -596,6 +602,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     if (!params.textSelectionDelegate.hasSelectedText) return;
     items.addAll([
       ContextMenuButtonItem(
+        label: 'Estudar',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(_studyCurrentSelection());
+        },
+      ),
+      ContextMenuButtonItem(
         label: 'Grifar',
         onPressed: () {
           params.dismissContextMenu();
@@ -617,6 +630,39 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         },
       ),
     ]);
+  }
+
+  Future<void> _studyCurrentSelection() async {
+    final delegate = _viewerController.textSelectionDelegate;
+    final ranges = await delegate.getSelectedTextRanges();
+    if (ranges.isEmpty || !mounted) return;
+    final selected = ranges
+        .map((range) => range.text.trim())
+        .where((value) => value.isNotEmpty)
+        .join('\n');
+    await delegate.clearTextSelection();
+    if (selected.isEmpty || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AiStudyScreen(
+          initialText: selected,
+          title: 'Estudar seleção',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDocumentStudy() async {
+    final path = widget.document.localPath;
+    if (path == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AiStudyScreen(
+          documentPath: path,
+          title: 'Estudar ${widget.document.name}',
+        ),
+      ),
+    );
   }
 
   Future<void> _saveCurrentSelection(TextAnnotationType type) async {
