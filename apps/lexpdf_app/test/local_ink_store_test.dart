@@ -57,4 +57,46 @@ void main() {
     await store.deleteStroke('stroke-delete');
     expect(await store.listStrokes(page.id), isEmpty);
   });
+
+  test('addStroke atualiza pontos mantendo o mesmo id', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final store = LocalInkStore(database);
+    final page = await store.ensureDefaultPage();
+    final createdAt = DateTime.utc(2026, 9, 6);
+
+    await store.addStroke(InkStroke(
+      id: 'stroke-move',
+      pageId: page.id,
+      tool: InkTool.pen,
+      colorValue: 0xFF246BFD,
+      opacity: 1,
+      width: 3,
+      points: const [
+        InkPoint(x: 10, y: 20, pressure: 1, tilt: 0, timestampMicros: 1),
+        InkPoint(x: 30, y: 40, pressure: 1, tilt: 0, timestampMicros: 2),
+      ],
+      createdAt: createdAt,
+    ));
+
+    await store.addStroke(InkStroke(
+      id: 'stroke-move',
+      pageId: page.id,
+      tool: InkTool.pen,
+      colorValue: 0xFF246BFD,
+      opacity: 1,
+      width: 3,
+      points: const [
+        InkPoint(x: 22, y: 12, pressure: 1, tilt: 0, timestampMicros: 1),
+        InkPoint(x: 42, y: 32, pressure: 1, tilt: 0, timestampMicros: 2),
+      ],
+      createdAt: createdAt,
+    ));
+
+    final restored = await store.listStrokes(page.id);
+    expect(restored, hasLength(1));
+    expect(restored.single.id, 'stroke-move');
+    expect(restored.single.points.first.x, 22);
+    expect(restored.single.points.first.y, 12);
+  });
 }
