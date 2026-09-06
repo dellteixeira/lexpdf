@@ -48,4 +48,45 @@ void main() {
     expect(loaded.single.points.last.pressure, 0.8);
     expect(loaded.single.points.last.x, 0.5);
   });
+
+  test('exclui de forma persistente apenas o traço apagado do PDF', () async {
+    final db = LocalDatabase.inMemory();
+    addTearDown(db.close);
+
+    final catalog = LocalDocumentCatalog(db);
+    await catalog.upsert(
+      const DocumentRef(
+        id: 'doc-eraser',
+        provider: DocumentProviderKind.local,
+        name: 'rascunho.pdf',
+        localPath: '/tmp/rascunho.pdf',
+        availableOffline: true,
+        syncState: DocumentSyncState.localOnly,
+      ),
+    );
+
+    final store = LocalPdfInkStore(db);
+    PdfInkStroke stroke(String id, double x) => PdfInkStroke(
+          id: id,
+          documentId: 'doc-eraser',
+          pageNumber: 2,
+          tool: InkTool.pen,
+          colorValue: 0xFF246BFD,
+          opacity: 1,
+          width: 3,
+          points: [
+            InkPoint(x: x, y: 0.2, pressure: 1, tilt: 0, timestampMicros: 1),
+            InkPoint(x: x, y: 0.4, pressure: 1, tilt: 0, timestampMicros: 2),
+          ],
+          createdAt: DateTime.utc(2026, 9, 6),
+        );
+
+    await store.addStroke(stroke('stroke-a', 0.2));
+    await store.addStroke(stroke('stroke-b', 0.8));
+    await store.deleteStroke('stroke-a');
+
+    final loaded = await store.listForPage('doc-eraser', 2);
+    expect(loaded, hasLength(1));
+    expect(loaded.single.id, 'stroke-b');
+  });
 }
