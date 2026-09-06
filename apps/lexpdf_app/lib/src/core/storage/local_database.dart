@@ -16,7 +16,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
@@ -267,6 +267,82 @@ class LocalDatabase {
         ''');
         database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['7', 'schema_version']);
         database.userVersion = 7;
+        database.execute('COMMIT;');
+        version = 7;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 8) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          CREATE TABLE notebook_layers (
+            id TEXT PRIMARY KEY,
+            page_id TEXT NOT NULL REFERENCES notebook_pages(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL CHECK(sort_order >= 0),
+            is_visible INTEGER NOT NULL DEFAULT 1 CHECK(is_visible IN (0, 1)),
+            is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(page_id, sort_order)
+          );
+        ''');
+        database.execute('''
+          CREATE INDEX notebook_layers_page_idx
+          ON notebook_layers(page_id, sort_order);
+        ''');
+        database.execute('''
+          CREATE TABLE notebook_layer_items (
+            layer_id TEXT NOT NULL REFERENCES notebook_layers(id) ON DELETE CASCADE,
+            item_type TEXT NOT NULL CHECK(item_type IN ('stroke', 'object')),
+            item_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(item_type, item_id)
+          );
+        ''');
+        database.execute('''
+          CREATE INDEX notebook_layer_items_layer_idx
+          ON notebook_layer_items(layer_id, item_type);
+        ''');
+
+        final now = DateTime.now().toUtc().toIso8601String();
+        database.execute('''
+          INSERT INTO notebook_layers(
+            id, page_id, name, sort_order, is_visible, is_locked, created_at, updated_at
+          )
+          SELECT 'layer-' || id, id, 'Camada 1', 0, 1, 0, ?, ?
+          FROM notebook_pages;
+        ''', [now, now]);
+        database.execute('''
+          INSERT INTO notebook_layer_items(layer_id, item_type, item_id, created_at)
+          SELECT 'layer-' || page_id, 'stroke', id, ? FROM ink_strokes;
+        ''', [now]);
+        database.execute('''
+          INSERT INTO notebook_layer_items(layer_id, item_type, item_id, created_at)
+          SELECT 'layer-' || page_id, 'object', id, ? FROM notebook_objects;
+        ''', [now]);
+        database.execute('''
+          CREATE TRIGGER notebook_layer_items_cleanup_stroke
+          AFTER DELETE ON ink_strokes
+          BEGIN
+            DELETE FROM notebook_layer_items
+            WHERE item_type = 'stroke' AND item_id = OLD.id;
+          END;
+        ''');
+        database.execute('''
+          CREATE TRIGGER notebook_layer_items_cleanup_object
+          AFTER DELETE ON notebook_objects
+          BEGIN
+            DELETE FROM notebook_layer_items
+            WHERE item_type = 'object' AND item_id = OLD.id;
+          END;
+        ''');
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['8', 'schema_version']);
+        database.userVersion = 8;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');
