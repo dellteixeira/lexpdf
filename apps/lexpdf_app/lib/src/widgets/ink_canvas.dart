@@ -44,17 +44,20 @@ class InkCanvas extends StatefulWidget {
 
 class InkCanvasState extends State<InkCanvas> {
   static const _lasso = InkLasso();
+  static const double _pasteOffset = 16;
 
   final List<InkStroke> _strokes = <InkStroke>[];
   final List<InkPoint> _activePoints = <InkPoint>[];
   final List<Offset> _lassoPoints = <Offset>[];
   final Set<String> _selectedStrokeIds = <String>{};
   final Set<int> _ignoredTouchPointers = <int>{};
+  List<InkStroke> _clipboard = const [];
   int? _activePointer;
   bool _stylusActive = false;
 
   List<InkStroke> get strokes => List.unmodifiable(_strokes);
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
+  bool get hasClipboard => _clipboard.isNotEmpty;
 
   @override
   void initState() {
@@ -65,8 +68,7 @@ class InkCanvasState extends State<InkCanvas> {
   @override
   void didUpdateWidget(covariant InkCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialStrokes != widget.initialStrokes &&
-        _activePointer == null) {
+    if (oldWidget.initialStrokes != widget.initialStrokes && _activePointer == null) {
       _strokes
         ..clear()
         ..addAll(widget.initialStrokes);
@@ -91,14 +93,76 @@ class InkCanvasState extends State<InkCanvas> {
 
   List<InkStroke> deleteSelected() {
     if (_selectedStrokeIds.isEmpty) return const [];
-    final removed = _strokes
-        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
-        .toList(growable: false);
+    final removed = _selectedStrokes();
     _strokes.removeWhere((stroke) => _selectedStrokeIds.contains(stroke.id));
     _selectedStrokeIds.clear();
     _notifySelection();
     setState(() {});
     return removed;
+  }
+
+  List<InkStroke> copySelected() {
+    final selected = _selectedStrokes();
+    if (selected.isEmpty) return const [];
+    _clipboard = selected.map(_snapshotStroke).toList(growable: false);
+    return List.unmodifiable(_clipboard);
+  }
+
+  List<InkStroke> cutSelected() {
+    final copied = copySelected();
+    if (copied.isEmpty) return const [];
+    final removed = deleteSelected();
+    for (final stroke in removed) {
+      widget.onStrokeErased?.call(stroke);
+    }
+    return removed;
+  }
+
+  List<InkStroke> duplicateSelected() {
+    final selected = _selectedStrokes();
+    if (selected.isEmpty) return const [];
+    return _insertCopies(selected);
+  }
+
+  List<InkStroke> pasteClipboard() {
+    if (_clipboard.isEmpty) return const [];
+    return _insertCopies(_clipboard);
+  }
+
+  List<InkStroke> _insertCopies(List<InkStroke> source) {
+    final now = DateTime.now().toUtc();
+    final inserted = <InkStroke>[];
+    for (var index = 0; index < source.length; index++) {
+      final original = source[index];
+      final createdAt = now.add(Duration(microseconds: index));
+      final copy = InkStroke(
+        id: '${createdAt.microsecondsSinceEpoch.toRadixString(36)}-$index',
+        pageId: widget.pageId,
+        tool: original.tool,
+        colorValue: original.colorValue,
+        opacity: original.opacity,
+        width: original.width,
+        points: List<InkPoint>.unmodifiable(
+          original.points.map(
+            (point) => _copyPoint(
+              point,
+              x: point.x + _pasteOffset,
+              y: point.y + _pasteOffset,
+            ),
+          ),
+        ),
+        createdAt: createdAt,
+      );
+      _strokes.add(copy);
+      inserted.add(copy);
+      widget.onStrokeCompleted(copy);
+    }
+    _selectedStrokeIds
+      ..clear()
+      ..addAll(inserted.map((stroke) => stroke.id));
+    _notifySelection();
+    setState(() {});
+    return List.unmodifiable(inserted);
   }
 
   List<InkStroke> moveSelected(double dx, double dy) {
@@ -156,11 +220,12 @@ class InkCanvasState extends State<InkCanvas> {
     });
   }
 
+  List<InkStroke> _selectedStrokes() => _strokes
+      .where((stroke) => _selectedStrokeIds.contains(stroke.id))
+      .toList(growable: false);
+
   Offset? _selectionCenter() {
-    final points = _strokes
-        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
-        .expand((stroke) => stroke.points)
-        .toList(growable: false);
+    final points = _selectedStrokes().expand((stroke) => stroke.points).toList();
     if (points.isEmpty) return null;
     var minX = points.first.x;
     var minY = points.first.y;
@@ -188,6 +253,17 @@ class InkCanvasState extends State<InkCanvas> {
     setState(() {});
     return List.unmodifiable(updated);
   }
+
+  InkStroke _snapshotStroke(InkStroke stroke) => InkStroke(
+        id: stroke.id,
+        pageId: stroke.pageId,
+        tool: stroke.tool,
+        colorValue: stroke.colorValue,
+        opacity: stroke.opacity,
+        width: stroke.width,
+        points: List<InkPoint>.unmodifiable(stroke.points),
+        createdAt: stroke.createdAt,
+      );
 
   InkStroke _copyStroke(
     InkStroke stroke, {
@@ -224,6 +300,7 @@ class InkCanvasState extends State<InkCanvas> {
     _lassoPoints.clear();
     _selectedStrokeIds.clear();
     _ignoredTouchPointers.clear();
+    _clipboard = const [];
     _activePointer = null;
     _stylusActive = false;
     _notifySelection();
@@ -487,17 +564,8 @@ class _InkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _paintStroke(
-        canvas,
-        stroke.points,
-        stroke.tool,
-        stroke.colorValue,
-        stroke.width,
-        stroke.opacity,
-      );
-      if (selectedStrokeIds.contains(stroke.id)) {
-        _paintSelectionBounds(canvas, stroke);
-      }
+      _paintStroke(canvas, stroke.points, stroke.tool, stroke.colorValue, stroke.width, stroke.opacity);
+      if (selectedStrokeIds.contains(stroke.id)) _paintSelectionBounds(canvas, stroke);
     }
     if (activePoints.length >= 2) {
       _paintStroke(
