@@ -41,6 +41,7 @@ class _NotebookBackgroundPainter extends CustomPainter {
         for (double y = 36; y < size.height; y += 36) {
           canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
         }
+        return;
       case InkPageBackground.grid:
         for (double y = 32; y < size.height; y += 32) {
           canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
@@ -48,6 +49,7 @@ class _NotebookBackgroundPainter extends CustomPainter {
         for (double x = 32; x < size.width; x += 32) {
           canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
         }
+        return;
       case InkPageBackground.dotted:
         final dotPaint = Paint()..color = const Color(0x405F6B7A);
         for (double y = 28; y < size.height; y += 28) {
@@ -55,6 +57,7 @@ class _NotebookBackgroundPainter extends CustomPainter {
             canvas.drawCircle(Offset(x, y), 1.15, dotPaint);
           }
         }
+        return;
       case InkPageBackground.cornell:
         final cueX = size.width * 0.28;
         final summaryY = size.height * 0.82;
@@ -67,20 +70,25 @@ class _NotebookBackgroundPainter extends CustomPainter {
         for (double y = 36; y < summaryY; y += 36) {
           canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
         }
+        return;
       case InkPageBackground.planner:
         const margin = 28.0;
         final headerHeight = size.height * 0.12;
         final columnWidth = (size.width - margin * 2) / 3;
+        final plannerPaint = Paint()
+          ..color = const Color(0x305F6B7A)
+          ..strokeWidth = 1.3
+          ..style = PaintingStyle.stroke;
         canvas.drawRect(
           Rect.fromLTWH(margin, margin, size.width - margin * 2, headerHeight),
-          accentPaint..style = PaintingStyle.stroke,
+          plannerPaint,
         );
         for (var column = 0; column <= 3; column++) {
           final x = margin + columnWidth * column;
           canvas.drawLine(
             Offset(x, margin + headerHeight + 16),
             Offset(x, size.height - margin),
-            accentPaint,
+            plannerPaint,
           );
         }
         for (double y = margin + headerHeight + 52; y < size.height - margin; y += 44) {
@@ -90,6 +98,7 @@ class _NotebookBackgroundPainter extends CustomPainter {
             linePaint,
           );
         }
+        return;
     }
   }
 
