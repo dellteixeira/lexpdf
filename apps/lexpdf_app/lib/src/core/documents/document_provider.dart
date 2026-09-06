@@ -26,6 +26,7 @@ class DocumentRef {
     this.remoteId,
     this.remotePath,
     this.availableOffline = false,
+    this.favorite = false,
     this.syncState = DocumentSyncState.localOnly,
   });
 
@@ -36,6 +37,7 @@ class DocumentRef {
   final String? remoteId;
   final String? remotePath;
   final bool availableOffline;
+  final bool favorite;
   final DocumentSyncState syncState;
 }
 
