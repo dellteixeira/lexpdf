@@ -52,7 +52,7 @@ class InkShapeRecognizer {
 
     final aspect = width / height;
     final ellipseScore = _ellipseRadialVariance(stroke.points, bounds);
-    final type = aspect >= 0.65 && aspect <= 1.55 && ellipseScore < 0.12
+    final type = aspect >= 0.65 && aspect <= 1.55 && ellipseScore < 0.02
         ? NotebookObjectType.ellipse
         : NotebookObjectType.rectangle;
     return InkShapeRecognition(
