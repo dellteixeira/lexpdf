@@ -4,6 +4,7 @@ import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_ink_store.dart';
+import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import 'notebook_screen.dart';
@@ -15,6 +16,7 @@ class LibraryScreen extends StatefulWidget {
     required this.readingProgress,
     required this.annotations,
     required this.inkStore,
+    required this.pdfInkStore,
     super.key,
   });
 
@@ -22,6 +24,7 @@ class LibraryScreen extends StatefulWidget {
   final LocalReadingProgressStore readingProgress;
   final LocalTextAnnotationStore annotations;
   final LocalInkStore inkStore;
+  final LocalPdfInkStore pdfInkStore;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -79,10 +82,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       drawer: compact
           ? Drawer(
-              child: _Navigation(
-                selectedIndex: _selectedIndex,
-                onSelect: _select,
-              ),
+              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
             )
           : null,
       body: Row(
@@ -90,10 +90,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           if (!compact)
             SizedBox(
               width: 232,
-              child: _Navigation(
-                selectedIndex: _selectedIndex,
-                onSelect: _select,
-              ),
+              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
             ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -104,10 +101,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 children: [
                   Text(
                     _destinations[_selectedIndex].$2,
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -134,7 +128,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptySubtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
       );
     }
-
     if (_selectedIndex == 2) {
       return _buildDocumentList(
         future: widget.catalog.listFavorites(limit: 100),
@@ -143,7 +136,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptySubtitle: 'Toque na estrela de um documento para mantê-lo aqui.',
       );
     }
-
     if (_selectedIndex == 3) {
       return GridView.extent(
         maxCrossAxisExtent: 320,
@@ -164,7 +156,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       );
     }
-
     if (_selectedIndex != 0) {
       return const _EmptyState(
         icon: Icons.construction_outlined,
@@ -172,7 +163,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         subtitle: 'Esta área já está reservada na arquitetura do LexPDF.',
       );
     }
-
     return GridView.extent(
       maxCrossAxisExtent: 280,
       mainAxisSpacing: 16,
@@ -190,16 +180,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           subtitle: 'Escrita e desenhos',
           onTap: _openNotebook,
         ),
-        const _QuickAction(
-          icon: Icons.cloud_outlined,
-          title: 'Conectar nuvem',
-          subtitle: 'Google, OneDrive ou iCloud',
-        ),
-        const _QuickAction(
-          icon: Icons.backup_outlined,
-          title: 'Backup',
-          subtitle: 'Local ou em nuvem',
-        ),
+        const _QuickAction(icon: Icons.cloud_outlined, title: 'Conectar nuvem', subtitle: 'Google, OneDrive ou iCloud'),
+        const _QuickAction(icon: Icons.backup_outlined, title: 'Backup', subtitle: 'Local ou em nuvem'),
       ],
     );
   }
@@ -220,7 +202,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (documents.isEmpty) {
           return _EmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
         }
-
         return ListView.separated(
           itemCount: documents.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -230,16 +211,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               child: ListTile(
                 leading: const Icon(Icons.picture_as_pdf_outlined),
                 title: Text(document.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(
-                  document.availableOffline ? 'Disponível offline' : 'Necessita download',
-                ),
+                subtitle: Text(document.availableOffline ? 'Disponível offline' : 'Necessita download'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: document.favorite
-                          ? 'Remover dos favoritos'
-                          : 'Adicionar aos favoritos',
+                      tooltip: document.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
                       icon: Icon(document.favorite ? Icons.star : Icons.star_border),
                       onPressed: () => _toggleFavorite(document),
                     ),
@@ -264,7 +241,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
     try {
-      final DocumentRef? document = await _picker.pickPdf();
+      final document = await _picker.pickPdf();
       if (!mounted || document == null) return;
       await widget.catalog.upsert(document);
       final stored = await widget.catalog.getById(document.id) ?? document;
@@ -288,6 +265,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           document: document,
           readingProgress: widget.readingProgress,
           annotations: widget.annotations,
+          pdfInkStore: widget.pdfInkStore,
         ),
       ),
     );
@@ -302,14 +280,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  void _select(int index) {
-    setState(() => _selectedIndex = index);
-  }
+  void _select(int index) => setState(() => _selectedIndex = index);
 }
 
 class _Navigation extends StatelessWidget {
   const _Navigation({required this.selectedIndex, required this.onSelect});
-
   final int selectedIndex;
   final ValueChanged<int> onSelect;
 
@@ -325,10 +300,7 @@ class _Navigation extends StatelessWidget {
             child: Text('DOCUMENTOS'),
           ),
           for (final destination in _LibraryScreenState._destinations)
-            NavigationDrawerDestination(
-              icon: Icon(destination.$1),
-              label: Text(destination.$2),
-            ),
+            NavigationDrawerDestination(icon: Icon(destination.$1), label: Text(destination.$2)),
         ],
       ),
     );
@@ -336,13 +308,7 @@ class _Navigation extends StatelessWidget {
 }
 
 class _QuickAction extends StatelessWidget {
-  const _QuickAction({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.onTap,
-  });
-
+  const _QuickAction({required this.icon, required this.title, required this.subtitle, this.onTap});
   final IconData icon;
   final String title;
   final String subtitle;
@@ -362,13 +328,7 @@ class _QuickAction extends StatelessWidget {
             children: [
               Icon(icon, size: 42),
               const Spacer(),
-              Text(
-                title,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
+              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
               Text(subtitle),
             ],
@@ -380,12 +340,7 @@ class _QuickAction extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
+  const _EmptyState({required this.icon, required this.title, required this.subtitle});
   final IconData icon;
   final String title;
   final String subtitle;
