@@ -3,6 +3,7 @@ import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 
+import '../core/ink/ink_lasso.dart';
 import '../core/ink/ink_models.dart';
 
 class InkCanvas extends StatefulWidget {
@@ -14,8 +15,10 @@ class InkCanvas extends StatefulWidget {
     required this.strokeWidth,
     required this.onStrokeCompleted,
     this.onStrokeErased,
+    this.onSelectionChanged,
     this.stylusOnly = true,
     this.eraserMode = false,
+    this.lassoMode = false,
     this.eraserRadius = 18,
     super.key,
   });
@@ -27,22 +30,29 @@ class InkCanvas extends StatefulWidget {
   final double strokeWidth;
   final bool stylusOnly;
   final bool eraserMode;
+  final bool lassoMode;
   final double eraserRadius;
   final ValueChanged<InkStroke> onStrokeCompleted;
   final ValueChanged<InkStroke>? onStrokeErased;
+  final ValueChanged<Set<String>>? onSelectionChanged;
 
   @override
   State<InkCanvas> createState() => InkCanvasState();
 }
 
 class InkCanvasState extends State<InkCanvas> {
+  static const _lasso = InkLasso();
+
   final List<InkStroke> _strokes = <InkStroke>[];
   final List<InkPoint> _activePoints = <InkPoint>[];
+  final List<Offset> _lassoPoints = <Offset>[];
+  final Set<String> _selectedStrokeIds = <String>{};
   final Set<int> _ignoredTouchPointers = <int>{};
   int? _activePointer;
   bool _stylusActive = false;
 
   List<InkStroke> get strokes => List.unmodifiable(_strokes);
+  Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
 
   @override
   void initState() {
@@ -57,22 +67,48 @@ class InkCanvasState extends State<InkCanvas> {
       _strokes
         ..clear()
         ..addAll(widget.initialStrokes);
+      _selectedStrokeIds.removeWhere(
+        (id) => !_strokes.any((stroke) => stroke.id == id),
+      );
+    }
+    if (oldWidget.lassoMode && !widget.lassoMode) {
+      _lassoPoints.clear();
+      _clearSelection();
     }
   }
 
   InkStroke? undoLast() {
     if (_strokes.isEmpty) return null;
     final removed = _strokes.removeLast();
+    _selectedStrokeIds.remove(removed.id);
+    _notifySelection();
     setState(() {});
     return removed;
   }
 
+  List<InkStroke> deleteSelected() {
+    if (_selectedStrokeIds.isEmpty) return const [];
+    final removed = _strokes
+        .where((stroke) => _selectedStrokeIds.contains(stroke.id))
+        .toList(growable: false);
+    _strokes.removeWhere((stroke) => _selectedStrokeIds.contains(stroke.id));
+    _selectedStrokeIds.clear();
+    _notifySelection();
+    setState(() {});
+    return removed;
+  }
+
+  void clearSelection() => _clearSelection();
+
   void clear() {
     _strokes.clear();
     _activePoints.clear();
+    _lassoPoints.clear();
+    _selectedStrokeIds.clear();
     _ignoredTouchPointers.clear();
     _activePointer = null;
     _stylusActive = false;
+    _notifySelection();
     setState(() {});
   }
 
@@ -88,9 +124,7 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   void _onPointerDown(PointerDownEvent event) {
-    if (_isStylus(event)) {
-      _stylusActive = true;
-    }
+    if (_isStylus(event)) _stylusActive = true;
 
     if (event.kind == PointerDeviceKind.touch && _stylusActive) {
       _ignoredTouchPointers.add(event.pointer);
@@ -99,6 +133,15 @@ class InkCanvasState extends State<InkCanvas> {
 
     if (_activePointer != null || !_accept(event)) return;
     _activePointer = event.pointer;
+
+    if (widget.lassoMode) {
+      _lassoPoints
+        ..clear()
+        ..add(event.localPosition);
+      _clearSelection(notify: false);
+      setState(() {});
+      return;
+    }
 
     if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
       _eraseAt(event.localPosition);
@@ -115,6 +158,12 @@ class InkCanvasState extends State<InkCanvas> {
     if (_ignoredTouchPointers.contains(event.pointer)) return;
     if (_activePointer != event.pointer) return;
 
+    if (widget.lassoMode) {
+      _lassoPoints.add(event.localPosition);
+      setState(() {});
+      return;
+    }
+
     if (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus) {
       _eraseAt(event.localPosition);
       return;
@@ -128,6 +177,22 @@ class InkCanvasState extends State<InkCanvas> {
     if (_ignoredTouchPointers.remove(event.pointer)) return;
     if (_activePointer != event.pointer) {
       if (_isStylus(event)) _stylusActive = false;
+      return;
+    }
+
+    if (widget.lassoMode) {
+      _lassoPoints.add(event.localPosition);
+      final selected = _lasso.selectStrokes(
+        strokes: _strokes,
+        polygon: _lassoPoints,
+      );
+      _selectedStrokeIds
+        ..clear()
+        ..addAll(selected);
+      _activePointer = null;
+      _notifySelection();
+      if (_isStylus(event)) _stylusActive = false;
+      setState(() {});
       return;
     }
 
@@ -146,10 +211,22 @@ class InkCanvasState extends State<InkCanvas> {
     _ignoredTouchPointers.remove(event.pointer);
     if (_activePointer == event.pointer) {
       _activePoints.clear();
+      _lassoPoints.clear();
       _activePointer = null;
     }
     if (_isStylus(event)) _stylusActive = false;
     setState(() {});
+  }
+
+  void _clearSelection({bool notify = true}) {
+    if (_selectedStrokeIds.isEmpty) return;
+    _selectedStrokeIds.clear();
+    if (notify) _notifySelection();
+    setState(() {});
+  }
+
+  void _notifySelection() {
+    widget.onSelectionChanged?.call(Set.unmodifiable(_selectedStrokeIds));
   }
 
   void _eraseAt(Offset position) {
@@ -163,7 +240,9 @@ class InkCanvasState extends State<InkCanvas> {
     }
     if (hit == null) return;
     _strokes.remove(hit);
+    _selectedStrokeIds.remove(hit.id);
     widget.onStrokeErased?.call(hit);
+    _notifySelection();
     setState(() {});
   }
 
@@ -268,6 +347,8 @@ class InkCanvasState extends State<InkCanvas> {
         painter: _InkPainter(
           strokes: _strokes,
           activePoints: _activePoints,
+          lassoPoints: _lassoPoints,
+          selectedStrokeIds: _selectedStrokeIds,
           activeTool: widget.tool,
           activeColorValue: widget.colorValue,
           activeWidth: widget.strokeWidth,
@@ -282,6 +363,8 @@ class _InkPainter extends CustomPainter {
   const _InkPainter({
     required this.strokes,
     required this.activePoints,
+    required this.lassoPoints,
+    required this.selectedStrokeIds,
     required this.activeTool,
     required this.activeColorValue,
     required this.activeWidth,
@@ -289,6 +372,8 @@ class _InkPainter extends CustomPainter {
 
   final List<InkStroke> strokes;
   final List<InkPoint> activePoints;
+  final List<Offset> lassoPoints;
+  final Set<String> selectedStrokeIds;
   final InkTool activeTool;
   final int activeColorValue;
   final double activeWidth;
@@ -304,6 +389,9 @@ class _InkPainter extends CustomPainter {
         stroke.width,
         stroke.opacity,
       );
+      if (selectedStrokeIds.contains(stroke.id)) {
+        _paintSelectionBounds(canvas, stroke);
+      }
     }
     if (activePoints.length >= 2) {
       _paintStroke(
@@ -315,6 +403,41 @@ class _InkPainter extends CustomPainter {
         activeTool == InkTool.highlighter ? 0.28 : 1.0,
       );
     }
+    if (lassoPoints.length >= 2) {
+      final path = Path()..moveTo(lassoPoints.first.dx, lassoPoints.first.dy);
+      for (final point in lassoPoints.skip(1)) {
+        path.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = Colors.blueGrey.withValues(alpha: 0.85)
+          ..strokeWidth = 1.5
+          ..style = PaintingStyle.stroke,
+      );
+    }
+  }
+
+  void _paintSelectionBounds(Canvas canvas, InkStroke stroke) {
+    if (stroke.points.isEmpty) return;
+    var minX = stroke.points.first.x;
+    var minY = stroke.points.first.y;
+    var maxX = minX;
+    var maxY = minY;
+    for (final point in stroke.points.skip(1)) {
+      minX = math.min(minX, point.x);
+      minY = math.min(minY, point.y);
+      maxX = math.max(maxX, point.x);
+      maxY = math.max(maxY, point.y);
+    }
+    final rect = Rect.fromLTRB(minX, minY, maxX, maxY).inflate(4);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = Colors.blueGrey.withValues(alpha: 0.9)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke,
+    );
   }
 
   void _paintStroke(
