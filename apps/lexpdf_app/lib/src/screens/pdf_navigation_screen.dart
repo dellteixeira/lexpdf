@@ -6,6 +6,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
+import 'pdf_export_screen.dart';
 import 'pdf_page_tools_screen.dart';
 
 class PdfNavigationScreen extends StatefulWidget {
@@ -113,6 +114,11 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
             onPressed: _openPageTools,
             icon: const Icon(Icons.view_week_outlined),
           ),
+          IconButton(
+            tooltip: 'Exportar PDF anotado',
+            onPressed: _openExport,
+            icon: const Icon(Icons.ios_share_outlined),
+          ),
           PopupMenuButton<_PdfViewMode>(
             tooltip: 'Modo de visualização',
             initialValue: _viewMode,
@@ -174,6 +180,17 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PdfPageToolsScreen(document: widget.document),
+      ),
+    );
+  }
+
+  Future<void> _openExport() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfExportScreen(
+          document: widget.document,
+          db: widget.store.db,
+        ),
       ),
     );
   }
