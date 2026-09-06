@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   file_selector: ^1.1.0
   path_provider: ^2.1.5
+  pdf: ^3.13.0
   pdfrx: ^2.6.1
   sqlite3: ^2.9.3
   sqlite3_flutter_libs: ^0.5.42
