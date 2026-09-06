@@ -18,11 +18,15 @@ class PdfInkEraser {
 
   PdfInkEraseResult? eraseAt({
     required PdfInkStroke stroke,
-    required double x,
-    required double y,
+    required double localX,
+    required double localY,
+    required double pageWidth,
+    required double pageHeight,
     required double radius,
   }) {
-    if (stroke.points.length < 2) return null;
+    if (stroke.points.length < 2 || pageWidth <= 0 || pageHeight <= 0) {
+      return null;
+    }
 
     final keep = List<bool>.filled(stroke.points.length, true);
     var touched = false;
@@ -30,8 +34,10 @@ class PdfInkEraser {
 
     for (var index = 0; index < stroke.points.length; index++) {
       final point = stroke.points[index];
-      final dx = point.x - x;
-      final dy = point.y - y;
+      final px = point.x * pageWidth;
+      final py = point.y * pageHeight;
+      final dx = px - localX;
+      final dy = py - localY;
       if (dx * dx + dy * dy <= radiusSquared) {
         keep[index] = false;
         touched = true;
@@ -41,7 +47,14 @@ class PdfInkEraser {
     for (var index = 1; index < stroke.points.length; index++) {
       final a = stroke.points[index - 1];
       final b = stroke.points[index];
-      if (_distanceToSegmentSquared(x, y, a.x, a.y, b.x, b.y) <=
+      if (_distanceToSegmentSquared(
+            localX,
+            localY,
+            a.x * pageWidth,
+            a.y * pageHeight,
+            b.x * pageWidth,
+            b.y * pageHeight,
+          ) <=
           radiusSquared) {
         keep[index - 1] = false;
         keep[index] = false;
