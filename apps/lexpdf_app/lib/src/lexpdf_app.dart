@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/storage/local_database.dart';
 import 'core/storage/local_document_catalog.dart';
 import 'core/storage/local_ink_store.dart';
+import 'core/storage/local_pdf_ink_store.dart';
 import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
 import 'screens/library_screen.dart';
@@ -26,6 +27,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
   late final LocalTextAnnotationStore _annotations =
       LocalTextAnnotationStore(widget.database);
   late final LocalInkStore _inkStore = LocalInkStore(widget.database);
+  late final LocalPdfInkStore _pdfInkStore = LocalPdfInkStore(widget.database);
 
   @override
   void dispose() {
@@ -53,6 +55,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
         readingProgress: _readingProgress,
         annotations: _annotations,
         inkStore: _inkStore,
+        pdfInkStore: _pdfInkStore,
       ),
     );
   }
