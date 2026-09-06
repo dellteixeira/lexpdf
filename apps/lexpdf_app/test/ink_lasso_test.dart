@@ -1,5 +1,3 @@
-import 'dart:ui' show Offset;
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lexxpdf_app/src/core/ink/ink_lasso.dart';
 import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
