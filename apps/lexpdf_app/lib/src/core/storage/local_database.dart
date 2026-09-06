@@ -16,7 +16,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
@@ -25,7 +25,7 @@ class LocalDatabase {
   }
 
   void _migrate() {
-    final version = database.userVersion;
+    var version = database.userVersion;
     if (version > schemaVersion) {
       throw StateError(
         'Banco local criado por uma versão mais nova do LexPDF: $version.',
@@ -89,9 +89,33 @@ class LocalDatabase {
 
         database.execute(
           'INSERT INTO app_metadata(key, value) VALUES (?, ?);',
-          ['schema_version', schemaVersion.toString()],
+          ['schema_version', '1'],
         );
-        database.userVersion = schemaVersion;
+        database.userVersion = 1;
+        database.execute('COMMIT;');
+        version = 1;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 2) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          ALTER TABLE documents
+          ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;
+        ''');
+        database.execute('''
+          CREATE INDEX documents_favorite_idx
+          ON documents(is_favorite, COALESCE(last_opened_at, updated_at) DESC);
+        ''');
+        database.execute(
+          'UPDATE app_metadata SET value = ? WHERE key = ?;',
+          ['2', 'schema_version'],
+        );
+        database.userVersion = 2;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');
