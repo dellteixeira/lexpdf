@@ -13,6 +13,9 @@ import 'package:lexxpdf_app/src/core/storage/local_text_annotation_store.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  pdfrxFlutterInitialize();
+
   const pageCount = 520;
   const documentId = 'acceptance-520';
 
