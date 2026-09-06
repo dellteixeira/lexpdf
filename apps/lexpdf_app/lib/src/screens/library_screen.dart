@@ -151,7 +151,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         crossAxisSpacing: 16,
         children: [
           _QuickAction(
-            icon: Icons.stylus_outlined,
+            icon: Icons.edit_outlined,
             title: 'Meu caderno',
             subtitle: 'Caneta, pressão e marca-texto',
             onTap: _openNotebook,
