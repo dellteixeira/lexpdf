@@ -9,6 +9,7 @@ import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import 'notebook_export_screen.dart';
 import 'notebook_screen.dart';
+import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -177,6 +178,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           onTap: _openingDocument ? null : _openPdf,
         ),
         _QuickAction(
+          icon: Icons.draw_outlined,
+          title: 'Anotar PDF',
+          subtitle: 'Notas, texto, formas, carimbos e assinatura',
+          onTap: _openingDocument ? null : _openAdvancedAnnotations,
+        ),
+        _QuickAction(
           icon: Icons.note_add_outlined,
           title: 'Novo caderno',
           subtitle: 'Escrita e desenhos',
@@ -218,6 +225,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      tooltip: 'Anotações avançadas',
+                      icon: const Icon(Icons.draw_outlined),
+                      onPressed: document.availableOffline
+                          ? () => _openAdvancedDocument(document)
+                          : null,
+                    ),
+                    IconButton(
                       tooltip: document.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
                       icon: Icon(document.favorite ? Icons.star : Icons.star_border),
                       onPressed: () => _toggleFavorite(document),
@@ -258,6 +272,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _openAdvancedAnnotations() async {
+    if (_openingDocument) return;
+    setState(() => _openingDocument = true);
+    try {
+      final document = await _picker.pickPdf();
+      if (!mounted || document == null) return;
+      await widget.catalog.upsert(document);
+      final stored = await widget.catalog.getById(document.id) ?? document;
+      await _openAdvancedDocument(stored);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível abrir o editor de anotações: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingDocument = false);
+    }
+  }
+
   Future<void> _openDocument(DocumentRef document) async {
     await widget.catalog.markOpened(document.id);
     if (!mounted) return;
@@ -268,6 +301,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
           readingProgress: widget.readingProgress,
           annotations: widget.annotations,
           pdfInkStore: widget.pdfInkStore,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openAdvancedDocument(DocumentRef document) async {
+    await widget.catalog.markOpened(document.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfAdvancedAnnotationScreen(
+          document: document,
+          annotations: widget.annotations,
         ),
       ),
     );

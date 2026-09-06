@@ -1,4 +1,5 @@
 import 'local_database.dart';
+import 'local_pdf_annotation_object_store.dart';
 
 enum TextAnnotationType {
   highlight,
@@ -59,6 +60,9 @@ class LocalTextAnnotationStore {
   const LocalTextAnnotationStore(this.db);
 
   final LocalDatabase db;
+
+  LocalPdfAnnotationObjectStore get objectStore =>
+      LocalPdfAnnotationObjectStore(db);
 
   Future<List<LocalTextAnnotation>> listForDocument(String documentId) async {
     final rows = db.database.select(
