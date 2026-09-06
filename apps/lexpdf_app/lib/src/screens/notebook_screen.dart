@@ -4,9 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/ink/ink_models.dart';
+import '../core/notebook/notebook_object_models.dart';
 import '../core/storage/local_ink_store.dart';
+import '../core/storage/local_notebook_object_store.dart';
 import '../widgets/ink_canvas.dart';
+import '../widgets/notebook_object_layer.dart';
 import '../widgets/notebook_page_background.dart';
+import '../widgets/notebook_ruler_overlay.dart';
 
 class NotebookScreen extends StatefulWidget {
   const NotebookScreen({required this.inkStore, super.key});
@@ -26,13 +30,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const double _widthUp = 1.15;
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
-  late final Future<void> _loadFuture = _loadInitial();
+  late final LocalNotebookObjectStore _objectStore;
+  late final Future<void> _loadFuture;
 
   List<InkNotebook> _notebooks = const [];
   List<InkNotebookPage> _pages = const [];
   InkNotebook? _currentNotebook;
   InkNotebookPage? _currentPage;
   List<InkStroke> _currentStrokes = const [];
+  List<NotebookObject> _objects = const [];
 
   InkTool _tool = InkTool.pen;
   int _colorValue = 0xFF1C1B1F;
@@ -42,6 +48,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _lassoMode = false;
   bool _clipboardAvailable = false;
   int _selectionCount = 0;
+
+  bool _objectMode = false;
+  bool _rulerMode = false;
+  String? _selectedObjectId;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -53,6 +63,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
     0xFFFFD54F,
     0xFF00ACC1,
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _objectStore = LocalNotebookObjectStore(widget.inkStore.db);
+    _loadFuture = _loadInitial();
+  }
 
   Future<void> _loadInitial() async {
     final page = await widget.inkStore.ensureDefaultPage();
@@ -67,11 +84,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
       orElse: () => pages.first,
     );
     final strokes = await widget.inkStore.listStrokes(target.id);
+    final objects = await _objectStore.listObjects(target.id);
     _notebooks = notebooks;
     _currentNotebook = notebook;
     _pages = pages;
     _currentPage = target;
     _currentStrokes = strokes;
+    _objects = objects;
   }
 
   Future<void> _reloadCurrent({String? pageId}) async {
@@ -97,6 +116,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
             orElse: () => pages.first,
           );
     final strokes = await widget.inkStore.listStrokes(target.id);
+    final objects = await _objectStore.listObjects(target.id);
     if (!mounted) return;
     setState(() {
       _notebooks = notebooks;
@@ -104,10 +124,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _pages = pages;
       _currentPage = target;
       _currentStrokes = strokes;
+      _objects = objects;
       _selectionCount = 0;
       _lassoMode = false;
       _eraserMode = false;
       _clipboardAvailable = false;
+      _selectedObjectId = null;
     });
   }
 
@@ -138,6 +160,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onPressed: () => setState(() {
               _lassoMode = !_lassoMode;
               _eraserMode = false;
+              _objectMode = false;
+              _selectedObjectId = null;
               if (!_lassoMode) _selectionCount = 0;
             }),
             icon: Icon(_lassoMode ? Icons.close : Icons.gesture),
@@ -154,6 +178,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onPressed: () => setState(() {
               _eraserMode = !_eraserMode;
               _lassoMode = false;
+              _objectMode = false;
+              _selectedObjectId = null;
               _selectionCount = 0;
             }),
             icon: Icon(
@@ -233,6 +259,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                 setState(() => _selectionCount = ids.length);
                               },
                             ),
+                            NotebookObjectLayer(
+                              objects: _objects,
+                              enabled: _objectMode,
+                              selectedId: _selectedObjectId,
+                              onObjectChanged: _onObjectChanged,
+                              onSelectionChanged: (id) {
+                                if (mounted) setState(() => _selectedObjectId = id);
+                              },
+                            ),
+                            NotebookRulerOverlay(enabled: _rulerMode),
                           ],
                         ),
                       ),
@@ -374,6 +410,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 _tool = selection.first;
                 _eraserMode = false;
                 _lassoMode = false;
+                _objectMode = false;
+                _selectedObjectId = null;
                 _selectionCount = 0;
               }),
             ),
@@ -386,6 +424,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 _eraserMode = value;
                 if (value) {
                   _lassoMode = false;
+                  _objectMode = false;
+                  _selectedObjectId = null;
                   _selectionCount = 0;
                 }
               }),
@@ -400,77 +440,69 @@ class _NotebookScreenState extends State<NotebookScreen> {
               onSelected: (value) => setState(() {
                 _lassoMode = value;
                 _eraserMode = false;
+                _objectMode = false;
+                _selectedObjectId = null;
                 if (!value) _selectionCount = 0;
               }),
             ),
-            if (_lassoMode && _selectionCount > 0) ...[
-              const SizedBox(width: 8),
-              const Text('Mover'),
-              IconButton(
-                onPressed: () => _moveSelection(-_moveStep, 0),
-                icon: const Icon(Icons.arrow_left),
-              ),
-              IconButton(
-                onPressed: () => _moveSelection(0, -_moveStep),
-                icon: const Icon(Icons.arrow_upward),
-              ),
-              IconButton(
-                onPressed: () => _moveSelection(0, _moveStep),
-                icon: const Icon(Icons.arrow_downward),
-              ),
-              IconButton(
-                onPressed: () => _moveSelection(_moveStep, 0),
-                icon: const Icon(Icons.arrow_right),
-              ),
-              const Text('Tamanho'),
-              IconButton(
-                onPressed: () => _scaleSelection(_scaleDown),
-                icon: const Icon(Icons.zoom_in_map),
-              ),
-              IconButton(
-                onPressed: () => _scaleSelection(_scaleUp),
-                icon: const Icon(Icons.zoom_out_map),
-              ),
-              const Text('Girar'),
-              IconButton(
-                onPressed: () => _rotateSelection(-_rotationStep),
-                icon: const Icon(Icons.rotate_left),
-              ),
-              IconButton(
-                onPressed: () => _rotateSelection(_rotationStep),
-                icon: const Icon(Icons.rotate_right),
-              ),
-              const Text('Traço'),
-              IconButton(
-                onPressed: () => _adjustSelectionWidth(_widthDown),
-                icon: const Icon(Icons.remove),
-              ),
-              IconButton(
-                onPressed: () => _adjustSelectionWidth(_widthUp),
-                icon: const Icon(Icons.add),
-              ),
-              IconButton(
-                tooltip: 'Copiar',
-                onPressed: _copySelection,
-                icon: const Icon(Icons.content_copy),
-              ),
-              IconButton(
-                tooltip: 'Duplicar',
-                onPressed: _duplicateSelection,
-                icon: const Icon(Icons.copy_all_outlined),
-              ),
-              IconButton(
-                tooltip: 'Recortar',
-                onPressed: _cutSelection,
-                icon: const Icon(Icons.content_cut),
-              ),
-            ],
+            if (_lassoMode && _selectionCount > 0) ..._buildLassoTools(),
             if (_lassoMode && _clipboardAvailable)
               IconButton(
                 tooltip: 'Colar',
                 onPressed: _pasteClipboard,
                 icon: const Icon(Icons.content_paste),
               ),
+            const SizedBox(width: 8),
+            FilterChip(
+              selected: _objectMode,
+              avatar: const Icon(Icons.category_outlined, size: 18),
+              label: const Text('Objetos'),
+              onSelected: (value) => setState(() {
+                _objectMode = value;
+                _lassoMode = false;
+                _eraserMode = false;
+                _selectionCount = 0;
+                if (!value) _selectedObjectId = null;
+              }),
+            ),
+            if (_objectMode) ...[
+              PopupMenuButton<NotebookObjectType>(
+                tooltip: 'Inserir forma',
+                icon: const Icon(Icons.add_box_outlined),
+                onSelected: _addShape,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: NotebookObjectType.line, child: Text('Linha')),
+                  PopupMenuItem(value: NotebookObjectType.arrow, child: Text('Seta')),
+                  PopupMenuItem(value: NotebookObjectType.rectangle, child: Text('Retângulo')),
+                  PopupMenuItem(value: NotebookObjectType.ellipse, child: Text('Elipse')),
+                  PopupMenuItem(value: NotebookObjectType.triangle, child: Text('Triângulo')),
+                ],
+              ),
+              if (_selectedObjectId != null) ...[
+                IconButton(
+                  tooltip: 'Girar objeto 15° à esquerda',
+                  onPressed: () => _rotateSelectedObject(-_rotationStep),
+                  icon: const Icon(Icons.rotate_left),
+                ),
+                IconButton(
+                  tooltip: 'Girar objeto 15° à direita',
+                  onPressed: () => _rotateSelectedObject(_rotationStep),
+                  icon: const Icon(Icons.rotate_right),
+                ),
+                IconButton(
+                  tooltip: 'Excluir objeto',
+                  onPressed: _deleteSelectedObject,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ],
+            const SizedBox(width: 8),
+            FilterChip(
+              selected: _rulerMode,
+              avatar: const Icon(Icons.straighten, size: 18),
+              label: const Text('Régua'),
+              onSelected: (value) => setState(() => _rulerMode = value),
+            ),
             const SizedBox(width: 16),
             for (final value in _palette)
               Padding(
@@ -482,6 +514,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                       : () {
                           if (_lassoMode) {
                             _setSelectionColor(value);
+                          } else if (_objectMode && _selectedObjectId != null) {
+                            _setSelectedObjectColor(value);
                           } else {
                             setState(() => _colorValue = value);
                           }
@@ -510,12 +544,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 min: 1,
                 max: 10,
                 value: _width,
-                onChanged: _eraserMode || _lassoMode
+                onChanged: _eraserMode || _lassoMode || _objectMode
                     ? null
                     : (value) => setState(() => _width = value),
               ),
             ),
-            const SizedBox(width: 8),
             FilterChip(
               selected: _stylusOnly,
               avatar: const Icon(Icons.edit_outlined, size: 18),
@@ -533,6 +566,69 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
+  List<Widget> _buildLassoTools() => [
+        const SizedBox(width: 8),
+        const Text('Mover'),
+        IconButton(
+          onPressed: () => _moveSelection(-_moveStep, 0),
+          icon: const Icon(Icons.arrow_left),
+        ),
+        IconButton(
+          onPressed: () => _moveSelection(0, -_moveStep),
+          icon: const Icon(Icons.arrow_upward),
+        ),
+        IconButton(
+          onPressed: () => _moveSelection(0, _moveStep),
+          icon: const Icon(Icons.arrow_downward),
+        ),
+        IconButton(
+          onPressed: () => _moveSelection(_moveStep, 0),
+          icon: const Icon(Icons.arrow_right),
+        ),
+        const Text('Tamanho'),
+        IconButton(
+          onPressed: () => _scaleSelection(_scaleDown),
+          icon: const Icon(Icons.zoom_in_map),
+        ),
+        IconButton(
+          onPressed: () => _scaleSelection(_scaleUp),
+          icon: const Icon(Icons.zoom_out_map),
+        ),
+        const Text('Girar'),
+        IconButton(
+          onPressed: () => _rotateSelection(-_rotationStep),
+          icon: const Icon(Icons.rotate_left),
+        ),
+        IconButton(
+          onPressed: () => _rotateSelection(_rotationStep),
+          icon: const Icon(Icons.rotate_right),
+        ),
+        const Text('Traço'),
+        IconButton(
+          onPressed: () => _adjustSelectionWidth(_widthDown),
+          icon: const Icon(Icons.remove),
+        ),
+        IconButton(
+          onPressed: () => _adjustSelectionWidth(_widthUp),
+          icon: const Icon(Icons.add),
+        ),
+        IconButton(
+          tooltip: 'Copiar',
+          onPressed: _copySelection,
+          icon: const Icon(Icons.content_copy),
+        ),
+        IconButton(
+          tooltip: 'Duplicar',
+          onPressed: _duplicateSelection,
+          icon: const Icon(Icons.copy_all_outlined),
+        ),
+        IconButton(
+          tooltip: 'Recortar',
+          onPressed: _cutSelection,
+          icon: const Icon(Icons.content_cut),
+        ),
+      ];
+
   Future<void> _switchNotebook(String id) async {
     final notebook = _notebooks.firstWhere((item) => item.id == id);
     var pages = await widget.inkStore.listPages(id);
@@ -540,15 +636,19 @@ class _NotebookScreenState extends State<NotebookScreen> {
       await widget.inkStore.createPage(id);
       pages = await widget.inkStore.listPages(id);
     }
-    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    final page = pages.first;
+    final strokes = await widget.inkStore.listStrokes(page.id);
+    final objects = await _objectStore.listObjects(page.id);
     if (!mounted) return;
     setState(() {
       _currentNotebook = notebook;
       _pages = pages;
-      _currentPage = pages.first;
+      _currentPage = page;
       _currentStrokes = strokes;
+      _objects = objects;
       _selectionCount = 0;
       _clipboardAvailable = false;
+      _selectedObjectId = null;
     });
   }
 
@@ -575,14 +675,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (title == null) return;
     final notebook = await widget.inkStore.createNotebook(title);
     final pages = await widget.inkStore.listPages(notebook.id);
-    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    final page = pages.first;
+    final strokes = await widget.inkStore.listStrokes(page.id);
     if (!mounted) return;
     setState(() {
       _notebooks = [..._notebooks, notebook];
       _currentNotebook = notebook;
       _pages = pages;
-      _currentPage = pages.first;
+      _currentPage = page;
       _currentStrokes = strokes;
+      _objects = const [];
+      _selectedObjectId = null;
     });
   }
 
@@ -624,14 +727,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
       await widget.inkStore.createPage(next.id);
       pages = await widget.inkStore.listPages(next.id);
     }
-    final strokes = await widget.inkStore.listStrokes(pages.first.id);
+    final page = pages.first;
+    final strokes = await widget.inkStore.listStrokes(page.id);
+    final objects = await _objectStore.listObjects(page.id);
     if (!mounted) return;
     setState(() {
       _notebooks = notebooks;
       _currentNotebook = next;
       _pages = pages;
-      _currentPage = pages.first;
+      _currentPage = page;
       _currentStrokes = strokes;
+      _objects = objects;
+      _selectedObjectId = null;
     });
   }
 
@@ -639,12 +746,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (index < 0 || index >= _pages.length) return;
     final page = _pages[index];
     final strokes = await widget.inkStore.listStrokes(page.id);
+    final objects = await _objectStore.listObjects(page.id);
     if (!mounted) return;
     setState(() {
       _currentPage = page;
       _currentStrokes = strokes;
+      _objects = objects;
       _selectionCount = 0;
       _clipboardAvailable = false;
+      _selectedObjectId = null;
     });
   }
 
@@ -702,6 +812,83 @@ class _NotebookScreenState extends State<NotebookScreen> {
         InkPageBackground.planner => 'Planner',
       };
 
+  Future<void> _addShape(NotebookObjectType type) async {
+    final page = _currentPage;
+    if (page == null) return;
+    final now = DateTime.now().toUtc();
+    final object = NotebookObject(
+      id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
+      pageId: page.id,
+      type: type,
+      x: 80,
+      y: 80,
+      width: type == NotebookObjectType.line || type == NotebookObjectType.arrow
+          ? 180
+          : 140,
+      height: type == NotebookObjectType.line || type == NotebookObjectType.arrow
+          ? 80
+          : 110,
+      rotation: 0,
+      colorValue: _colorValue,
+      strokeWidth: _width.clamp(1, 10),
+      createdAt: now,
+      updatedAt: now,
+    );
+    await _objectStore.upsert(object);
+    if (!mounted) return;
+    setState(() {
+      _objects = [..._objects, object];
+      _selectedObjectId = object.id;
+    });
+  }
+
+  void _onObjectChanged(NotebookObject object) {
+    final index = _objects.indexWhere((item) => item.id == object.id);
+    if (index < 0) return;
+    final next = [..._objects]..[index] = object;
+    setState(() => _objects = next);
+    unawaited(_objectStore.upsert(object));
+  }
+
+  void _rotateSelectedObject(double delta) {
+    final id = _selectedObjectId;
+    if (id == null) return;
+    final object = _objects.firstWhere((item) => item.id == id);
+    final step = math.pi / 12;
+    final raw = object.rotation + delta;
+    final snapped = (raw / step).round() * step;
+    _onObjectChanged(
+      object.copyWith(
+        rotation: snapped,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  void _setSelectedObjectColor(int colorValue) {
+    final id = _selectedObjectId;
+    if (id == null) return;
+    final object = _objects.firstWhere((item) => item.id == id);
+    _onObjectChanged(
+      object.copyWith(
+        colorValue: colorValue,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+    setState(() => _colorValue = colorValue);
+  }
+
+  Future<void> _deleteSelectedObject() async {
+    final id = _selectedObjectId;
+    if (id == null) return;
+    await _objectStore.delete(id);
+    if (!mounted) return;
+    setState(() {
+      _objects = _objects.where((item) => item.id != id).toList(growable: false);
+      _selectedObjectId = null;
+    });
+  }
+
   void _moveSelection(double dx, double dy) =>
       _canvasKey.currentState?.moveSelected(dx, dy);
 
@@ -756,12 +943,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final page = _currentPage;
     if (page == null) return;
     await widget.inkStore.clearPage(page.id);
+    await _objectStore.clearPage(page.id);
     _canvasKey.currentState?.clear();
     if (mounted) {
       setState(() {
         _currentStrokes = const [];
+        _objects = const [];
         _selectionCount = 0;
         _clipboardAvailable = false;
+        _selectedObjectId = null;
       });
     }
   }
