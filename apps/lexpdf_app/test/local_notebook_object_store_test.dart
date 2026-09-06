@@ -5,10 +5,10 @@ import 'package:lexxpdf_app/src/core/storage/local_ink_store.dart';
 import 'package:lexxpdf_app/src/core/storage/local_notebook_object_store.dart';
 
 void main() {
-  test('schema 6 persists notebook objects offline', () async {
+  test('current schema persists notebook objects offline', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);
-    expect(database.database.userVersion, 6);
+    expect(database.database.userVersion, LocalDatabase.schemaVersion);
 
     final inkStore = LocalInkStore(database);
     final page = await inkStore.ensureDefaultPage();
