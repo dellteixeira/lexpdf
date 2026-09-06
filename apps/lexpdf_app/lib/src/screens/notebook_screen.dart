@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -7,10 +8,7 @@ import '../core/storage/local_ink_store.dart';
 import '../widgets/ink_canvas.dart';
 
 class NotebookScreen extends StatefulWidget {
-  const NotebookScreen({
-    required this.inkStore,
-    super.key,
-  });
+  const NotebookScreen({required this.inkStore, super.key});
 
   final LocalInkStore inkStore;
 
@@ -28,6 +26,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const double _moveStep = 12;
   static const double _scaleDown = 0.9;
   static const double _scaleUp = 1.1;
+  static const double _rotationStep = math.pi / 12;
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
   late final Future<_NotebookSession> _session = _loadSession();
@@ -87,9 +86,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
               _selectionCount = 0;
             }),
             icon: Icon(
-              _eraserMode
-                  ? Icons.edit_outlined
-                  : Icons.auto_fix_normal_outlined,
+              _eraserMode ? Icons.edit_outlined : Icons.auto_fix_normal_outlined,
             ),
             color: _eraserMode ? Theme.of(context).colorScheme.primary : null,
           ),
@@ -274,6 +271,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 onPressed: () => _scaleSelection(_scaleUp),
                 icon: const Icon(Icons.zoom_out_map),
               ),
+              const SizedBox(width: 8),
+              const Text('Girar'),
+              IconButton(
+                tooltip: 'Girar seleção 15° à esquerda',
+                onPressed: () => _rotateSelection(-_rotationStep),
+                icon: const Icon(Icons.rotate_left),
+              ),
+              IconButton(
+                tooltip: 'Girar seleção 15° à direita',
+                onPressed: () => _rotateSelection(_rotationStep),
+                icon: const Icon(Icons.rotate_right),
+              ),
             ],
             const SizedBox(width: 16),
             for (final value in _palette)
@@ -332,6 +341,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _scaleSelection(double factor) {
     _canvasKey.currentState?.scaleSelected(factor);
+  }
+
+  void _rotateSelection(double angleRadians) {
+    _canvasKey.currentState?.rotateSelected(angleRadians);
   }
 
   Future<void> _deleteSelection() async {
