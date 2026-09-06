@@ -1,0 +1,213 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../core/ink/ink_models.dart';
+import '../core/storage/local_ink_store.dart';
+import '../widgets/ink_canvas.dart';
+
+class NotebookScreen extends StatefulWidget {
+  const NotebookScreen({
+    required this.inkStore,
+    super.key,
+  });
+
+  final LocalInkStore inkStore;
+
+  @override
+  State<NotebookScreen> createState() => _NotebookScreenState();
+}
+
+class _NotebookSession {
+  const _NotebookSession(this.page, this.strokes);
+
+  final InkNotebookPage page;
+  final List<InkStroke> strokes;
+}
+
+class _NotebookScreenState extends State<NotebookScreen> {
+  final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
+  late final Future<_NotebookSession> _session = _loadSession();
+
+  InkTool _tool = InkTool.pen;
+  int _colorValue = 0xFF1C1B1F;
+  double _width = 3.0;
+  bool _stylusOnly = true;
+
+  static const _palette = <int>[
+    0xFF1C1B1F,
+    0xFF246BFD,
+    0xFFD32F2F,
+    0xFF2E7D32,
+    0xFF7B1FA2,
+    0xFFFFA000,
+    0xFFFFD54F,
+    0xFF00ACC1,
+  ];
+
+  Future<_NotebookSession> _loadSession() async {
+    final page = await widget.inkStore.ensureDefaultPage();
+    final strokes = await widget.inkStore.listStrokes(page.id);
+    return _NotebookSession(page, strokes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Meu caderno'),
+        actions: [
+          IconButton(
+            tooltip: 'Desfazer último traço',
+            onPressed: _undo,
+            icon: const Icon(Icons.undo),
+          ),
+          IconButton(
+            tooltip: 'Limpar página',
+            onPressed: _clearPage,
+            icon: const Icon(Icons.delete_sweep_outlined),
+          ),
+        ],
+      ),
+      body: FutureBuilder<_NotebookSession>(
+        future: _session,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Não foi possível abrir o caderno: ${snapshot.error}'));
+          }
+          final session = snapshot.requireData;
+          return Column(
+            children: [
+              _buildToolbar(),
+              const Divider(height: 1),
+              Expanded(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: session.page.width / session.page.height,
+                      child: Container(
+                        margin: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(blurRadius: 12, color: Color(0x22000000)),
+                          ],
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkCanvas(
+                          key: _canvasKey,
+                          initialStrokes: session.strokes,
+                          pageId: session.page.id,
+                          tool: _tool,
+                          colorValue: _colorValue,
+                          strokeWidth: _effectiveWidth,
+                          stylusOnly: _stylusOnly,
+                          onStrokeCompleted: (stroke) {
+                            unawaited(widget.inkStore.addStroke(stroke));
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  double get _effectiveWidth => switch (_tool) {
+        InkTool.pen => _width,
+        InkTool.pencil => _width * 0.8,
+        InkTool.highlighter => _width * 5,
+      };
+
+  Widget _buildToolbar() {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            SegmentedButton<InkTool>(
+              segments: const [
+                ButtonSegment(value: InkTool.pen, icon: Icon(Icons.edit_outlined), label: Text('Caneta')),
+                ButtonSegment(value: InkTool.pencil, icon: Icon(Icons.draw_outlined), label: Text('Lápis')),
+                ButtonSegment(value: InkTool.highlighter, icon: Icon(Icons.border_color_outlined), label: Text('Marca-texto')),
+              ],
+              selected: {_tool},
+              onSelectionChanged: (selection) => setState(() => _tool = selection.first),
+            ),
+            const SizedBox(width: 16),
+            for (final value in _palette)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => setState(() => _colorValue = value),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: Color(value),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _colorValue == value
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).dividerColor,
+                        width: _colorValue == value ? 3 : 1,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(width: 16),
+            const Text('Espessura'),
+            SizedBox(
+              width: 150,
+              child: Slider(
+                min: 1,
+                max: 10,
+                value: _width,
+                onChanged: (value) => setState(() => _width = value),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilterChip(
+              selected: _stylusOnly,
+              avatar: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Somente caneta'),
+              onSelected: (value) => setState(() => _stylusOnly = value),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _undo() async {
+    final removed = _canvasKey.currentState?.undoLast();
+    if (removed != null) {
+      await widget.inkStore.deleteStroke(removed.id);
+    }
+  }
+
+  Future<void> _clearPage() async {
+    final state = _canvasKey.currentState;
+    if (state == null) return;
+    await widget.inkStore.clearPage(state.strokes.firstOrNull?.pageId ?? 'default-page-1');
+    state.clear();
+  }
+}
+
+extension _FirstOrNull<T> on List<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}
