@@ -16,7 +16,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
@@ -193,6 +193,43 @@ class LocalDatabase {
         ''');
         database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['5', 'schema_version']);
         database.userVersion = 5;
+        database.execute('COMMIT;');
+        version = 5;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 6) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          CREATE TABLE notebook_objects (
+            id TEXT PRIMARY KEY,
+            page_id TEXT NOT NULL REFERENCES notebook_pages(id) ON DELETE CASCADE,
+            type TEXT NOT NULL CHECK(type IN ('line', 'arrow', 'rectangle', 'ellipse', 'triangle', 'text', 'image')),
+            x REAL NOT NULL,
+            y REAL NOT NULL,
+            width REAL NOT NULL CHECK(width >= 0),
+            height REAL NOT NULL CHECK(height >= 0),
+            rotation REAL NOT NULL DEFAULT 0,
+            color_value INTEGER NOT NULL DEFAULT 4278190080,
+            fill_color_value INTEGER,
+            stroke_width REAL NOT NULL DEFAULT 2 CHECK(stroke_width > 0),
+            text_value TEXT,
+            font_size REAL,
+            image_path TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        ''');
+        database.execute('''
+          CREATE INDEX notebook_objects_page_idx
+          ON notebook_objects(page_id, created_at);
+        ''');
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['6', 'schema_version']);
+        database.userVersion = 6;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');
