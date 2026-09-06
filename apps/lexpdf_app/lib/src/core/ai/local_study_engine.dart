@@ -7,7 +7,7 @@ class LocalStudyEngine implements AiStudyEngine {
   const LocalStudyEngine();
 
   static const _stopwords = <String>{
-    'a','o','as','os','um','uma','uns','umas','de','da','do','das','dos','e','ou','em','no','na','nos','nas','por','para','com','sem','que','se','ao','aos','à','às','é','são','foi','ser','como','mais','menos','muito','muita','muitos','muitas','este','esta','esse','essa','isso','isto','aquele','aquela','também','já','não','sim','entre','sobre','sob','quando','onde','qual','quais','quem','seu','sua','seus','suas','pela','pelo','pelas','pelos','num','numa','nuns','numas','the','and','of','to','in','is','are','for','with','that','this','as','on','by','or','an','be','from'
+    'a','o','as','os','um','uma','uns','umas','de','da','do','das','dos','e','ou','em','no','na','nos','nas','por','para','com','sem','que','se','ao','aos','à','às','é','são','foi','ser','como','mais','menos','muito','muita','muitos','muitas','este','esta','esse','essa','isso','isto','aquele','aquela','também','já','não','sim','entre','sobre','sob','quando','onde','qual','quais','quem','seu','sua','seus','suas','pela','pelo','pelas','pelos','num','numa','nuns','numas','the','and','of','to','in','is','are','for','with','that','this','on','by','or','an','be','from'
   };
 
   @override
