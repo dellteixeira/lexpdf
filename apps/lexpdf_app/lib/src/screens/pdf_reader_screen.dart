@@ -5,6 +5,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
 import '../core/ink/ink_models.dart';
+import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
@@ -143,7 +144,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                       Positioned.fill(
                         child: PdfInkPageOverlay(
                           key: ValueKey(
-                            'pdf-ink-${page.pageNumber}-$_inkMode-$_inkEraserMode-${_pdfInkByPage[page.pageNumber]?.length ?? 0}',
+                            'pdf-ink-${page.pageNumber}-$_inkMode-$_inkEraserMode',
                           ),
                           documentId: widget.document.id,
                           pageNumber: page.pageNumber,
@@ -155,6 +156,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           eraserMode: _inkEraserMode,
                           onStrokeCompleted: _onPdfStrokeCompleted,
                           onStrokeErased: _onPdfStrokeErased,
+                          onEraseApplied: _onPdfEraseApplied,
                         ),
                       ),
                     ],
@@ -197,7 +199,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           const SizedBox(width: 8),
                           Text(
                             _inkEraserMode
-                                ? 'Borracha por traço'
+                                ? 'Borracha parcial'
                                 : '${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}',
                           ),
                           const SizedBox(width: 8),
@@ -272,7 +274,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       ),
       if (_inkMode) ...[
         IconButton(
-          tooltip: _inkEraserMode ? 'Voltar para caneta' : 'Borracha por traço',
+          tooltip: _inkEraserMode ? 'Voltar para caneta' : 'Borracha parcial',
           onPressed: () {
             setState(() => _inkEraserMode = !_inkEraserMode);
             _viewerController.invalidate();
@@ -411,6 +413,28 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     }
     setState(() {});
     unawaited(widget.pdfInkStore.deleteStroke(stroke.id));
+    _viewerController.invalidate();
+  }
+
+  void _onPdfEraseApplied(PdfInkEraseResult result) {
+    final strokes = _pdfInkByPage[result.original.pageNumber];
+    if (strokes == null) return;
+    final index = strokes.indexWhere((stroke) => stroke.id == result.original.id);
+    if (index < 0) return;
+
+    strokes
+      ..removeAt(index)
+      ..insertAll(index, result.fragments);
+    if (strokes.isEmpty) {
+      _pdfInkByPage.remove(result.original.pageNumber);
+    }
+    setState(() {});
+    unawaited(
+      widget.pdfInkStore.replaceStrokeWithFragments(
+        result.original,
+        result.fragments,
+      ),
+    );
     _viewerController.invalidate();
   }
 
