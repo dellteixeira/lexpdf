@@ -5,11 +5,15 @@ import '../core/documents/document_provider.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
+import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import 'global_search_screen.dart';
+import 'library_organizer_screen.dart';
 import 'notebook_export_screen.dart';
 import 'notebook_screen.dart';
 import 'pdf_advanced_annotation_screen.dart';
+import 'pdf_navigation_screen.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -37,6 +41,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _openingDocument = false;
   final DocumentPickerService _picker = const DocumentPickerService();
 
+  LocalPdfNavigationStore get _navigationStore =>
+      LocalPdfNavigationStore(widget.annotations.db);
+
   static const _destinations = <(IconData, String)>[
     (Icons.folder_outlined, 'Biblioteca'),
     (Icons.history, 'Recentes'),
@@ -62,7 +69,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ],
         ),
         actions: [
-          IconButton(tooltip: 'Buscar', onPressed: () {}, icon: const Icon(Icons.search)),
+          IconButton(
+            tooltip: 'Busca local',
+            onPressed: _openSearch,
+            icon: const Icon(Icons.search),
+          ),
           IconButton(
             tooltip: 'Abrir arquivo',
             onPressed: _openingDocument ? null : _openPdf,
@@ -178,10 +189,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
           onTap: _openingDocument ? null : _openPdf,
         ),
         _QuickAction(
+          icon: Icons.navigation_outlined,
+          title: 'Navegação avançada',
+          subtitle: 'Miniaturas, sumário, marcadores e modos de página',
+          onTap: _openingDocument ? null : _openNavigationPicker,
+        ),
+        _QuickAction(
           icon: Icons.draw_outlined,
           title: 'Anotar PDF',
           subtitle: 'Notas, texto, formas, carimbos e assinatura',
           onTap: _openingDocument ? null : _openAdvancedAnnotations,
+        ),
+        _QuickAction(
+          icon: Icons.manage_search_outlined,
+          title: 'Busca local',
+          subtitle: 'PDFs, anotações e cadernos',
+          onTap: _openSearch,
+        ),
+        _QuickAction(
+          icon: Icons.folder_copy_outlined,
+          title: 'Organizar biblioteca',
+          subtitle: 'Coleções e tags offline',
+          onTap: _openOrganizer,
         ),
         _QuickAction(
           icon: Icons.note_add_outlined,
@@ -224,6 +253,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      tooltip: 'Navegação avançada',
+                      icon: const Icon(Icons.navigation_outlined),
+                      onPressed: document.availableOffline
+                          ? () => _openNavigationDocument(document)
+                          : null,
+                    ),
                     IconButton(
                       tooltip: 'Anotações avançadas',
                       icon: const Icon(Icons.draw_outlined),
@@ -272,6 +308,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _openNavigationPicker() async {
+    if (_openingDocument) return;
+    setState(() => _openingDocument = true);
+    try {
+      final document = await _picker.pickPdf();
+      if (!mounted || document == null) return;
+      await widget.catalog.upsert(document);
+      final stored = await widget.catalog.getById(document.id) ?? document;
+      await _openNavigationDocument(stored);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível abrir a navegação avançada: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingDocument = false);
+    }
+  }
+
   Future<void> _openAdvancedAnnotations() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
@@ -307,6 +362,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _openNavigationDocument(DocumentRef document) async {
+    await widget.catalog.markOpened(document.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfNavigationScreen(
+          document: document,
+          store: _navigationStore,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openAdvancedDocument(DocumentRef document) async {
     await widget.catalog.markOpened(document.id);
     if (!mounted) return;
@@ -315,6 +384,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (_) => PdfAdvancedAnnotationScreen(
           document: document,
           annotations: widget.annotations,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openSearch() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GlobalSearchScreen(
+          catalog: widget.catalog,
+          store: _navigationStore,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openOrganizer() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LibraryOrganizerScreen(
+          catalog: widget.catalog,
+          store: _navigationStore,
         ),
       ),
     );
