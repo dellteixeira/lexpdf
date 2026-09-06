@@ -128,6 +128,7 @@ class InkCanvasState extends State<InkCanvas> {
         ? ((event.pressure - event.pressureMin) /
                 (event.pressureMax - event.pressureMin))
             .clamp(0.0, 1.0)
+            .toDouble()
         : 1.0;
     return InkPoint(
       x: event.localPosition.dx,
@@ -212,7 +213,9 @@ class _InkPainter extends CustomPainter {
     for (var index = 1; index < points.length; index++) {
       final previous = points[index - 1];
       final current = points[index];
-      final pressure = ((previous.pressure + current.pressure) / 2).clamp(0.15, 1.0);
+      final pressure = ((previous.pressure + current.pressure) / 2)
+          .clamp(0.15, 1.0)
+          .toDouble();
       final width = tool == InkTool.highlighter
           ? baseWidth
           : baseWidth * (0.45 + pressure * 0.75);
