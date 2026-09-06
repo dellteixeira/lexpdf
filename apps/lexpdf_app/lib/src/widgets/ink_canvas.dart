@@ -444,9 +444,9 @@ class InkCanvasState extends State<InkCanvas> {
     }
     if (hit == null) return;
     widget.onWillMutate?.call();
+    widget.onStrokeErased?.call(hit);
     _strokes.remove(hit);
     _selectedStrokeIds.remove(hit.id);
-    widget.onStrokeErased?.call(hit);
     _notifySelection();
     setState(() {});
   }
@@ -516,8 +516,8 @@ class InkCanvasState extends State<InkCanvas> {
         points: List<InkPoint>.unmodifiable(_activePoints),
         createdAt: now,
       );
-      _strokes.add(stroke);
       widget.onStrokeCompleted(stroke);
+      _strokes.add(stroke);
     }
     _activePoints.clear();
     _activePointer = null;
