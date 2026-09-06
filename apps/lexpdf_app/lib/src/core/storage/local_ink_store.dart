@@ -152,10 +152,11 @@ class LocalInkStore {
   Future<void> reorderPages(String notebookId, List<String> orderedPageIds) async {
     db.database.execute('BEGIN IMMEDIATE;');
     try {
+      const temporaryOffset = 1000000;
       for (var index = 0; index < orderedPageIds.length; index++) {
         db.database.execute(
           'UPDATE notebook_pages SET page_number = ? WHERE id = ? AND notebook_id = ?;',
-          [-(index + 1), orderedPageIds[index], notebookId],
+          [temporaryOffset + index + 1, orderedPageIds[index], notebookId],
         );
       }
       for (var index = 0; index < orderedPageIds.length; index++) {
