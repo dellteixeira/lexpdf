@@ -2,10 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
+import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_reading_progress_store.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({
+    required this.catalog,
+    required this.readingProgress,
+    super.key,
+  });
+
+  final LocalDocumentCatalog catalog;
+  final LocalReadingProgressStore readingProgress;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -103,42 +112,98 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 24),
-                  Expanded(
-                    child: GridView.extent(
-                      maxCrossAxisExtent: 280,
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
-                      children: [
-                        _QuickAction(
-                          icon: Icons.file_open_outlined,
-                          title: 'Abrir PDF',
-                          subtitle: 'Neste dispositivo',
-                          onTap: _openingDocument ? null : _openPdf,
-                        ),
-                        const _QuickAction(
-                          icon: Icons.note_add_outlined,
-                          title: 'Novo caderno',
-                          subtitle: 'Escrita e desenhos',
-                        ),
-                        const _QuickAction(
-                          icon: Icons.cloud_outlined,
-                          title: 'Conectar nuvem',
-                          subtitle: 'Google, OneDrive ou iCloud',
-                        ),
-                        const _QuickAction(
-                          icon: Icons.backup_outlined,
-                          title: 'Backup',
-                          subtitle: 'Local ou em nuvem',
-                        ),
-                      ],
-                    ),
-                  ),
+                  Expanded(child: _buildSection()),
                 ],
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSection() {
+    if (_selectedIndex == 1) {
+      return FutureBuilder<List<DocumentRef>>(
+        future: widget.catalog.list(limit: 100),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final documents = snapshot.data ?? const <DocumentRef>[];
+          if (documents.isEmpty) {
+            return const _EmptyState(
+              icon: Icons.history,
+              title: 'Nenhum PDF recente',
+              subtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
+            );
+          }
+
+          return ListView.separated(
+            itemCount: documents.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final document = documents[index];
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.picture_as_pdf_outlined),
+                  title: Text(
+                    document.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    document.availableOffline
+                        ? 'Disponível offline'
+                        : 'Necessita download',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: document.availableOffline
+                      ? () => _openDocument(document)
+                      : null,
+                ),
+              );
+            },
+          );
+        },
+      );
+    }
+
+    if (_selectedIndex != 0) {
+      return const _EmptyState(
+        icon: Icons.construction_outlined,
+        title: 'Módulo em construção',
+        subtitle: 'Esta área já está reservada na arquitetura do LexPDF.',
+      );
+    }
+
+    return GridView.extent(
+      maxCrossAxisExtent: 280,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      children: [
+        _QuickAction(
+          icon: Icons.file_open_outlined,
+          title: 'Abrir PDF',
+          subtitle: 'Neste dispositivo',
+          onTap: _openingDocument ? null : _openPdf,
+        ),
+        const _QuickAction(
+          icon: Icons.note_add_outlined,
+          title: 'Novo caderno',
+          subtitle: 'Escrita e desenhos',
+        ),
+        const _QuickAction(
+          icon: Icons.cloud_outlined,
+          title: 'Conectar nuvem',
+          subtitle: 'Google, OneDrive ou iCloud',
+        ),
+        const _QuickAction(
+          icon: Icons.backup_outlined,
+          title: 'Backup',
+          subtitle: 'Local ou em nuvem',
+        ),
+      ],
     );
   }
 
@@ -149,11 +214,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     try {
       final DocumentRef? document = await _picker.pickPdf();
       if (!mounted || document == null) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfReaderScreen(document: document),
-        ),
-      );
+      await widget.catalog.upsert(document);
+      await _openDocument(document);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,8 +226,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _openDocument(DocumentRef document) async {
+    await widget.catalog.markOpened(document.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfReaderScreen(
+          document: document,
+          readingProgress: widget.readingProgress,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   void _select(int index) {
     setState(() => _selectedIndex = index);
+    final scaffold = Scaffold.maybeOf(context);
+    if (scaffold?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
   }
 }
 
@@ -235,6 +315,45 @@ class _QuickAction extends StatelessWidget {
               Text(subtitle),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodyLarge,
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );
