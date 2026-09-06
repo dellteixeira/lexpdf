@@ -16,6 +16,7 @@ class PdfInkPageOverlay extends StatefulWidget {
     required this.colorValue,
     required this.strokeWidth,
     required this.onStrokeCompleted,
+    this.onStrokeErased,
     this.onEraseApplied,
     this.eraserMode = false,
     this.eraserRadius = 18,
@@ -32,6 +33,7 @@ class PdfInkPageOverlay extends StatefulWidget {
   final bool eraserMode;
   final double eraserRadius;
   final ValueChanged<PdfInkStroke> onStrokeCompleted;
+  final ValueChanged<PdfInkStroke>? onStrokeErased;
   final ValueChanged<PdfInkEraseResult>? onEraseApplied;
 
   @override
@@ -145,7 +147,11 @@ class _PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
         radius: widget.eraserRadius,
       );
       if (result != null) {
-        widget.onEraseApplied?.call(result);
+        if (widget.onEraseApplied != null) {
+          widget.onEraseApplied!(result);
+        } else {
+          widget.onStrokeErased?.call(stroke);
+        }
         return;
       }
     }
