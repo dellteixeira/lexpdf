@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   sqlite3: ^2.9.3
-  sqlite3_flutter_libs: ^0.5.28+2
+  sqlite3_flutter_libs: ^0.5.42
 
 dev_dependencies:
   flutter_test:
