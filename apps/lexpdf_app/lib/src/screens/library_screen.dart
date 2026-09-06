@@ -4,17 +4,20 @@ import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_reading_progress_store.dart';
+import '../core/storage/local_text_annotation_store.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     required this.catalog,
     required this.readingProgress,
+    required this.annotations,
     super.key,
   });
 
   final LocalDocumentCatalog catalog;
   final LocalReadingProgressStore readingProgress;
+  final LocalTextAnnotationStore annotations;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -277,6 +280,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (_) => PdfReaderScreen(
           document: document,
           readingProgress: widget.readingProgress,
+          annotations: widget.annotations,
         ),
       ),
     );
