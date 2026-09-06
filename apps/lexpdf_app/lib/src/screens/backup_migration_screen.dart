@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +23,7 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
   static const SquidImportService _squid = SquidImportService();
   bool _busy = false;
 
-  Future<String?> _saveBytes(List<int> bytes, String suggestedName) async {
+  Future<String?> _saveBytes(Uint8List bytes, String suggestedName) async {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       final location = await getSaveLocation(suggestedName: suggestedName);
       if (location == null) return null;
