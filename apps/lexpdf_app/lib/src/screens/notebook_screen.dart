@@ -37,6 +37,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _stylusOnly = true;
   bool _eraserMode = false;
   bool _lassoMode = false;
+  bool _clipboardAvailable = false;
   int _selectionCount = 0;
 
   static const _palette = <int>[
@@ -283,6 +284,30 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 onPressed: () => _rotateSelection(_rotationStep),
                 icon: const Icon(Icons.rotate_right),
               ),
+              const SizedBox(width: 8),
+              const Text('Editar'),
+              IconButton(
+                tooltip: 'Copiar seleção',
+                onPressed: _copySelection,
+                icon: const Icon(Icons.content_copy),
+              ),
+              IconButton(
+                tooltip: 'Duplicar seleção',
+                onPressed: _duplicateSelection,
+                icon: const Icon(Icons.copy_all_outlined),
+              ),
+              IconButton(
+                tooltip: 'Recortar seleção',
+                onPressed: _cutSelection,
+                icon: const Icon(Icons.content_cut),
+              ),
+            ],
+            if (_lassoMode && _clipboardAvailable) ...[
+              IconButton(
+                tooltip: 'Colar',
+                onPressed: _pasteClipboard,
+                icon: const Icon(Icons.content_paste),
+              ),
             ],
             const SizedBox(width: 16),
             for (final value in _palette)
@@ -347,6 +372,29 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _canvasKey.currentState?.rotateSelected(angleRadians);
   }
 
+  void _copySelection() {
+    final copied = _canvasKey.currentState?.copySelected() ?? const [];
+    if (copied.isNotEmpty) setState(() => _clipboardAvailable = true);
+  }
+
+  void _duplicateSelection() {
+    _canvasKey.currentState?.duplicateSelected();
+  }
+
+  void _cutSelection() {
+    final removed = _canvasKey.currentState?.cutSelected() ?? const [];
+    if (removed.isNotEmpty) {
+      setState(() {
+        _clipboardAvailable = true;
+        _selectionCount = 0;
+      });
+    }
+  }
+
+  void _pasteClipboard() {
+    _canvasKey.currentState?.pasteClipboard();
+  }
+
   Future<void> _deleteSelection() async {
     final removed = _canvasKey.currentState?.deleteSelected() ?? const [];
     for (final stroke in removed) {
@@ -367,7 +415,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
       state.strokes.firstOrNull?.pageId ?? 'default-page-1',
     );
     state.clear();
-    if (mounted) setState(() => _selectionCount = 0);
+    if (mounted) {
+      setState(() {
+        _selectionCount = 0;
+        _clipboardAvailable = false;
+      });
+    }
   }
 }
 
