@@ -6,6 +6,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
+import 'pdf_page_tools_screen.dart';
 
 class PdfNavigationScreen extends StatefulWidget {
   const PdfNavigationScreen({
@@ -107,6 +108,11 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
                   : Icons.bookmark_border,
             ),
           ),
+          IconButton(
+            tooltip: 'Gerenciar páginas',
+            onPressed: _openPageTools,
+            icon: const Icon(Icons.view_week_outlined),
+          ),
           PopupMenuButton<_PdfViewMode>(
             tooltip: 'Modo de visualização',
             initialValue: _viewMode,
@@ -160,6 +166,14 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
           },
           onPageChanged: _onPageChanged,
         ),
+      ),
+    );
+  }
+
+  Future<void> _openPageTools() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfPageToolsScreen(document: widget.document),
       ),
     );
   }
