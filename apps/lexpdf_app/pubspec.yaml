@@ -29,6 +29,7 @@ dependency_overrides:
   pdfrx: ^2.6.1
 
 dev_dependencies:
+  dart_pdf_reader: ^2.2.0
   flutter_test:
     sdk: flutter
   flutter_lints: any
