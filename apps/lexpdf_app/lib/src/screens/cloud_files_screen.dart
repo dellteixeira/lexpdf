@@ -8,16 +8,19 @@ import '../core/cloud/cloud_gateway_document_provider.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_cloud_account_store.dart';
 import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_sync_store.dart';
 
 class CloudFilesScreen extends StatefulWidget {
   const CloudFilesScreen({
     required this.account,
     this.catalog,
+    this.syncStore,
     super.key,
   });
 
   final LocalCloudAccount account;
   final LocalDocumentCatalog? catalog;
+  final LocalSyncStore? syncStore;
 
   @override
   State<CloudFilesScreen> createState() => _CloudFilesScreenState();
@@ -63,6 +66,16 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
     final provider = _provider;
     if (provider == null || _busy) return;
     setState(() => _busy = true);
+    final job = await widget.syncStore?.enqueue(
+      entityId: document.id,
+      provider: widget.account.provider,
+      operation: LocalSyncOperation.download,
+      payload: {
+        'accountId': widget.account.accountId,
+        'remoteId': document.remoteId ?? document.id,
+      },
+    );
+    if (job != null) await widget.syncStore!.markRunning(job.id);
     try {
       final path = await provider.ensureLocalCopy(document);
       final cached = DocumentRef(
@@ -76,11 +89,20 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
         syncState: DocumentSyncState.synced,
       );
       await widget.catalog?.upsert(cached);
+      if (job != null) await widget.syncStore!.markDone(job.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Disponível offline em: $path')),
       );
     } catch (error) {
+      if (job != null) {
+        await widget.syncStore!.markFailed(
+          job.id,
+          error,
+          maxAttempts: 5,
+          retryAfter: const Duration(seconds: 5),
+        );
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Download não concluído: $error')),
@@ -102,11 +124,31 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
     final file = await openFile(acceptedTypeGroups: const [group]);
     if (file == null) return;
     setState(() => _busy = true);
+    final job = await widget.syncStore?.enqueue(
+      entityId: file.path,
+      provider: widget.account.provider,
+      operation: LocalSyncOperation.upload,
+      payload: {
+        'accountId': widget.account.accountId,
+        'localPath': file.path,
+        'name': file.name,
+      },
+    );
+    if (job != null) await widget.syncStore!.markRunning(job.id);
     try {
       final uploaded = await provider.upload(file.path);
       await widget.catalog?.upsert(uploaded);
+      if (job != null) await widget.syncStore!.markDone(job.id);
       await _refresh();
     } catch (error) {
+      if (job != null) {
+        await widget.syncStore!.markFailed(
+          job.id,
+          error,
+          maxAttempts: 5,
+          retryAfter: const Duration(seconds: 5),
+        );
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Upload não concluído: $error')),
