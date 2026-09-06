@@ -24,13 +24,12 @@ class _PlannedPage {
     required this.id,
     required this.sourcePageNumber,
     this.clockwiseQuarterTurns = 0,
-    this.selected = false,
   });
 
   final String id;
   final int sourcePageNumber;
   int clockwiseQuarterTurns;
-  bool selected;
+  bool selected = false;
 }
 
 class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
@@ -300,11 +299,10 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
                       child: ReorderableListView.builder(
                         padding: const EdgeInsets.all(12),
                         itemCount: _pages.length,
-                        onReorder: _busy
+                        onReorderItem: _busy
                             ? (_, __) {}
                             : (oldIndex, newIndex) {
                                 setState(() {
-                                  if (newIndex > oldIndex) newIndex--;
                                   final item = _pages.removeAt(oldIndex);
                                   _pages.insert(newIndex, item);
                                 });
