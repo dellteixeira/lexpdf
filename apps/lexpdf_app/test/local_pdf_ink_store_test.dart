@@ -19,7 +19,7 @@ void main() {
         name: 'lei.pdf',
         localPath: '/tmp/lei.pdf',
         availableOffline: true,
-        syncStatus: DocumentSyncStatus.localOnly,
+        syncState: DocumentSyncState.localOnly,
       ),
     );
 
