@@ -14,6 +14,7 @@ import 'notebook_export_screen.dart';
 import 'notebook_screen.dart';
 import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_navigation_screen.dart';
+import 'pdf_ocr_screen.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -201,9 +202,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
           onTap: _openingDocument ? null : _openAdvancedAnnotations,
         ),
         _QuickAction(
+          icon: Icons.document_scanner_outlined,
+          title: 'OCR offline',
+          subtitle: 'Reconhecer e indexar texto de PDFs digitalizados',
+          onTap: _openingDocument ? null : _openOcrPicker,
+        ),
+        _QuickAction(
           icon: Icons.manage_search_outlined,
           title: 'Busca local',
-          subtitle: 'PDFs, anotações e cadernos',
+          subtitle: 'PDFs, anotações, OCR e cadernos',
           onTap: _openSearch,
         ),
         _QuickAction(
@@ -268,6 +275,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           : null,
                     ),
                     IconButton(
+                      tooltip: 'OCR offline',
+                      icon: const Icon(Icons.document_scanner_outlined),
+                      onPressed: document.availableOffline
+                          ? () => _openOcrDocument(document)
+                          : null,
+                    ),
+                    IconButton(
                       tooltip: document.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
                       icon: Icon(document.favorite ? Icons.star : Icons.star_border),
                       onPressed: () => _toggleFavorite(document),
@@ -289,15 +303,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<DocumentRef?> _pickAndStorePdf() async {
+    final document = await _picker.pickPdf();
+    if (!mounted || document == null) return null;
+    await widget.catalog.upsert(document);
+    return await widget.catalog.getById(document.id) ?? document;
+  }
+
   Future<void> _openPdf() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
     try {
-      final document = await _picker.pickPdf();
-      if (!mounted || document == null) return;
-      await widget.catalog.upsert(document);
-      final stored = await widget.catalog.getById(document.id) ?? document;
-      await _openDocument(stored);
+      final stored = await _pickAndStorePdf();
+      if (stored != null) await _openDocument(stored);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -312,11 +330,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
     try {
-      final document = await _picker.pickPdf();
-      if (!mounted || document == null) return;
-      await widget.catalog.upsert(document);
-      final stored = await widget.catalog.getById(document.id) ?? document;
-      await _openNavigationDocument(stored);
+      final stored = await _pickAndStorePdf();
+      if (stored != null) await _openNavigationDocument(stored);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -331,15 +346,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
     try {
-      final document = await _picker.pickPdf();
-      if (!mounted || document == null) return;
-      await widget.catalog.upsert(document);
-      final stored = await widget.catalog.getById(document.id) ?? document;
-      await _openAdvancedDocument(stored);
+      final stored = await _pickAndStorePdf();
+      if (stored != null) await _openAdvancedDocument(stored);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Não foi possível abrir o editor de anotações: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingDocument = false);
+    }
+  }
+
+  Future<void> _openOcrPicker() async {
+    if (_openingDocument) return;
+    setState(() => _openingDocument = true);
+    try {
+      final stored = await _pickAndStorePdf();
+      if (stored != null) await _openOcrDocument(stored);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível abrir o OCR: $error')),
       );
     } finally {
       if (mounted) setState(() => _openingDocument = false);
@@ -384,6 +412,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (_) => PdfAdvancedAnnotationScreen(
           document: document,
           annotations: widget.annotations,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openOcrDocument(DocumentRef document) async {
+    await widget.catalog.markOpened(document.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfOcrScreen(
+          document: document,
+          navigationStore: _navigationStore,
         ),
       ),
     );
