@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -121,7 +122,7 @@ class _NotebookExportScreenState extends State<NotebookExportScreen> {
     }
   }
 
-  Future<String?> _savePdf(List<int> bytes, String fileName) async {
+  Future<String?> _savePdf(Uint8List bytes, String fileName) async {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       final location = await getSaveLocation(suggestedName: fileName);
       if (location == null) return null;
