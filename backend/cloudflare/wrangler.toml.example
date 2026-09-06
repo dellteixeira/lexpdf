@@ -3,21 +3,26 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
-# Bindings will be enabled only after the Cloudflare account is linked.
-# Never commit API tokens or secret access keys.
+# Copy to wrangler.toml only after linking the Cloudflare account.
+# Never commit API tokens, OAuth secrets or R2 access keys.
 
-# [[r2_buckets]]
-# binding = "LEXPDF_FILES"
-# bucket_name = "lexpdf-files"
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "lexpdf-files"
 
-# [[queues.producers]]
-# binding = "LEXPDF_JOBS"
-# queue = "lexpdf-jobs"
+[[queues.producers]]
+binding = "SYNC_QUEUE"
+queue = "lexpdf-sync"
 
-# [[queues.consumers]]
-# queue = "lexpdf-jobs"
-# max_batch_size = 10
-# max_batch_timeout = 5
+[[queues.consumers]]
+queue = "lexpdf-sync"
+max_batch_size = 10
+max_batch_timeout = 5
 
 [vars]
 ENVIRONMENT = "development"
+SUPABASE_URL = "https://ibffselezupggrovfruz.supabase.co"
+
+# Configure outside git:
+# wrangler secret put SUPABASE_PUBLISHABLE_KEY
+# Future Google/OneDrive OAuth secrets must also be Wrangler secrets.
