@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import '../core/ink/ink_models.dart';
 import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_lasso.dart';
 import '../core/ink/pdf_ink_models.dart';
+import '../core/ink/pdf_ink_selection_ops.dart';
 
 class PdfInkPageOverlay extends StatefulWidget {
   const PdfInkPageOverlay({
@@ -18,6 +20,7 @@ class PdfInkPageOverlay extends StatefulWidget {
     required this.strokeWidth,
     required this.onStrokeCompleted,
     this.onStrokeErased,
+    this.onStrokeUpdated,
     this.onEraseApplied,
     this.onSelectionChanged,
     this.eraserMode = false,
@@ -38,6 +41,7 @@ class PdfInkPageOverlay extends StatefulWidget {
   final double eraserRadius;
   final ValueChanged<PdfInkStroke> onStrokeCompleted;
   final ValueChanged<PdfInkStroke>? onStrokeErased;
+  final ValueChanged<PdfInkStroke>? onStrokeUpdated;
   final ValueChanged<PdfInkEraseResult>? onEraseApplied;
   final ValueChanged<Set<String>>? onSelectionChanged;
 
@@ -48,14 +52,21 @@ class PdfInkPageOverlay extends StatefulWidget {
 class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
   static const _eraser = PdfInkEraser();
   static const _lasso = PdfInkLasso();
+  static const _selectionOps = PdfInkSelectionOps();
+  static const double _moveStep = 0.02;
+  static const double _pasteOffset = 0.02;
+  static List<PdfInkStroke> _clipboard = const [];
 
   final List<InkPoint> _active = [];
   final List<Offset> _lassoPoints = [];
   final Set<String> _selectedStrokeIds = <String>{};
   int? _pointer;
   Size _size = Size.zero;
+  bool _localLassoMode = false;
 
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
+  bool get hasClipboard => _clipboard.isNotEmpty;
+  bool get _lassoEnabled => widget.lassoMode || _localLassoMode;
 
   @override
   void didUpdateWidget(covariant PdfInkPageOverlay oldWidget) {
@@ -63,7 +74,7 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
     _selectedStrokeIds.removeWhere(
       (id) => !widget.strokes.any((stroke) => stroke.id == id),
     );
-    if (oldWidget.lassoMode && !widget.lassoMode) {
+    if (oldWidget.lassoMode && !widget.lassoMode && !_localLassoMode) {
       _lassoPoints.clear();
       clearSelection();
     }
@@ -83,7 +94,7 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
   }
 
   bool _isErasing(PointerEvent event) =>
-      !widget.lassoMode &&
+      !_lassoEnabled &&
       (widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus);
 
   InkPoint _point(PointerEvent event) {
@@ -113,7 +124,7 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
   void _down(PointerDownEvent event) {
     if (!widget.enabled || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
-    if (widget.lassoMode) {
+    if (_lassoEnabled) {
       _lassoPoints
         ..clear()
         ..add(event.localPosition);
@@ -134,7 +145,7 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
 
   void _move(PointerMoveEvent event) {
     if (_pointer != event.pointer) return;
-    if (widget.lassoMode) {
+    if (_lassoEnabled) {
       _lassoPoints.add(event.localPosition);
       setState(() {});
       return;
@@ -149,7 +160,7 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
 
   void _up(PointerUpEvent event) {
     if (_pointer != event.pointer) return;
-    if (widget.lassoMode) {
+    if (_lassoEnabled) {
       _lassoPoints.add(event.localPosition);
       final polygon = _lassoPoints.map(_normalizedOffset).toList(growable: false);
       final selected = _lasso.selectStrokes(
@@ -227,6 +238,268 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
     }
   }
 
+  List<PdfInkStroke> _selectedStrokes() => widget.strokes
+      .where((stroke) => _selectedStrokeIds.contains(stroke.id))
+      .toList(growable: false);
+
+  void _applyUpdated(List<PdfInkStroke> updated) {
+    if (updated.isEmpty) return;
+    for (final stroke in updated) {
+      if (widget.onStrokeUpdated != null) {
+        widget.onStrokeUpdated!(stroke);
+        continue;
+      }
+      final original = widget.strokes.firstWhere(
+        (candidate) => candidate.id == stroke.id,
+      );
+      widget.onStrokeErased?.call(original);
+      widget.onStrokeCompleted(stroke);
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _moveSelected(double dx, double dy) {
+    _applyUpdated(
+      _selectionOps.move(
+        strokes: widget.strokes,
+        selectedIds: _selectedStrokeIds,
+        dx: dx,
+        dy: dy,
+      ),
+    );
+  }
+
+  void _scaleSelected(double factor) {
+    _applyUpdated(
+      _selectionOps.scale(
+        strokes: widget.strokes,
+        selectedIds: _selectedStrokeIds,
+        factor: factor,
+      ),
+    );
+  }
+
+  void _rotateSelected(double angle) {
+    _applyUpdated(
+      _selectionOps.rotate(
+        strokes: widget.strokes,
+        selectedIds: _selectedStrokeIds,
+        angleRadians: angle,
+      ),
+    );
+  }
+
+  void _applyCurrentColor() {
+    _applyUpdated(
+      _selectionOps.recolor(
+        strokes: widget.strokes,
+        selectedIds: _selectedStrokeIds,
+        colorValue: widget.colorValue,
+      ),
+    );
+  }
+
+  void _applyCurrentWidth() {
+    _applyUpdated(
+      _selectionOps.setWidth(
+        strokes: widget.strokes,
+        selectedIds: _selectedStrokeIds,
+        width: widget.strokeWidth,
+      ),
+    );
+  }
+
+  void _copySelected() {
+    final selected = _selectedStrokes();
+    if (selected.isEmpty) return;
+    _clipboard = selected.map(_snapshotStroke).toList(growable: false);
+    setState(() {});
+  }
+
+  void _cutSelected() {
+    _copySelected();
+    _deleteSelected();
+  }
+
+  void _deleteSelected() {
+    final selected = _selectedStrokes();
+    if (selected.isEmpty) return;
+    for (final stroke in selected) {
+      widget.onStrokeErased?.call(stroke);
+    }
+    _selectedStrokeIds.clear();
+    widget.onSelectionChanged?.call(const <String>{});
+    if (mounted) setState(() {});
+  }
+
+  void _duplicateSelected() {
+    final selected = _selectedStrokes();
+    if (selected.isEmpty) return;
+    _insertCopies(selected);
+  }
+
+  void _pasteClipboard() {
+    if (_clipboard.isEmpty) return;
+    _insertCopies(_clipboard);
+  }
+
+  void _insertCopies(List<PdfInkStroke> source) {
+    final now = DateTime.now().toUtc();
+    for (var index = 0; index < source.length; index++) {
+      final original = source[index];
+      final createdAt = now.add(Duration(microseconds: index));
+      widget.onStrokeCompleted(
+        PdfInkStroke(
+          id: 'pdf-${createdAt.microsecondsSinceEpoch.toRadixString(36)}-$index',
+          documentId: widget.documentId,
+          pageNumber: widget.pageNumber,
+          tool: original.tool,
+          colorValue: original.colorValue,
+          opacity: original.opacity,
+          width: original.width,
+          points: List<InkPoint>.unmodifiable(
+            original.points.map(
+              (point) => _copyPoint(
+                point,
+                x: (point.x + _pasteOffset).clamp(0.0, 1.0),
+                y: (point.y + _pasteOffset).clamp(0.0, 1.0),
+              ),
+            ),
+          ),
+          createdAt: createdAt,
+        ),
+      );
+    }
+  }
+
+  PdfInkStroke _snapshotStroke(PdfInkStroke stroke) => PdfInkStroke(
+        id: stroke.id,
+        documentId: stroke.documentId,
+        pageNumber: stroke.pageNumber,
+        tool: stroke.tool,
+        colorValue: stroke.colorValue,
+        opacity: stroke.opacity,
+        width: stroke.width,
+        points: List<InkPoint>.unmodifiable(stroke.points),
+        createdAt: stroke.createdAt,
+      );
+
+  InkPoint _copyPoint(
+    InkPoint point, {
+    required double x,
+    required double y,
+  }) {
+    return InkPoint(
+      x: x,
+      y: y,
+      pressure: point.pressure,
+      tilt: point.tilt,
+      timestampMicros: point.timestampMicros,
+    );
+  }
+
+  void _toggleLocalLasso() {
+    setState(() {
+      _localLassoMode = !_localLassoMode;
+      _lassoPoints.clear();
+      if (!_localLassoMode) {
+        _selectedStrokeIds.clear();
+        widget.onSelectionChanged?.call(const <String>{});
+      }
+    });
+  }
+
+  void _handleSelectionAction(String action) {
+    switch (action) {
+      case 'left':
+        _moveSelected(-_moveStep, 0);
+      case 'right':
+        _moveSelected(_moveStep, 0);
+      case 'up':
+        _moveSelected(0, -_moveStep);
+      case 'down':
+        _moveSelected(0, _moveStep);
+      case 'shrink':
+        _scaleSelected(0.9);
+      case 'grow':
+        _scaleSelected(1.1);
+      case 'rotate-left':
+        _rotateSelected(-math.pi / 12);
+      case 'rotate-right':
+        _rotateSelected(math.pi / 12);
+      case 'copy':
+        _copySelected();
+      case 'duplicate':
+        _duplicateSelected();
+      case 'cut':
+        _cutSelected();
+      case 'color':
+        _applyCurrentColor();
+      case 'width':
+        _applyCurrentWidth();
+      case 'delete':
+        _deleteSelected();
+    }
+  }
+
+  Widget _buildSelectionControls(BuildContext context) {
+    final selectedCount = _selectedStrokeIds.length;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: _lassoEnabled ? 'Sair do laço' : 'Selecionar com laço',
+              visualDensity: VisualDensity.compact,
+              onPressed: _toggleLocalLasso,
+              icon: Icon(_lassoEnabled ? Icons.close : Icons.gesture),
+              color: _lassoEnabled ? Theme.of(context).colorScheme.primary : null,
+            ),
+            if (selectedCount > 0)
+              PopupMenuButton<String>(
+                tooltip: '$selectedCount traço(s) selecionado(s)',
+                icon: Badge(
+                  label: Text('$selectedCount'),
+                  child: const Icon(Icons.select_all),
+                ),
+                onSelected: _handleSelectionAction,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'left', child: Text('Mover para esquerda')),
+                  PopupMenuItem(value: 'right', child: Text('Mover para direita')),
+                  PopupMenuItem(value: 'up', child: Text('Mover para cima')),
+                  PopupMenuItem(value: 'down', child: Text('Mover para baixo')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'shrink', child: Text('Diminuir 10%')),
+                  PopupMenuItem(value: 'grow', child: Text('Aumentar 10%')),
+                  PopupMenuItem(value: 'rotate-left', child: Text('Girar 15° à esquerda')),
+                  PopupMenuItem(value: 'rotate-right', child: Text('Girar 15° à direita')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'copy', child: Text('Copiar')),
+                  PopupMenuItem(value: 'duplicate', child: Text('Duplicar')),
+                  PopupMenuItem(value: 'cut', child: Text('Recortar')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'color', child: Text('Aplicar cor atual')),
+                  PopupMenuItem(value: 'width', child: Text('Aplicar espessura atual')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'delete', child: Text('Excluir seleção')),
+                ],
+              ),
+            if (_clipboard.isNotEmpty)
+              IconButton(
+                tooltip: 'Colar',
+                visualDensity: VisualDensity.compact,
+                onPressed: _pasteClipboard,
+                icon: const Icon(Icons.content_paste),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -234,24 +507,34 @@ class PdfInkPageOverlayState extends State<PdfInkPageOverlay> {
         _size = Size(constraints.maxWidth, constraints.maxHeight);
         return IgnorePointer(
           ignoring: !widget.enabled,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: _down,
-            onPointerMove: _move,
-            onPointerUp: _up,
-            onPointerCancel: _cancel,
-            child: CustomPaint(
-              painter: _PdfInkPainter(
-                strokes: widget.strokes,
-                active: _active,
-                lassoPoints: _lassoPoints,
-                selectedStrokeIds: _selectedStrokeIds,
-                tool: widget.tool,
-                colorValue: widget.colorValue,
-                width: widget.strokeWidth,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: _down,
+                onPointerMove: _move,
+                onPointerUp: _up,
+                onPointerCancel: _cancel,
+                child: CustomPaint(
+                  painter: _PdfInkPainter(
+                    strokes: widget.strokes,
+                    active: _active,
+                    lassoPoints: _lassoPoints,
+                    selectedStrokeIds: _selectedStrokeIds,
+                    tool: widget.tool,
+                    colorValue: widget.colorValue,
+                    width: widget.strokeWidth,
+                  ),
+                  child: const SizedBox.expand(),
+                ),
               ),
-              child: const SizedBox.expand(),
-            ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: _buildSelectionControls(context),
+              ),
+            ],
           ),
         );
       },
