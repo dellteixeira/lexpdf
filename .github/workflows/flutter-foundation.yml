@@ -1,0 +1,29 @@
+name: Flutter Foundation
+
+on:
+  pull_request:
+    paths:
+      - 'apps/lexpdf_app/**'
+      - '.github/workflows/flutter-foundation.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'apps/lexpdf_app/**'
+      - '.github/workflows/flutter-foundation.yml'
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
