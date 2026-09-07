@@ -2,17 +2,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'ai_engine.dart';
+import 'ai_input_policy.dart';
 import 'ai_models.dart';
 
 class RemoteAiStudyEngine implements AiStudyEngine {
   RemoteAiStudyEngine({
     required this.endpoint,
     this.bearerToken,
+    this.inputPolicy = const AiInputPolicy(maxCharacters: 60000),
     HttpClient? httpClient,
   }) : _http = httpClient ?? HttpClient();
 
   final Uri endpoint;
   final String? bearerToken;
+  final AiInputPolicy inputPolicy;
   final HttpClient _http;
 
   @override
@@ -24,6 +27,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     required String text,
     int itemCount = 8,
   }) async {
+    final input = inputPolicy.prepare(text, itemCount);
     final request = await _http.postUrl(endpoint);
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
@@ -33,8 +37,8 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     }
     request.write(jsonEncode({
       'action': action.name,
-      'text': text,
-      'itemCount': itemCount,
+      'text': input.text,
+      'itemCount': input.itemCount,
     }));
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
@@ -45,7 +49,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     return AiStudyResult(
       action: action,
       engine: kind,
-      sourceText: text,
+      sourceText: input.text,
       text: decoded['text']?.toString(),
       flashcards: ((decoded['flashcards'] as List?) ?? const [])
           .map((item) {
@@ -56,10 +60,12 @@ class RemoteAiStudyEngine implements AiStudyEngine {
             );
           })
           .where((item) => item.question.isNotEmpty || item.answer.isNotEmpty)
+          .take(input.itemCount)
           .toList(growable: false),
       questions: ((decoded['questions'] as List?) ?? const [])
           .map((item) => item.toString())
           .where((item) => item.trim().isNotEmpty)
+          .take(input.itemCount)
           .toList(growable: false),
     );
   }

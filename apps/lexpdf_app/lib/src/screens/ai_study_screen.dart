@@ -33,6 +33,7 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
   AiStudyResult? _result;
   bool _loading = false;
   Object? _error;
+  int _itemCount = 8;
 
   @override
   void initState() {
@@ -58,7 +59,9 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       if (!mounted) return;
       _textController.text = text;
       if (text.isEmpty) {
-        setState(() => _error = StateError('Nenhum texto incorporado foi encontrado. Use OCR antes desta ação.'));
+        setState(() => _error = StateError(
+              'Nenhum texto incorporado foi encontrado. Use OCR antes desta ação.',
+            ));
       }
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -84,7 +87,11 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       _error = null;
     });
     try {
-      final result = await _engine().run(action: action, text: text, itemCount: 8);
+      final result = await _engine().run(
+        action: action,
+        text: text,
+        itemCount: _itemCount,
+      );
       if (mounted) setState(() => _result = result);
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -132,14 +139,15 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
                         selected: {_engineKind},
                         onSelectionChanged: _loading
                             ? null
-                            : (value) => setState(() => _engineKind = value.first),
+                            : (value) =>
+                                setState(() => _engineKind = value.first),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(
                     _engineKind == AiEngineKind.local
-                        ? 'Processamento determinístico e offline; nenhum texto sai do dispositivo.'
+                        ? 'Processamento determinístico e offline; nenhum texto sai do dispositivo. A arquitetura aceita um modelo local futuro sem trocar a UI.'
                         : 'O texto será enviado ao gateway de IA configurado pelo usuário.',
                   ),
                   const SizedBox(height: 12),
@@ -153,28 +161,56 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
                       labelText: 'Texto de estudo',
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Text('Itens:'),
+                      Expanded(
+                        child: Slider(
+                          min: 1,
+                          max: 20,
+                          divisions: 19,
+                          label: '$_itemCount',
+                          value: _itemCount.toDouble(),
+                          onChanged: _loading
+                              ? null
+                              : (value) => setState(
+                                    () => _itemCount = value.round(),
+                                  ),
+                        ),
+                      ),
+                      SizedBox(width: 32, child: Text('$_itemCount')),
+                    ],
+                  ),
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
                     children: [
                       FilledButton.tonalIcon(
-                        onPressed: _loading ? null : () => _run(AiStudyAction.explain),
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.explain),
                         icon: const Icon(Icons.lightbulb_outline),
                         label: const Text('Explicar'),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: _loading ? null : () => _run(AiStudyAction.summarize),
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.summarize),
                         icon: const Icon(Icons.summarize_outlined),
                         label: const Text('Resumir'),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: _loading ? null : () => _run(AiStudyAction.flashcards),
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.flashcards),
                         icon: const Icon(Icons.style_outlined),
                         label: const Text('Flashcards'),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: _loading ? null : () => _run(AiStudyAction.questions),
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.questions),
                         icon: const Icon(Icons.quiz_outlined),
                         label: const Text('Perguntas'),
                       ),
@@ -215,7 +251,8 @@ class _ResultView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final engine = result.engine == AiEngineKind.local ? 'Local/offline' : 'IA online';
+    final engine =
+        result.engine == AiEngineKind.local ? 'Local/offline' : 'IA online';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -225,7 +262,10 @@ class _ResultView extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('Resultado', style: Theme.of(context).textTheme.titleLarge),
+                  child: Text(
+                    'Resultado',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
                 Chip(label: Text(engine)),
               ],
@@ -236,7 +276,9 @@ class _ResultView extends StatelessWidget {
             ],
             if (result.flashcards.isNotEmpty) ...[
               const SizedBox(height: 12),
-              for (var index = 0; index < result.flashcards.length; index++)
+              for (var index = 0;
+                  index < result.flashcards.length;
+                  index++)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(child: Text('${index + 1}')),
