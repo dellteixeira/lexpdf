@@ -75,18 +75,15 @@ class DocumentRef {
 
 abstract interface class DocumentProvider {
   DocumentProviderKind get kind;
-
   Future<List<DocumentRef>> list({String? parentId});
-
   Future<DocumentRef?> getById(String id);
-
   Future<String> ensureLocalCopy(DocumentRef document);
-
   Future<DocumentRef> upload(String localPath, {String? parentId});
-
   Future<void> rename(DocumentRef document, String newName);
-
   Future<void> move(DocumentRef document, {String? parentId});
-
   Future<void> delete(DocumentRef document);
+}
+
+abstract interface class SyncDocumentProvider implements DocumentProvider {
+  Future<DocumentRef> replaceContent(DocumentRef document, String localPath);
 }
