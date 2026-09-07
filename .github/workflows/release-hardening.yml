@@ -1,0 +1,134 @@
+name: Release Hardening
+
+on:
+  pull_request:
+    paths:
+      - 'apps/lexpdf_app/**'
+      - 'backend/**'
+      - '.github/workflows/release-hardening.yml'
+  workflow_dispatch:
+
+jobs:
+  android-release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Generate Android host project
+        run: flutter create . --platforms=android --org com.lexpdf --project-name lexxpdf_app
+      - name: Configure R8 for Latin-only ML Kit OCR
+        shell: bash
+        run: |
+          cat > android/app/proguard-rules.pro <<'EOF'
+          # LexPDF instantiates TextRecognizer only with TextRecognitionScript.latin.
+          # google_mlkit_text_recognition references optional script classes in its
+          # Android bridge; suppress those unavailable optional models for R8.
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
+          cat >> android/app/build.gradle.kts <<'EOF'
+
+          android {
+              buildTypes {
+                  getByName("release") {
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+          }
+          EOF
+      - name: Build Android release APK
+        run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-android-release
+          path: apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  windows-release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - name: Generate Windows host project
+        run: flutter create . --platforms=windows --org com.lexpdf --project-name lexxpdf_app
+      - name: Build Windows release
+        run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-windows-release
+          path: apps/lexpdf_app/build/windows/x64/runner/Release/**
+          if-no-files-found: error
+
+  macos-release:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - name: Generate macOS host project
+        run: flutter create . --platforms=macos --org com.lexpdf --project-name lexxpdf_app
+      - name: Build macOS release
+        run: flutter build macos --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-macos-release
+          path: apps/lexpdf_app/build/macos/Build/Products/Release/*.app/**
+          if-no-files-found: error
+
+  backend-hardening:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Cloudflare typecheck
+        working-directory: backend/cloudflare
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+      - name: Verify Supabase security invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='backend/supabase/migrations/20260907020000_complete_phase12_backend_security.sql'
+          test -s "$file"
+          grep -q 'enable row level security' "$file"
+          grep -q 'revoke all on public.backend_events from anon, authenticated' "$file"
+          grep -q 'to authenticated' "$file"
+          grep -q 'as restrictive' "$file"
+          grep -q 'security definer' "$file"
+          grep -q 'revoke execute on function private.handle_new_user()' "$file"
+          if grep -Eqi '(sb_secret_|postgres://)[[:space:]]*=' "$file"; then
+            echo 'Potential credential material found in migration.' >&2
+            exit 1
+          fi
