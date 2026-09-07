@@ -57,7 +57,12 @@ class LocalTextAnnotation {
 }
 
 class LocalTextAnnotationStore {
-  const LocalTextAnnotationStore(this.db);
+  LocalTextAnnotationStore(this.db) {
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS annotations_document_page_range_idx
+      ON annotations(document_id, page_number, start_index);
+    ''');
+  }
 
   final LocalDatabase db;
 

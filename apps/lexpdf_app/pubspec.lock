@@ -669,6 +669,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.13.0"
+  pdf_cos:
+    dependency: "direct main"
+    description:
+      name: pdf_cos
+      sha256: "4b89c9e3376f0b95566f6643e04c4e920212c9c9a59286caff63974b0592bbc5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
+  pdf_document:
+    dependency: "direct main"
+    description:
+      name: pdf_document
+      sha256: cbd5cdb7db597f92d73e45e8e44ebeae531b028b9a843b53e23c061a33c07f5b
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   pdf_widget_wrapper:
     dependency: transitive
     description:

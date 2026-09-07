@@ -34,6 +34,59 @@ class CloudOAuthConfig {
   );
 }
 
+class OAuthCallbackValidator {
+  const OAuthCallbackValidator._();
+
+  static String authorizationCode({
+    required String callbackUrl,
+    required String expectedState,
+    required String expectedScheme,
+    required String providerLabel,
+  }) {
+    final uri = Uri.parse(callbackUrl);
+    if (uri.scheme != expectedScheme || uri.path != '/oauth2redirect') {
+      throw StateError('$providerLabel OAuth returned an unexpected callback URI.');
+    }
+
+    final error = uri.queryParameters['error'];
+    if (error != null && error.isNotEmpty) {
+      final description = uri.queryParameters['error_description'];
+      throw StateError(
+        description == null || description.isEmpty
+            ? '$providerLabel OAuth failed: $error.'
+            : '$providerLabel OAuth failed: $error ($description).',
+      );
+    }
+
+    final returnedState = uri.queryParameters['state'];
+    if (returnedState == null ||
+        !_constantTimeEquals(returnedState, expectedState)) {
+      throw StateError('$providerLabel OAuth state validation failed.');
+    }
+
+    final code = uri.queryParameters['code'];
+    if (code == null || code.isEmpty) {
+      throw StateError('$providerLabel OAuth returned no code.');
+    }
+    return code;
+  }
+
+  static bool _constantTimeEquals(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    var difference = leftBytes.length ^ rightBytes.length;
+    final maxLength = leftBytes.length > rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var index = 0; index < maxLength; index++) {
+      final leftByte = index < leftBytes.length ? leftBytes[index] : 0;
+      final rightByte = index < rightBytes.length ? rightBytes[index] : 0;
+      difference |= leftByte ^ rightByte;
+    }
+    return difference == 0;
+  }
+}
+
 class CloudOAuthService {
   CloudOAuthService({
     this.config = CloudOAuthConfig.fromEnvironment,
@@ -54,6 +107,7 @@ class CloudOAuthService {
     }
     final verifier = _randomVerifier();
     final challenge = _challenge(verifier);
+    final state = _randomState();
     final redirectUri = '${config.callbackScheme}:/oauth2redirect';
     final auth = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
       'client_id': config.googleClientId,
@@ -64,15 +118,18 @@ class CloudOAuthService {
       'prompt': 'consent',
       'code_challenge': challenge,
       'code_challenge_method': 'S256',
+      'state': state,
     });
     final result = await FlutterWebAuth2.authenticate(
       url: auth.toString(),
       callbackUrlScheme: config.callbackScheme,
     );
-    final code = Uri.parse(result).queryParameters['code'];
-    if (code == null || code.isEmpty) {
-      throw StateError('Google OAuth returned no code.');
-    }
+    final code = OAuthCallbackValidator.authorizationCode(
+      callbackUrl: result,
+      expectedState: state,
+      expectedScheme: config.callbackScheme,
+      providerLabel: 'Google',
+    );
     final token = await _exchangeForm(
       Uri.parse('https://oauth2.googleapis.com/token'),
       {
@@ -92,6 +149,7 @@ class CloudOAuthService {
     }
     final verifier = _randomVerifier();
     final challenge = _challenge(verifier);
+    final state = _randomState();
     final redirectUri = '${config.callbackScheme}:/oauth2redirect';
     final tenant = Uri.encodeComponent(config.microsoftTenant);
     final auth = Uri.parse(
@@ -104,15 +162,18 @@ class CloudOAuthService {
       'scope': 'openid profile offline_access Files.ReadWrite',
       'code_challenge': challenge,
       'code_challenge_method': 'S256',
+      'state': state,
     });
     final result = await FlutterWebAuth2.authenticate(
       url: auth.toString(),
       callbackUrlScheme: config.callbackScheme,
     );
-    final code = Uri.parse(result).queryParameters['code'];
-    if (code == null || code.isEmpty) {
-      throw StateError('Microsoft OAuth returned no code.');
-    }
+    final code = OAuthCallbackValidator.authorizationCode(
+      callbackUrl: result,
+      expectedState: state,
+      expectedScheme: config.callbackScheme,
+      providerLabel: 'Microsoft',
+    );
     final token = await _exchangeForm(
       Uri.parse('https://login.microsoftonline.com/$tenant/oauth2/v2.0/token'),
       {
@@ -242,6 +303,12 @@ class CloudOAuthService {
         'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
     final random = Random.secure();
     return List.generate(64, (_) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  static String _randomState() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    return base64UrlEncode(bytes).replaceAll('=', '');
   }
 
   static String _challenge(String verifier) {

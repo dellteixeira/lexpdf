@@ -29,6 +29,8 @@ class PdfOcrSummary {
     required this.recognizedPages,
     required this.engine,
     this.skippedPages = 0,
+    this.embeddedTextPages = 0,
+    this.rasterizedPages = 0,
     this.cancelled = false,
   });
 
@@ -36,6 +38,8 @@ class PdfOcrSummary {
   final int recognizedPages;
   final String engine;
   final int skippedPages;
+  final int embeddedTextPages;
+  final int rasterizedPages;
   final bool cancelled;
 }
 
@@ -59,11 +63,13 @@ class MobilePdfOcrService {
     return 'embedded-text-fallback';
   }
 
-  /// Runs OCR with bounded per-page memory and incremental persistence.
+  /// Runs OCR with a bounded per-page working set and incremental persistence.
   ///
-  /// [resume] skips pages already processed by the same engine. [isCancelled]
-  /// is checked between pages, so a 2,000+ page operation can be stopped
-  /// without losing completed work.
+  /// For born-digital PDFs, embedded text is used before rasterization. This is
+  /// both faster and dramatically cheaper in memory for 2,000–5,000+ pages.
+  /// [resume] probes only page-number metadata, never all stored OCR text.
+  /// [isCancelled] is checked before and after expensive page work so completed
+  /// pages remain durable and a later run can resume without starting over.
   Future<PdfOcrSummary> process({
     required String documentId,
     required String filePath,
@@ -76,6 +82,8 @@ class MobilePdfOcrService {
     PlatformOcr? desktopOcr;
     var recognizedPages = 0;
     var skippedPages = 0;
+    var embeddedTextPages = 0;
+    var rasterizedPages = 0;
     var cancelled = false;
     final engine = _engineName;
 
@@ -86,6 +94,13 @@ class MobilePdfOcrService {
         desktopOcr = PlatformOcr();
       }
 
+      final resumeState = resume
+          ? await ocrStore.processedPageState(
+              documentId,
+              acceptedEngines: {engine, 'embedded-text'},
+            )
+          : const <int, bool>{};
+
       for (var index = 0; index < document.pages.length; index++) {
         if (isCancelled?.call() == true) {
           cancelled = true;
@@ -93,46 +108,50 @@ class MobilePdfOcrService {
         }
 
         final pageNumber = index + 1;
-        if (resume) {
-          final existing = await ocrStore.getPage(documentId, pageNumber);
-          if (existing != null && existing.engine == engine) {
-            if (existing.text.trim().isNotEmpty) recognizedPages++;
-            skippedPages++;
-            await _upsertSearchIndex(
-              documentId: documentId,
+        final alreadyProcessed = resumeState[pageNumber];
+        if (alreadyProcessed != null) {
+          if (alreadyProcessed) recognizedPages++;
+          skippedPages++;
+          onProgress?.call(
+            PdfOcrProgress(
               pageNumber: pageNumber,
-              text: existing.text,
-            );
-            onProgress?.call(
-              PdfOcrProgress(
-                pageNumber: pageNumber,
-                pageCount: document.pages.length,
-                skipped: true,
-              ),
-            );
-            await _yieldIfNeeded(pageNumber);
-            continue;
-          }
+              pageCount: document.pages.length,
+              skipped: true,
+            ),
+          );
+          await _yieldIfNeeded(pageNumber);
+          continue;
         }
 
         final page = document.pages[index];
-        String text;
+        String text = '';
+        String pageEngine = engine;
         List<OcrTextLine> lines = const [];
 
-        if (recognizer != null) {
+        final embedded = await _loadEmbeddedText(page);
+        if (embedded.length >= HugePdfPolicy.ocrEmbeddedTextMinChars ||
+            !nativeOcrSupported) {
+          text = embedded;
+          pageEngine = 'embedded-text';
+          embeddedTextPages++;
+        } else if (recognizer != null) {
           final size = HugePdfPolicy.boundedRenderSize(
             pageWidth: page.width,
             pageHeight: page.height,
+            maxPixels: HugePdfPolicy.ocrMaxPixels,
           );
           final rendered = await page.render(
             width: size.width,
             height: size.height,
             backgroundColor: 0xFFFFFFFF,
           );
-          if (rendered == null) {
-            text = '';
-          } else {
+          if (rendered != null) {
+            rasterizedPages++;
             try {
+              if (isCancelled?.call() == true) {
+                cancelled = true;
+                break;
+              }
               final input = InputImage.fromBitmap(
                 bitmap: rendered.pixels,
                 width: rendered.width,
@@ -165,16 +184,20 @@ class MobilePdfOcrService {
           final size = HugePdfPolicy.boundedRenderSize(
             pageWidth: page.width,
             pageHeight: page.height,
+            maxPixels: HugePdfPolicy.ocrDesktopMaxPixels,
           );
           final rendered = await page.render(
             width: size.width,
             height: size.height,
             backgroundColor: 0xFFFFFFFF,
           );
-          if (rendered == null) {
-            text = '';
-          } else {
+          if (rendered != null) {
+            rasterizedPages++;
             try {
+              if (isCancelled?.call() == true) {
+                cancelled = true;
+                break;
+              }
               final png = Uint8List.fromList(
                 img.encodePng(rendered.createImageNF()),
               );
@@ -184,18 +207,16 @@ class MobilePdfOcrService {
               rendered.dispose();
             }
           }
-        } else {
-          final structured = await page.loadStructuredText();
-          text = structured.fullText.trim();
         }
 
+        if (cancelled) break;
         if (text.isNotEmpty) recognizedPages++;
         await ocrStore.upsert(
           OcrPageResult(
             documentId: documentId,
             pageNumber: pageNumber,
             text: text,
-            engine: engine,
+            engine: pageEngine,
             processedAt: DateTime.now().toUtc(),
             lines: lines,
           ),
@@ -212,6 +233,11 @@ class MobilePdfOcrService {
           ),
         );
         await _yieldIfNeeded(pageNumber);
+
+        if (isCancelled?.call() == true) {
+          cancelled = true;
+          break;
+        }
       }
 
       return PdfOcrSummary(
@@ -219,11 +245,22 @@ class MobilePdfOcrService {
         recognizedPages: recognizedPages,
         engine: engine,
         skippedPages: skippedPages,
+        embeddedTextPages: embeddedTextPages,
+        rasterizedPages: rasterizedPages,
         cancelled: cancelled,
       );
     } finally {
       await recognizer?.close();
       await document.dispose();
+    }
+  }
+
+  Future<String> _loadEmbeddedText(PdfPage page) async {
+    try {
+      final structured = await page.loadStructuredText();
+      return structured.fullText.trim();
+    } catch (_) {
+      return '';
     }
   }
 

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
+import '../core/pdf/large_pdf_manipulation_service.dart';
 import '../core/pdf/pdf_page_manipulation_service.dart';
 import '../core/pdf/safe_pdf_writer.dart';
 
@@ -34,6 +34,7 @@ class _PlannedPage {
 
 class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   static const _service = PdfPageManipulationService();
+  static const _largeService = LargePdfManipulationService();
   static const _writer = SafePdfWriter();
   final List<_PlannedPage> _pages = [];
   bool _loading = true;
@@ -41,6 +42,17 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   Object? _error;
 
   String? get _sourcePath => widget.document.localPath;
+
+  bool get _planIsIdentity {
+    for (var index = 0; index < _pages.length; index++) {
+      final page = _pages[index];
+      if (page.sourcePageNumber != index + 1 ||
+          page.clockwiseQuarterTurns % 4 != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   @override
   void initState() {
@@ -106,21 +118,10 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
     return '${exports.path}${Platform.pathSeparator}$suggestedName';
   }
 
-  Future<void> _saveBytes(
-    Uint8List bytes,
-    String suggestedName, {
-    String successLabel = 'PDF salvo',
-  }) async {
-    final path = await _chooseOutputPath(suggestedName);
-    if (path == null) return;
-    await _writer.saveAs(
-      bytes: bytes,
-      destinationPath: path,
-      replaceExisting: Platform.isAndroid || Platform.isIOS,
-    );
+  Future<void> _showSaved(String label, String path) async {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$successLabel: $path')),
+      SnackBar(content: Text('$label: $path')),
     );
   }
 
@@ -139,34 +140,53 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
     }
   }
 
-  Future<T> _withComposedTemp<T>(Future<T> Function(String path) action) async {
+  Future<T> _withCurrentPlanPath<T>(
+    Future<T> Function(String path) action,
+  ) async {
+    final source = _sourcePath;
+    if (source == null) throw StateError('PDF não disponível offline.');
+    if (_planIsIdentity) return action(source);
     if (_pages.isEmpty) throw StateError('O documento não pode ficar sem páginas.');
-    final bytes = await _service.compose(_specs(_pages));
-    final file = File(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}lexpdf-plan-${DateTime.now().microsecondsSinceEpoch}.pdf',
-    );
-    await file.writeAsBytes(bytes, flush: true);
+
+    final temp = await Directory.systemTemp.createTemp('lexpdf-page-plan-');
     try {
-      return await action(file.path);
+      final path = '${temp.path}${Platform.pathSeparator}planned.pdf';
+      await _largeService.composeToFile(
+        _specs(_pages),
+        outputPath: path,
+      );
+      return await action(path);
     } finally {
-      if (await file.exists()) await file.delete();
+      if (await temp.exists()) await temp.delete(recursive: true);
     }
   }
 
   Future<void> _savePlan() => _run(() async {
-        if (_pages.isEmpty) throw StateError('O documento não pode ficar sem páginas.');
-        final bytes = await _service.compose(_specs(_pages));
-        await _saveBytes(bytes, 'lexpdf_editado.pdf');
+        if (_pages.isEmpty) {
+          throw StateError('O documento não pode ficar sem páginas.');
+        }
+        final destination = await _chooseOutputPath('lexpdf_editado.pdf');
+        if (destination == null) return;
+        await _largeService.composeToFile(
+          _specs(_pages),
+          outputPath: destination,
+        );
+        await _showSaved('PDF salvo', destination);
       });
 
   Future<void> _extractSelected() => _run(() async {
         final selected = _pages.where((page) => page.selected).toList();
-        if (selected.isEmpty) throw StateError('Selecione pelo menos uma página.');
-        final bytes = await _service.compose(
+        if (selected.isEmpty) {
+          throw StateError('Selecione pelo menos uma página.');
+        }
+        final destination =
+            await _chooseOutputPath('lexpdf_paginas_extraidas.pdf');
+        if (destination == null) return;
+        await _largeService.composeToFile(
           _specs(selected),
-          sourceName: 'extracao.pdf',
+          outputPath: destination,
         );
-        await _saveBytes(bytes, 'lexpdf_paginas_extraidas.pdf');
+        await _showSaved('Páginas extraídas', destination);
       });
 
   Future<void> _mergePdf() => _run(() async {
@@ -181,8 +201,13 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         final other = await openFile(acceptedTypeGroups: types);
         final source = _sourcePath;
         if (other == null || source == null) return;
-        final bytes = await _service.merge([source, other.path]);
-        await _saveBytes(bytes, 'lexpdf_combinado.pdf');
+        final destination = await _chooseOutputPath('lexpdf_combinado.pdf');
+        if (destination == null) return;
+        await _largeService.mergeToFile(
+          [source, other.path],
+          outputPath: destination,
+        );
+        await _showSaved('PDF combinado salvo', destination);
       });
 
   Future<void> _imagesToPdf() => _run(() async {
@@ -191,13 +216,22 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             label: 'Imagens',
             extensions: ['jpg', 'jpeg', 'png', 'webp'],
             mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-            uniformTypeIdentifiers: ['public.jpeg', 'public.png', 'org.webmproject.webp'],
+            uniformTypeIdentifiers: [
+              'public.jpeg',
+              'public.png',
+              'org.webmproject.webp',
+            ],
           ),
         ];
         final files = await openFiles(acceptedTypeGroups: types);
         if (files.isEmpty) return;
-        final bytes = await _service.imagesToPdf(files.map((file) => file.path).toList());
-        await _saveBytes(bytes, 'lexpdf_imagens.pdf');
+        final destination = await _chooseOutputPath('lexpdf_imagens.pdf');
+        if (destination == null) return;
+        await _largeService.imagesToPdfToFile(
+          files.map((file) => file.path).toList(growable: false),
+          outputPath: destination,
+        );
+        await _showSaved('PDF de imagens salvo', destination);
       });
 
   Future<void> _insertBlankPage() => _run(() async {
@@ -206,13 +240,24 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             if (_pages[i].selected) i,
         ];
         if (selectedIndexes.length > 1) {
-          throw StateError('Para inserir uma página em branco, selecione no máximo uma página.');
+          throw StateError(
+            'Para inserir uma página em branco, selecione no máximo uma página.',
+          );
         }
-        final after = selectedIndexes.isEmpty ? _pages.length : selectedIndexes.single + 1;
-        final bytes = await _withComposedTemp(
-          (path) => _service.addBlankPage(path, afterPageNumber: after),
+        final after = selectedIndexes.isEmpty
+            ? _pages.length
+            : selectedIndexes.single + 1;
+        final destination =
+            await _chooseOutputPath('lexpdf_com_pagina_em_branco.pdf');
+        if (destination == null) return;
+        await _withCurrentPlanPath(
+          (path) => _largeService.addBlankPageToFile(
+            sourcePath: path,
+            outputPath: destination,
+            afterPageNumber: after,
+          ),
         );
-        await _saveBytes(bytes, 'lexpdf_com_pagina_em_branco.pdf');
+        await _showSaved('PDF com página em branco salvo', destination);
       });
 
   Future<void> _insertImageOnSelectedPage() => _run(() async {
@@ -221,58 +266,57 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             if (_pages[i].selected) i,
         ];
         if (selectedIndexes.length != 1) {
-          throw StateError('Selecione exatamente uma página para inserir a imagem.');
+          throw StateError(
+            'Selecione exatamente uma página para inserir a imagem.',
+          );
         }
         const types = <XTypeGroup>[
           XTypeGroup(
             label: 'Imagem',
             extensions: ['jpg', 'jpeg', 'png', 'webp'],
             mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-            uniformTypeIdentifiers: ['public.jpeg', 'public.png', 'org.webmproject.webp'],
+            uniformTypeIdentifiers: [
+              'public.jpeg',
+              'public.png',
+              'org.webmproject.webp',
+            ],
           ),
         ];
         final image = await openFile(acceptedTypeGroups: types);
         if (image == null) return;
-        final bytes = await _withComposedTemp(
-          (path) => _service.insertImageOnPage(
+        final destination = await _chooseOutputPath('lexpdf_com_imagem.pdf');
+        if (destination == null) return;
+        await _withCurrentPlanPath(
+          (path) => _largeService.insertImageOnPageToFile(
             sourcePath: path,
             imagePath: image.path,
             pageNumber: selectedIndexes.single + 1,
+            outputPath: destination,
           ),
         );
-        await _saveBytes(
-          bytes,
-          'lexpdf_com_imagem.pdf',
-          successLabel: 'PDF com imagem inserida salvo',
-        );
+        await _showSaved('PDF com imagem inserida salvo', destination);
       });
 
   Future<void> _splitEveryPage() => _run(() async {
         final source = _sourcePath;
         if (source == null) return;
-        final outputs = await _service.splitEveryPage(source);
-        if (outputs.isEmpty) return;
         String? directory;
-        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isAndroid) {
+        if (Platform.isWindows ||
+            Platform.isLinux ||
+            Platform.isMacOS ||
+            Platform.isAndroid) {
           directory = await getDirectoryPath(canCreateDirectories: true);
         }
         if (directory == null) {
           final app = await getApplicationDocumentsDirectory();
-          directory = '${app.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}split';
+          directory =
+              '${app.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}split';
         }
-        await Directory(directory).create(recursive: true);
-        for (var index = 0; index < outputs.length; index++) {
-          await _writer.saveAs(
-            bytes: outputs[index],
-            destinationPath: '$directory${Platform.pathSeparator}pagina_${index + 1}.pdf',
-            replaceExisting: true,
-          );
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${outputs.length} PDFs salvos em: $directory')),
-          );
-        }
+        final count = await _service.splitEveryPageToDirectory(
+          source,
+          outputDirectory: Directory(directory),
+        );
+        await _showSaved('$count PDFs salvos em', directory);
       });
 
   void _move(int index, int delta) {
@@ -319,12 +363,27 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
               if (value == 'split') _splitEveryPage();
             },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'blank', child: Text('Inserir página em branco')),
-              PopupMenuItem(value: 'insert_image', child: Text('Inserir imagem na página selecionada')),
+              PopupMenuItem(
+                value: 'blank',
+                child: Text('Inserir página em branco'),
+              ),
+              PopupMenuItem(
+                value: 'insert_image',
+                child: Text('Inserir imagem na página selecionada'),
+              ),
               PopupMenuDivider(),
-              PopupMenuItem(value: 'merge', child: Text('Combinar com outro PDF')),
-              PopupMenuItem(value: 'images', child: Text('Criar PDF de imagens')),
-              PopupMenuItem(value: 'split', child: Text('Dividir em PDFs individuais')),
+              PopupMenuItem(
+                value: 'merge',
+                child: Text('Combinar com outro PDF'),
+              ),
+              PopupMenuItem(
+                value: 'images',
+                child: Text('Criar PDF de imagens'),
+              ),
+              PopupMenuItem(
+                value: 'split',
+                child: Text('Dividir em PDFs individuais'),
+              ),
             ],
           ),
         ],
@@ -343,7 +402,7 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                '${_pages.length} páginas • o original não é sobrescrito por padrão',
+                                '${_pages.length} páginas • processamento em disco para PDFs grandes',
                               ),
                             ),
                             OutlinedButton.icon(
@@ -376,7 +435,8 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
                               },
                         itemBuilder: (context, index) {
                           final page = _pages[index];
-                          final degrees = (page.clockwiseQuarterTurns % 4) * 90;
+                          final degrees =
+                              (page.clockwiseQuarterTurns % 4) * 90;
                           return Card(
                             key: ValueKey(page.id),
                             child: ListTile(
@@ -384,40 +444,53 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
                                 value: page.selected,
                                 onChanged: _busy
                                     ? null
-                                    : (value) => setState(() => page.selected = value ?? false),
+                                    : (value) => setState(
+                                          () => page.selected = value ?? false,
+                                        ),
                               ),
-                              title: Text('Página original ${page.sourcePageNumber}'),
+                              title: Text(
+                                'Página original ${page.sourcePageNumber}',
+                              ),
                               subtitle: Text('Rotação aplicada: $degrees°'),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
                                     tooltip: 'Mover para cima',
-                                    onPressed: _busy || index == 0 ? null : () => _move(index, -1),
+                                    onPressed: _busy || index == 0
+                                        ? null
+                                        : () => _move(index, -1),
                                     icon: const Icon(Icons.arrow_upward),
                                   ),
                                   IconButton(
                                     tooltip: 'Mover para baixo',
-                                    onPressed: _busy || index == _pages.length - 1
-                                        ? null
-                                        : () => _move(index, 1),
+                                    onPressed:
+                                        _busy || index == _pages.length - 1
+                                            ? null
+                                            : () => _move(index, 1),
                                     icon: const Icon(Icons.arrow_downward),
                                   ),
                                   IconButton(
                                     tooltip: 'Girar 90°',
                                     onPressed: _busy
                                         ? null
-                                        : () => setState(() => page.clockwiseQuarterTurns++),
+                                        : () => setState(
+                                              () => page
+                                                  .clockwiseQuarterTurns++,
+                                            ),
                                     icon: const Icon(Icons.rotate_right),
                                   ),
                                   IconButton(
                                     tooltip: 'Duplicar',
-                                    onPressed: _busy ? null : () => _duplicate(index),
+                                    onPressed:
+                                        _busy ? null : () => _duplicate(index),
                                     icon: const Icon(Icons.copy_outlined),
                                   ),
                                   IconButton(
                                     tooltip: 'Excluir',
-                                    onPressed: _busy || _pages.length <= 1 ? null : () => _delete(index),
+                                    onPressed: _busy || _pages.length <= 1
+                                        ? null
+                                        : () => _delete(index),
                                     icon: const Icon(Icons.delete_outline),
                                   ),
                                   const Icon(Icons.drag_handle),
