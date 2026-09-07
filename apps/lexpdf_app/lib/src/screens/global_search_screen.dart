@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_global_search_fts.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import 'pdf_navigation_screen.dart';
 
@@ -27,6 +28,8 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   bool _searching = false;
   bool _indexing = false;
   String _indexStatus = '';
+
+  LocalGlobalSearchFts get _fts => LocalGlobalSearchFts(widget.store.db);
 
   @override
   void dispose() {
@@ -130,7 +133,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     if (value.isEmpty) return;
     setState(() => _searching = true);
     try {
-      final hits = await widget.store.search(value, limit: 200);
+      final hits = await _fts.search(value, limit: 200);
       if (!mounted) return;
       setState(() => _hits = hits);
     } finally {
@@ -194,11 +197,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
           await pdf?.dispose();
         }
       }
+      await _fts.rebuild();
     } finally {
       if (mounted) {
         setState(() {
           _indexing = false;
-          _indexStatus = 'Indexação concluída: $indexed PDF(s); $failed falha(s).';
+          _indexStatus = 'Indexação FTS5 concluída: $indexed PDF(s); $failed falha(s).';
         });
       }
     }
