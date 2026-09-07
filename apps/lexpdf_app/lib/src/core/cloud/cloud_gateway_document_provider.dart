@@ -39,9 +39,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
       if (parentId != null) 'parent': parentId,
     });
     final data = await _json('GET', uri) as List<dynamic>;
-    return data
-        .map((value) => _fromJson((value as Map).cast<String, dynamic>()))
-        .toList(growable: false);
+    return data.map((value) => _fromJson((value as Map).cast<String, dynamic>())).toList(growable: false);
   }
 
   @override
@@ -62,9 +60,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     if (existing != null && await File(existing).exists()) return existing;
     await cacheDirectory.create(recursive: true);
     final safeName = _safeName(document.name);
-    final file = File(
-      '${cacheDirectory.path}${Platform.pathSeparator}${document.id}-$safeName',
-    );
+    final file = File('${cacheDirectory.path}${Platform.pathSeparator}${document.id}-$safeName');
     final uri = _uri(
       '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content',
       {'account': accountId},
@@ -85,34 +81,22 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     });
     final data = await _bytesRequest('POST', uri, await file.readAsBytes());
     final decoded = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
-    return _fromJson(decoded).copyWithLocal(localPath);
+    return _fromJson(decoded).copyWith(localPath: localPath, availableOffline: true, syncState: DocumentSyncState.synced);
   }
 
   @override
   Future<void> rename(DocumentRef document, String newName) async {
-    final uri = _uri(
-      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
-      {'account': accountId},
-    );
-    await _json('PATCH', uri, body: {'name': newName});
+    await _json('PATCH', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}), body: {'name': newName});
   }
 
   @override
   Future<void> move(DocumentRef document, {String? parentId}) async {
-    final uri = _uri(
-      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
-      {'account': accountId},
-    );
-    await _json('PATCH', uri, body: {'parentId': parentId});
+    await _json('PATCH', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}), body: {'parentId': parentId});
   }
 
   @override
   Future<void> delete(DocumentRef document) async {
-    final uri = _uri(
-      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
-      {'account': accountId},
-    );
-    await _json('DELETE', uri);
+    await _json('DELETE', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}));
   }
 
   Uri _uri(String path, Map<String, String> query) => gatewayBaseUrl.replace(
@@ -121,10 +105,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
       );
 
   Future<void> _authorize(HttpClientRequest request) async {
-    final token = await _credentials.readToken(
-      provider: _providerName,
-      accountId: accountId,
-    );
+    final token = await _credentials.readToken(provider: _providerName, accountId: accountId);
     if (token == null || token.isEmpty) {
       throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
     }
@@ -132,11 +113,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
   }
 
-  Future<dynamic> _json(
-    String method,
-    Uri uri, {
-    Map<String, dynamic>? body,
-  }) async {
+  Future<dynamic> _json(String method, Uri uri, {Map<String, dynamic>? body}) async {
     final request = await _http.openUrl(method, uri);
     await _authorize(request);
     if (body != null) {
@@ -182,24 +159,12 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
         provider: kind,
         remoteId: (data['remoteId'] ?? data['id'])?.toString(),
         remotePath: data['remotePath']?.toString(),
+        checksum: data['checksum']?.toString(),
+        remoteVersion: (data['version'] ?? data['etag'])?.toString(),
         availableOffline: false,
         syncState: DocumentSyncState.remoteOnly,
       );
 
   String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
   String _basename(String path) => path.replaceAll('\\', '/').split('/').last;
-}
-
-extension on DocumentRef {
-  DocumentRef copyWithLocal(String path) => DocumentRef(
-        id: id,
-        name: name,
-        provider: provider,
-        localPath: path,
-        remoteId: remoteId,
-        remotePath: remotePath,
-        availableOffline: true,
-        favorite: favorite,
-        syncState: DocumentSyncState.synced,
-      );
 }
