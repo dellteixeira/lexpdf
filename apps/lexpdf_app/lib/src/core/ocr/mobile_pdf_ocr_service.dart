@@ -73,7 +73,11 @@ class MobilePdfOcrService {
         List<OcrTextLine> lines = const [];
 
         if (recognizer != null) {
-          final rendered = await _renderForOcr(page);
+          final rendered = await page.render(
+            width: (page.width * 2).round().clamp(1, 8000),
+            height: (page.height * 2).round().clamp(1, 8000),
+            backgroundColor: 0xFFFFFFFF,
+          );
           if (rendered == null) {
             text = '';
           } else {
@@ -107,7 +111,11 @@ class MobilePdfOcrService {
             }
           }
         } else if (desktopOcr != null) {
-          final rendered = await _renderForOcr(page);
+          final rendered = await page.render(
+            width: (page.width * 2).round().clamp(1, 8000),
+            height: (page.height * 2).round().clamp(1, 8000),
+            backgroundColor: 0xFFFFFFFF,
+          );
           if (rendered == null) {
             text = '';
           } else {
@@ -160,10 +168,4 @@ class MobilePdfOcrService {
       await document.dispose();
     }
   }
-
-  Future<PdfPageImage?> _renderForOcr(PdfPage page) => page.render(
-        width: (page.width * 2).round().clamp(1, 8000),
-        height: (page.height * 2).round().clamp(1, 8000),
-        backgroundColor: 0xFFFFFFFF,
-      );
 }
