@@ -8,6 +8,7 @@ import 'core/storage/local_pdf_ink_store.dart';
 import 'core/storage/local_pdf_navigation_store.dart';
 import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
+import 'screens/account_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/pdf_print_screen.dart';
 
@@ -69,6 +70,10 @@ class _LexPdfAppState extends State<LexPdfApp> {
     }
   }
 
+  Future<void> _openAccount(BuildContext context) => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
+      );
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -93,6 +98,20 @@ class _LexPdfAppState extends State<LexPdfApp> {
               annotations: _annotations,
               inkStore: _inkStore,
               pdfInkStore: _pdfInkStore,
+            ),
+            Positioned(
+              right: 20,
+              bottom: 86,
+              child: SafeArea(
+                child: Tooltip(
+                  message: 'Conta LexPDF',
+                  child: FloatingActionButton.small(
+                    heroTag: 'lexpdf-account',
+                    onPressed: () => _openAccount(context),
+                    child: const Icon(Icons.person_outline),
+                  ),
+                ),
+              ),
             ),
             Positioned(
               right: 20,
