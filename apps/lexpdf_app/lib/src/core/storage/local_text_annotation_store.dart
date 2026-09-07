@@ -91,6 +91,31 @@ class LocalTextAnnotationStore {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  Future<List<LocalTextAnnotation>> listForPageRange(
+    String documentId,
+    int startPage,
+    int endPage,
+  ) async {
+    if (endPage < startPage) return const [];
+    final rows = db.database.select(
+      '''
+      SELECT * FROM annotations
+      WHERE document_id = ? AND page_number BETWEEN ? AND ?
+      ORDER BY page_number, start_index, created_at;
+      ''',
+      [documentId, startPage, endPage],
+    );
+    return rows.map(_fromRow).toList(growable: false);
+  }
+
+  Future<int> countForDocument(String documentId) async {
+    final row = db.database.select(
+      'SELECT COUNT(*) AS value FROM annotations WHERE document_id = ?;',
+      [documentId],
+    ).single;
+    return row['value'] as int;
+  }
+
   Future<void> upsert(LocalTextAnnotation annotation) async {
     if (annotation.pageNumber < 1) {
       throw ArgumentError.value(
