@@ -45,9 +45,11 @@ jobs:
       - name: Verify Android release hardening
         shell: bash
         run: |
+          set -euo pipefail
           test -f android/app/proguard-rules.pro
           grep -q 'TextRecognitionScript.latin' lib/src/core/ocr/mobile_pdf_ocr_service.dart
           grep -q 'com.google.mlkit.vision.text.chinese' android/app/proguard-rules.pro
+          grep -q '<uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
       - name: Build Android release APK
         run: >-
           flutter build apk --release
