@@ -21,6 +21,13 @@ type AuthUser = { id: string; email?: string };
 const DEFAULT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_LIST_LIMIT = 1000;
 
+class UploadLimitExceededError extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`Upload exceeded the configured limit of ${maxBytes} bytes.`);
+    this.name = "UploadLimitExceededError";
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
@@ -85,13 +92,18 @@ async function route(request: Request, env: Env, requestId: string): Promise<Res
 
   if (!fileId && request.method === "POST") {
     const bodyError = validateUploadRequest(request, env);
-    if (bodyError) return json({ error: bodyError }, bodyError === "unsupported_media_type" ? 415 : 413, requestId);
+    if (bodyError) return json({ error: bodyError }, uploadErrorStatus(bodyError), requestId);
     const name = safeFileName(url.searchParams.get("name") ?? "document.pdf");
     const id = crypto.randomUUID();
     const key = `${prefix}${id}`;
-    const object = await env.DOCUMENTS.put(key, request.body, { httpMetadata: { contentType: "application/pdf" }, customMetadata: { name } });
-    await enqueue(env, user.id, "upload", key, requestId);
-    return json({ id, remoteId: id, name, remotePath: key, version: object?.etag }, 201, requestId);
+    try {
+      const object = await env.DOCUMENTS.put(key, boundedUploadBody(request, env), { httpMetadata: { contentType: "application/pdf" }, customMetadata: { name } });
+      await enqueue(env, user.id, "upload", key, requestId);
+      return json({ id, remoteId: id, name, remotePath: key, version: object?.etag }, 201, requestId);
+    } catch (error) {
+      if (isUploadLimitExceeded(error)) return json({ error: "payload_too_large" }, 413, requestId);
+      throw error;
+    }
   }
 
   if (!fileId) return json({ error: "method_not_allowed" }, 405, requestId);
@@ -110,16 +122,21 @@ async function route(request: Request, env: Env, requestId: string): Promise<Res
 
   if (content && request.method === "PUT") {
     const bodyError = validateUploadRequest(request, env);
-    if (bodyError) return json({ error: bodyError }, bodyError === "unsupported_media_type" ? 415 : 413, requestId);
+    if (bodyError) return json({ error: bodyError }, uploadErrorStatus(bodyError), requestId);
     const current = await env.DOCUMENTS.head(key);
     if (!current) return json({ error: "not_found" }, 404, requestId);
     const expectedEtag = request.headers.get("if-match");
     if (expectedEtag && stripQuotes(expectedEtag) !== stripQuotes(current.httpEtag)) {
       return json({ error: "version_conflict", currentVersion: current.etag }, 409, requestId);
     }
-    const object = await env.DOCUMENTS.put(key, request.body, { httpMetadata: { contentType: "application/pdf" }, customMetadata: current.customMetadata });
-    await enqueue(env, user.id, "replace", key, requestId);
-    return json({ id: fileId, remoteId: fileId, name: current.customMetadata?.name ?? fileId, remotePath: key, version: object?.etag }, 200, requestId);
+    try {
+      const object = await env.DOCUMENTS.put(key, boundedUploadBody(request, env), { httpMetadata: { contentType: "application/pdf" }, customMetadata: current.customMetadata });
+      await enqueue(env, user.id, "replace", key, requestId);
+      return json({ id: fileId, remoteId: fileId, name: current.customMetadata?.name ?? fileId, remotePath: key, version: object?.etag }, 200, requestId);
+    } catch (error) {
+      if (isUploadLimitExceeded(error)) return json({ error: "payload_too_large" }, 413, requestId);
+      throw error;
+    }
   }
 
   if (!content && request.method === "GET") {
@@ -163,7 +180,8 @@ async function authenticate(request: Request, env: Env): Promise<AuthUser | null
 }
 
 function validateUploadRequest(request: Request, env: Env): string | null {
-  const max = parsePositiveInt(env.MAX_UPLOAD_BYTES) ?? DEFAULT_MAX_UPLOAD_BYTES;
+  if (!request.body) return "empty_body";
+  const max = maxUploadBytes(env);
   const rawLength = request.headers.get("content-length");
   if (rawLength) {
     const length = Number.parseInt(rawLength, 10);
@@ -171,8 +189,54 @@ function validateUploadRequest(request: Request, env: Env): string | null {
   }
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType && !contentType.startsWith("application/pdf") && !contentType.startsWith("application/octet-stream")) return "unsupported_media_type";
-  if (!request.body) return "empty_body";
   return null;
+}
+
+function maxUploadBytes(env: Env): number {
+  return parsePositiveInt(env.MAX_UPLOAD_BYTES) ?? DEFAULT_MAX_UPLOAD_BYTES;
+}
+
+function boundedUploadBody(request: Request, env: Env): ReadableStream<Uint8Array> {
+  const body = request.body;
+  if (!body) throw new Error("Upload body is required.");
+  const reader = body.getReader();
+  const max = maxUploadBytes(env);
+  let bytesSeen = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        const chunk = value as Uint8Array;
+        bytesSeen += chunk.byteLength;
+        if (bytesSeen > max) {
+          await reader.cancel("payload_too_large").catch(() => undefined);
+          controller.error(new UploadLimitExceededError(max));
+          return;
+        }
+        controller.enqueue(chunk);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+function isUploadLimitExceeded(error: unknown): boolean {
+  return error instanceof UploadLimitExceededError || (error instanceof Error && error.name === "UploadLimitExceededError");
+}
+
+function uploadErrorStatus(error: string): number {
+  if (error === "unsupported_media_type") return 415;
+  if (error === "empty_body") return 400;
+  return 413;
 }
 
 async function enqueue(env: Env, userId: string, operation: SyncMessage["operation"], key: string, requestId: string): Promise<void> {
