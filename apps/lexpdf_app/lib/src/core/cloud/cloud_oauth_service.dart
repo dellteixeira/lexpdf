@@ -59,7 +59,7 @@ class CloudOAuthService {
       'client_id': config.googleClientId,
       'redirect_uri': redirectUri,
       'response_type': 'code',
-      'scope': 'openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly',
+      'scope': 'openid email https://www.googleapis.com/auth/drive',
       'access_type': 'offline',
       'prompt': 'consent',
       'code_challenge': challenge,
