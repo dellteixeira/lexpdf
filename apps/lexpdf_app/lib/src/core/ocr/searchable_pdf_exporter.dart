@@ -200,7 +200,7 @@ class SearchablePdfExporter {
         isCancelled: isCancelled,
         onProgress: onProgress,
       );
-      return target.readAsBytes();
+      return await target.readAsBytes();
     } finally {
       if (await temp.exists()) await temp.delete(recursive: true);
     }
