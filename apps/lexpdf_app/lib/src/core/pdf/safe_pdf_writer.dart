@@ -113,7 +113,15 @@ class SafePdfWriter {
       if (await journal.exists()) await journal.delete();
       return destinationPath;
     } catch (_) {
-      await recoverPending(destinationPath);
+      final recovered = await recoverPending(destinationPath);
+      if (!recovered) {
+        if (await temp.exists()) await temp.delete();
+        if (backup != null && await backup.exists()) {
+          if (await destination.exists()) await destination.delete();
+          await backup.rename(destinationPath);
+        }
+        if (await journal.exists()) await journal.delete();
+      }
       rethrow;
     }
   }
