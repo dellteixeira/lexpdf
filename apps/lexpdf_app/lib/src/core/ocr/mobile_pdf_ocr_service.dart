@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,13 +7,20 @@ import 'package:image/image.dart' as img;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:platform_ocr/platform_ocr.dart';
 
+import '../pdf/huge_pdf_policy.dart';
 import '../storage/local_ocr_store.dart';
 import '../storage/local_pdf_navigation_store.dart';
 
 class PdfOcrProgress {
-  const PdfOcrProgress({required this.pageNumber, required this.pageCount});
+  const PdfOcrProgress({
+    required this.pageNumber,
+    required this.pageCount,
+    this.skipped = false,
+  });
+
   final int pageNumber;
   final int pageCount;
+  final bool skipped;
 }
 
 class PdfOcrSummary {
@@ -20,11 +28,15 @@ class PdfOcrSummary {
     required this.pageCount,
     required this.recognizedPages,
     required this.engine,
+    this.skippedPages = 0,
+    this.cancelled = false,
   });
 
   final int pageCount;
   final int recognizedPages;
   final String engine;
+  final int skippedPages;
+  final bool cancelled;
 }
 
 class MobilePdfOcrService {
@@ -47,16 +59,24 @@ class MobilePdfOcrService {
     return 'embedded-text-fallback';
   }
 
+  /// Runs OCR with bounded per-page memory and incremental persistence.
+  ///
+  /// [resume] skips pages already processed by the same engine. [isCancelled]
+  /// is checked between pages, so a 2,000+ page operation can be stopped
+  /// without losing completed work.
   Future<PdfOcrSummary> process({
     required String documentId,
     required String filePath,
     void Function(PdfOcrProgress progress)? onProgress,
+    bool resume = true,
+    bool Function()? isCancelled,
   }) async {
     final document = await PdfDocument.openFile(filePath);
     TextRecognizer? recognizer;
     PlatformOcr? desktopOcr;
-    final indexed = <int, String>{};
     var recognizedPages = 0;
+    var skippedPages = 0;
+    var cancelled = false;
     final engine = _engineName;
 
     try {
@@ -67,15 +87,46 @@ class MobilePdfOcrService {
       }
 
       for (var index = 0; index < document.pages.length; index++) {
+        if (isCancelled?.call() == true) {
+          cancelled = true;
+          break;
+        }
+
         final pageNumber = index + 1;
+        if (resume) {
+          final existing = await ocrStore.getPage(documentId, pageNumber);
+          if (existing != null && existing.engine == engine) {
+            if (existing.text.trim().isNotEmpty) recognizedPages++;
+            skippedPages++;
+            await _upsertSearchIndex(
+              documentId: documentId,
+              pageNumber: pageNumber,
+              text: existing.text,
+            );
+            onProgress?.call(
+              PdfOcrProgress(
+                pageNumber: pageNumber,
+                pageCount: document.pages.length,
+                skipped: true,
+              ),
+            );
+            await _yieldIfNeeded(pageNumber);
+            continue;
+          }
+        }
+
         final page = document.pages[index];
         String text;
         List<OcrTextLine> lines = const [];
 
         if (recognizer != null) {
+          final size = HugePdfPolicy.boundedRenderSize(
+            pageWidth: page.width,
+            pageHeight: page.height,
+          );
           final rendered = await page.render(
-            width: (page.width * 2).round().clamp(1, 8000),
-            height: (page.height * 2).round().clamp(1, 8000),
+            width: size.width,
+            height: size.height,
             backgroundColor: 0xFFFFFFFF,
           );
           if (rendered == null) {
@@ -111,9 +162,13 @@ class MobilePdfOcrService {
             }
           }
         } else if (desktopOcr != null) {
+          final size = HugePdfPolicy.boundedRenderSize(
+            pageWidth: page.width,
+            pageHeight: page.height,
+          );
           final rendered = await page.render(
-            width: (page.width * 2).round().clamp(1, 8000),
-            height: (page.height * 2).round().clamp(1, 8000),
+            width: size.width,
+            height: size.height,
             backgroundColor: 0xFFFFFFFF,
           );
           if (rendered == null) {
@@ -135,7 +190,6 @@ class MobilePdfOcrService {
         }
 
         if (text.isNotEmpty) recognizedPages++;
-        indexed[pageNumber] = text;
         await ocrStore.upsert(
           OcrPageResult(
             documentId: documentId,
@@ -146,26 +200,55 @@ class MobilePdfOcrService {
             lines: lines,
           ),
         );
+        await _upsertSearchIndex(
+          documentId: documentId,
+          pageNumber: pageNumber,
+          text: text,
+        );
         onProgress?.call(
           PdfOcrProgress(
             pageNumber: pageNumber,
             pageCount: document.pages.length,
           ),
         );
+        await _yieldIfNeeded(pageNumber);
       }
 
-      await navigationStore.replacePageTextIndex(
-        documentId: documentId,
-        pages: indexed,
-      );
       return PdfOcrSummary(
         pageCount: document.pages.length,
         recognizedPages: recognizedPages,
         engine: engine,
+        skippedPages: skippedPages,
+        cancelled: cancelled,
       );
     } finally {
       await recognizer?.close();
       await document.dispose();
+    }
+  }
+
+  Future<void> _upsertSearchIndex({
+    required String documentId,
+    required int pageNumber,
+    required String text,
+  }) async {
+    navigationStore.db.database.execute('''
+      INSERT INTO pdf_page_text_index(document_id, page_number, content, indexed_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(document_id, page_number) DO UPDATE SET
+        content = excluded.content,
+        indexed_at = excluded.indexed_at;
+    ''', [
+      documentId,
+      pageNumber,
+      text,
+      DateTime.now().toUtc().toIso8601String(),
+    ]);
+  }
+
+  Future<void> _yieldIfNeeded(int pageNumber) async {
+    if (pageNumber % HugePdfPolicy.ocrYieldEveryPages == 0) {
+      await Future<void>.delayed(Duration.zero);
     }
   }
 }
