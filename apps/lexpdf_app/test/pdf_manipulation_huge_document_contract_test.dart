@@ -14,6 +14,8 @@ void main() {
       'lib/src/screens/pdf_page_tools_screen.dart',
     ).readAsString();
 
+    // Keep large-document user flows file-oriented: a regression here can
+    // multiply heap usage by thousands of pages.
     expect(legacy, contains('splitEveryPageToDirectory'));
     expect(large, contains('composeToFile'));
     expect(large, contains('mergeToFile'));
