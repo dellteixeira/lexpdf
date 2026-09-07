@@ -155,7 +155,7 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         _specs(_pages),
         outputPath: path,
       );
-      return action(path);
+      return await action(path);
     } finally {
       if (await temp.exists()) await temp.delete(recursive: true);
     }
