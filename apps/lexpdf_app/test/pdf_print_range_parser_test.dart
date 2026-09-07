@@ -1,26 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lexxpdf_app/src/core/pdf/pdf_print_range_parser.dart';
 
 void main() {
-  test('page range semantics used by print UI', () {
-    List<int> parse(String value, int maxPage) {
-      final text = value.trim();
-      if (text.isEmpty) return List<int>.generate(maxPage, (index) => index + 1);
-      final pages = <int>{};
-      for (final part in text.split(',')) {
-        final token = part.trim();
-        if (token.contains('-')) {
-          final bits = token.split('-');
-          final start = int.parse(bits[0]);
-          final end = int.parse(bits[1]);
-          for (var page = start; page <= end; page++) pages.add(page);
-        } else {
-          pages.add(int.parse(token));
-        }
-      }
-      return pages.toList()..sort();
-    }
+  const parser = PdfPrintRangeParser();
 
-    expect(parse('1-3, 7, 10-12', 20), [1, 2, 3, 7, 10, 11, 12]);
-    expect(parse('', 3), [1, 2, 3]);
+  test('parses ranges, removes duplicates and sorts pages', () {
+    expect(
+      parser.parse('1-3, 7, 10-12, 3', 20),
+      [1, 2, 3, 7, 10, 11, 12],
+    );
+  });
+
+  test('empty range means all pages', () {
+    expect(parser.parse('', 3), [1, 2, 3]);
+  });
+
+  test('rejects invalid and out-of-bounds ranges', () {
+    expect(() => parser.parse('0', 10), throwsFormatException);
+    expect(() => parser.parse('4-2', 10), throwsFormatException);
+    expect(() => parser.parse('1-11', 10), throwsFormatException);
+    expect(() => parser.parse('abc', 10), throwsFormatException);
+  });
+
+  test('rejects invalid document page count', () {
+    expect(() => parser.parse('', 0), throwsArgumentError);
   });
 }
