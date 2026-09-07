@@ -101,6 +101,23 @@ export default {
       return new Response(object.body, { headers });
     }
 
+    if (content && request.method === "PUT") {
+      const current = await env.DOCUMENTS.head(key);
+      if (!current) return json({ error: "not_found" }, 404);
+      const object = await env.DOCUMENTS.put(key, request.body, {
+        httpMetadata: { contentType: "application/pdf" },
+        customMetadata: current.customMetadata,
+      });
+      await enqueue(env, user.id, "replace", key);
+      return Response.json({
+        id: fileId,
+        remoteId: fileId,
+        name: current.customMetadata?.name ?? fileId,
+        remotePath: key,
+        version: object?.etag,
+      });
+    }
+
     if (!content && request.method === "GET") {
       const object = await env.DOCUMENTS.head(key);
       if (!object) return json({ error: "not_found" }, 404);
@@ -125,12 +142,18 @@ export default {
       const current = await env.DOCUMENTS.get(key);
       if (!current) return json({ error: "not_found" }, 404);
       const name = body.name ?? current.customMetadata?.name ?? fileId;
-      await env.DOCUMENTS.put(key, current.body, {
+      const object = await env.DOCUMENTS.put(key, current.body, {
         httpMetadata: current.httpMetadata,
         customMetadata: { ...current.customMetadata, name },
       });
       await enqueue(env, user.id, "metadata", key);
-      return Response.json({ id: fileId, remoteId: fileId, name, remotePath: key });
+      return Response.json({
+        id: fileId,
+        remoteId: fileId,
+        name,
+        remotePath: key,
+        version: object?.etag,
+      });
     }
 
     return json({ error: "method_not_allowed" }, 405);
@@ -138,8 +161,6 @@ export default {
 
   async queue(batch: MessageBatch<SyncMessage>): Promise<void> {
     for (const message of batch.messages) {
-      // This consumer is deliberately idempotent: R2 mutations already completed
-      // before enqueue. Future heavy post-processing can be added here.
       message.ack();
     }
   },
