@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
 import '../core/ocr/searchable_pdf_exporter.dart';
-import '../core/pdf/safe_pdf_writer.dart';
 import '../core/storage/local_ocr_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 
@@ -32,6 +31,7 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
   List<OcrPageResult> _results = const [];
   PdfOcrProgress? _progress;
   PdfOcrSummary? _summary;
+  ({int completed, int total})? _exportProgress;
   bool _processing = false;
   bool _exporting = false;
   Object? _error;
@@ -103,34 +103,48 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
     }
     setState(() {
       _exporting = true;
+      _exportProgress = null;
       _error = null;
     });
     try {
       final destination = await _chooseExportPath();
       if (destination == null) return;
-      final bytes = await SearchablePdfExporter(ocrStore: _store).export(
+      final summary = await SearchablePdfExporter(ocrStore: _store).exportToFile(
         documentId: widget.document.id,
         sourcePath: sourcePath,
-      );
-      await const SafePdfWriter().saveAs(
-        bytes: bytes,
-        destinationPath: destination,
-        replaceExisting: Platform.isAndroid || Platform.isIOS,
+        outputPath: destination,
+        onProgress: (completed, total) {
+          if (mounted) {
+            setState(() => _exportProgress = (completed: completed, total: total));
+          }
+        },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('PDF pesquisável salvo em: $destination')),
+        SnackBar(
+          content: Text(
+            'PDF pesquisável salvo em: ${summary.file.path} • '
+            '${summary.injectedPages} página(s) receberam camada OCR; '
+            '${summary.alreadySearchablePages} já tinham texto vetorial.',
+          ),
+        ),
       );
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (mounted) {
+        setState(() {
+          _exporting = false;
+          _exportProgress = null;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final progress = _progress;
+    final exportProgress = _exportProgress;
     return Scaffold(
       appBar: AppBar(title: const Text('OCR offline')),
       body: Padding(
@@ -147,8 +161,8 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             const SizedBox(height: 8),
             Text(
               _service.nativeOcrSupported
-                  ? 'OCR local por ML Kit. O processamento acontece no aparelho, preserva a geometria das linhas e entra na busca FTS5 offline.'
-                  : 'Nesta plataforma o LexPDF indexa o texto já incorporado ao PDF. PDFs somente-imagem exigem o engine OCR móvel local; a extração de texto desktop não é apresentada como OCR.',
+                  ? 'OCR local e offline. Páginas que já contêm texto são indexadas sem rasterização; páginas digitalizadas usam OCR nativo com memória limitada.'
+                  : 'Nesta plataforma o LexPDF indexa o texto já incorporado ao PDF.',
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -187,12 +201,26 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
                     : progress.pageNumber / progress.pageCount,
               ),
               const SizedBox(height: 4),
-              Text('Página ${progress.pageNumber} de ${progress.pageCount}'),
+              Text('OCR: página ${progress.pageNumber} de ${progress.pageCount}'),
+            ],
+            if (exportProgress != null) ...[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: exportProgress.total == 0
+                    ? null
+                    : exportProgress.completed / exportProgress.total,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Exportação vetorial: página ${exportProgress.completed} de ${exportProgress.total}',
+              ),
             ],
             if (_summary != null) ...[
               const SizedBox(height: 12),
               Text(
-                '${_summary!.recognizedPages}/${_summary!.pageCount} páginas com texto • ${_summary!.engine}',
+                '${_summary!.recognizedPages}/${_summary!.pageCount} páginas com texto • '
+                '${_summary!.embeddedTextPages} sem rasterização • '
+                '${_summary!.rasterizedPages} com OCR raster • ${_summary!.engine}',
               ),
             ],
             if (_error != null) ...[
