@@ -395,6 +395,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                         ],
                       ),
                     ),
+                  ),
             ],
           );
         },
