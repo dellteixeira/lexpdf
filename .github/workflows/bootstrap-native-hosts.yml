@@ -1,0 +1,75 @@
+name: Bootstrap Native Hosts
+
+on:
+  push:
+    branches:
+      - feature/pre-release-remediation
+    paths:
+      - 'apps/lexpdf_app/pubspec.yaml'
+      - '.github/workflows/bootstrap-native-hosts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-native-hosts:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate pinned host projects and lockfile
+        run: |
+          flutter pub get
+          flutter create . \
+            --platforms=android,windows,macos \
+            --org com.lexpdf \
+            --project-name lexpdf_app
+          flutter pub get
+      - name: Configure Android release hardening
+        shell: bash
+        run: |
+          cat > android/app/proguard-rules.pro <<'EOF'
+          # LexPDF instantiates TextRecognizer only with TextRecognitionScript.latin.
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
+          if ! grep -q 'proguard-rules.pro' android/app/build.gradle.kts; then
+            cat >> android/app/build.gradle.kts <<'EOF'
+
+          android {
+              buildTypes {
+                  getByName("release") {
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+          }
+          EOF
+          fi
+      - name: Commit native hosts and dependency lock
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add android windows macos pubspec.lock
+          if git diff --cached --quiet; then
+            echo 'Native hosts already current.'
+            exit 0
+          fi
+          git commit -m 'build: version native hosts and dependency lock'
+          git push origin HEAD:${{ github.ref_name }}
