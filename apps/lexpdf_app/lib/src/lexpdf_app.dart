@@ -71,7 +71,9 @@ class _LexPdfAppState extends State<LexPdfApp> {
   }
 
   Future<void> _openAccount(BuildContext context) => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
+        MaterialPageRoute<void>(
+          builder: (_) => AccountScreen(database: widget.database),
+        ),
       );
 
   @override
