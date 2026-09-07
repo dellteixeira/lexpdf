@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import '../documents/document_provider.dart';
 import 'cloud_credential_store.dart';
 
-class CloudGatewayDocumentProvider implements DocumentProvider {
+class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   CloudGatewayDocumentProvider({
     required this.kind,
     required this.accountId,
@@ -46,8 +46,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
   Future<DocumentRef?> getById(String id) async {
     final uri = _uri('/v1/cloud/$_providerName/files/$id', {'account': accountId});
     try {
-      final data = await _json('GET', uri) as Map<String, dynamic>;
-      return _fromJson(data);
+      return _fromJson(await _json('GET', uri) as Map<String, dynamic>);
     } on HttpException catch (error) {
       if (error.message.contains('404')) return null;
       rethrow;
@@ -59,14 +58,9 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     final existing = document.localPath;
     if (existing != null && await File(existing).exists()) return existing;
     await cacheDirectory.create(recursive: true);
-    final safeName = _safeName(document.name);
-    final file = File('${cacheDirectory.path}${Platform.pathSeparator}${document.id}-$safeName');
-    final uri = _uri(
-      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content',
-      {'account': accountId},
-    );
-    final bytes = await _bytes('GET', uri);
-    await file.writeAsBytes(bytes, flush: true);
+    final file = File('${cacheDirectory.path}${Platform.pathSeparator}${document.id}-${_safeName(document.name)}');
+    final uri = _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content', {'account': accountId});
+    await file.writeAsBytes(await _bytes('GET', uri), flush: true);
     return file.path;
   }
 
@@ -79,8 +73,16 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
       if (parentId != null) 'parent': parentId,
       'name': _basename(localPath),
     });
-    final data = await _bytesRequest('POST', uri, await file.readAsBytes());
-    final decoded = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+    final decoded = jsonDecode(utf8.decode(await _bytesRequest('POST', uri, await file.readAsBytes()))) as Map<String, dynamic>;
+    return _fromJson(decoded).copyWith(localPath: localPath, availableOffline: true, syncState: DocumentSyncState.synced);
+  }
+
+  @override
+  Future<DocumentRef> replaceContent(DocumentRef document, String localPath) async {
+    final file = File(localPath);
+    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    final uri = _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content', {'account': accountId});
+    final decoded = jsonDecode(utf8.decode(await _bytesRequest('PUT', uri, await file.readAsBytes()))) as Map<String, dynamic>;
     return _fromJson(decoded).copyWith(localPath: localPath, availableOffline: true, syncState: DocumentSyncState.synced);
   }
 
@@ -106,9 +108,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
 
   Future<void> _authorize(HttpClientRequest request) async {
     final token = await _credentials.readToken(provider: _providerName, accountId: accountId);
-    if (token == null || token.isEmpty) {
-      throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
-    }
+    if (token == null || token.isEmpty) throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
   }
@@ -122,9 +122,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     }
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
-    }
+    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     if (bytes.isEmpty) return null;
     return jsonDecode(utf8.decode(bytes));
   }
@@ -134,9 +132,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     await _authorize(request);
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
-    }
+    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     return Uint8List.fromList(bytes);
   }
 
@@ -147,9 +143,7 @@ class CloudGatewayDocumentProvider implements DocumentProvider {
     request.add(body);
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
-    }
+    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     return Uint8List.fromList(bytes);
   }
 
