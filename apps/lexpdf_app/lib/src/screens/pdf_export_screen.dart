@@ -95,28 +95,57 @@ class _PdfExportScreenState extends State<PdfExportScreen> {
         }
       });
 
-  Future<void> _exportFlattened() => _execute(() async {
-        final source = widget.document.localPath;
-        if (source == null || source.isEmpty) {
-          throw StateError('O PDF precisa estar disponível offline.');
-        }
-        final bytes = await _exporter.exportFlattenedPdf(
-          documentId: widget.document.id,
-          sourcePath: source,
+  Future<bool> _confirmFlattenedExport() async {
+    if (!mounted) return false;
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Exportar PDF achatado?'),
+            content: const Text(
+              'Este formato prioriza fidelidade visual e rasteriza o conteúdo-base. '
+              'Texto pesquisável/selecionável, acessibilidade e elementos vetoriais podem ser perdidos no arquivo exportado. '
+              'O PDF original não será alterado.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exportar mesmo assim'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _exportFlattened() async {
+    if (!await _confirmFlattenedExport()) return;
+    await _execute(() async {
+      final source = widget.document.localPath;
+      if (source == null || source.isEmpty) {
+        throw StateError('O PDF precisa estar disponível offline.');
+      }
+      final bytes = await _exporter.exportFlattenedPdf(
+        documentId: widget.document.id,
+        sourcePath: source,
+      );
+      final path = await _savePath('lexpdf_achatado.pdf');
+      if (path == null) return;
+      await const SafePdfWriter().saveAs(
+        bytes: bytes,
+        destinationPath: path,
+        replaceExisting: Platform.isAndroid || Platform.isIOS,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF universal salvo: $path')),
         );
-        final path = await _savePath('lexpdf_achatado.pdf');
-        if (path == null) return;
-        await const SafePdfWriter().saveAs(
-          bytes: bytes,
-          destinationPath: path,
-          replaceExisting: Platform.isAndroid || Platform.isIOS,
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('PDF universal salvo: $path')),
-          );
-        }
-      });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -153,7 +182,7 @@ class _PdfExportScreenState extends State<PdfExportScreen> {
               icon: Icons.picture_as_pdf_outlined,
               title: 'PDF universal achatado',
               subtitle:
-                  'Gera um novo PDF visualmente consolidado para leitura em outros aplicativos. O conteúdo-base é renderizado para maximizar a fidelidade visual.',
+                  'Gera um novo PDF visualmente consolidado por rasterização. Pode perder texto selecionável/pesquisável, acessibilidade e elementos vetoriais; o original permanece intacto.',
               action: 'Exportar PDF',
               onPressed: _busy ? null : _exportFlattened,
             ),

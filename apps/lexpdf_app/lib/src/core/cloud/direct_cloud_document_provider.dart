@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../documents/document_provider.dart';
 import 'cloud_credential_store.dart';
@@ -32,6 +31,14 @@ abstract class DirectCloudDocumentProvider implements SyncDocumentProvider {
     return value;
   }
 
+  Future<void> _authorize(HttpClientRequest request) async {
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer ${await _token()}',
+    );
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+  }
+
   Future<dynamic> jsonRequest(
     String method,
     Uri uri, {
@@ -39,8 +46,7 @@ abstract class DirectCloudDocumentProvider implements SyncDocumentProvider {
     Map<String, String>? headers,
   }) async {
     final request = await _http.openUrl(method, uri);
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${await _token()}');
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    await _authorize(request);
     headers?.forEach(request.headers.set);
     if (body != null) {
       if (body is List<int>) {
@@ -53,7 +59,10 @@ abstract class DirectCloudDocumentProvider implements SyncDocumentProvider {
       }
     }
     final response = await request.close();
-    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (all, part) => all..addAll(part),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     }
@@ -61,29 +70,69 @@ abstract class DirectCloudDocumentProvider implements SyncDocumentProvider {
     return jsonDecode(utf8.decode(bytes));
   }
 
-  Future<Uint8List> bytesRequest(String method, Uri uri) async {
+  Future<Map<String, dynamic>> streamFileRequest(
+    String method,
+    Uri uri,
+    File file, {
+    required String contentType,
+    List<int> prefix = const <int>[],
+    List<int> suffix = const <int>[],
+  }) async {
     final request = await _http.openUrl(method, uri);
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${await _token()}');
+    await _authorize(request);
+    request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+    request.contentLength = prefix.length + await file.length() + suffix.length;
+    if (prefix.isNotEmpty) request.add(prefix);
+    await request.addStream(file.openRead());
+    if (suffix.isNotEmpty) request.add(suffix);
     final response = await request.close();
-    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (all, part) => all..addAll(part),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     }
-    return Uint8List.fromList(bytes);
+    if (bytes.isEmpty) return const <String, dynamic>{};
+    return (jsonDecode(utf8.decode(bytes)) as Map).cast<String, dynamic>();
   }
 
-  Future<String> cacheBytes(DocumentRef document, Uint8List bytes) async {
+  Future<String> streamToCache(DocumentRef document, Uri uri) async {
     await cacheDirectory.create(recursive: true);
-    final file = File(
+    final destination = File(
       '${cacheDirectory.path}${Platform.pathSeparator}${document.id}-${_safeName(document.name)}',
     );
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
+    final temp = File('${destination.path}.part');
+    final request = await _http.getUrl(uri);
+    await _authorize(request);
+    final response = await request.close();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final bytes = await response.fold<List<int>>(
+        <int>[],
+        (all, part) => all..addAll(part),
+      );
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
+    if (await temp.exists()) await temp.delete();
+    final sink = temp.openWrite();
+    try {
+      await response.pipe(sink);
+      if (await destination.exists()) await destination.delete();
+      await temp.rename(destination.path);
+      return destination.path;
+    } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (await temp.exists()) await temp.delete();
+      rethrow;
+    }
   }
 
   static String safePathSegment(String value) => Uri.encodeComponent(value);
   static String basename(String path) => path.replaceAll('\\', '/').split('/').last;
-  static String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  static String _safeName(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
 }
 
 class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
@@ -107,7 +156,8 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<List<DocumentRef>> list({String? parentId}) async {
     final parent = parentId ?? 'root';
-    final query = "'$parent' in parents and trashed=false and mimeType='application/pdf'";
+    final query =
+        "'$parent' in parents and trashed=false and mimeType='application/pdf'";
     String? pageToken;
     final results = <DocumentRef>[];
     do {
@@ -117,7 +167,8 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
         'pageSize': '1000',
         if (pageToken != null) 'pageToken': pageToken,
       });
-      final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
+      final data =
+          (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
       for (final raw in (data['files'] as List? ?? const [])) {
         results.add(_ref((raw as Map).cast<String, dynamic>()));
       }
@@ -129,9 +180,12 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<DocumentRef?> getById(String id) async {
     try {
-      final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}')
-          .replace(queryParameters: {'fields': _fields});
-      return _ref((await jsonRequest('GET', uri) as Map).cast<String, dynamic>());
+      final uri = Uri.parse(
+        '$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ).replace(queryParameters: {'fields': _fields});
+      return _ref(
+        (await jsonRequest('GET', uri) as Map).cast<String, dynamic>(),
+      );
     } on HttpException catch (error) {
       if (error.message.startsWith('404:')) return null;
       rethrow;
@@ -143,61 +197,79 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     final existing = document.localPath;
     if (existing != null && await File(existing).exists()) return existing;
     final id = document.remoteId ?? document.id;
-    final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}')
-        .replace(queryParameters: {'alt': 'media'});
-    return cacheBytes(document, await bytesRequest('GET', uri));
+    final uri = Uri.parse(
+      '$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+    ).replace(queryParameters: {'alt': 'media'});
+    return streamToCache(document, uri);
   }
 
   @override
   Future<DocumentRef> upload(String localPath, {String? parentId}) async {
     final file = File(localPath);
-    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    if (!await file.exists()) {
+      throw FileSystemException('File not found', localPath);
+    }
     final boundary = 'lexpdf-${DateTime.now().microsecondsSinceEpoch}';
     final metadata = jsonEncode({
       'name': DirectCloudDocumentProvider.basename(localPath),
       'mimeType': 'application/pdf',
       if (parentId != null) 'parents': [parentId],
     });
-    final fileBytes = await file.readAsBytes();
-    final body = BytesBuilder()
-      ..add(utf8.encode('--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$metadata\r\n'))
-      ..add(utf8.encode('--$boundary\r\nContent-Type: application/pdf\r\n\r\n'))
-      ..add(fileBytes)
-      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    final prefix = utf8.encode(
+      '--$boundary\r\n'
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n'
+      '$metadata\r\n'
+      '--$boundary\r\n'
+      'Content-Type: application/pdf\r\n\r\n',
+    );
+    final suffix = utf8.encode('\r\n--$boundary--\r\n');
     final uri = Uri.parse('$_uploadBase/files').replace(queryParameters: {
       'uploadType': 'multipart',
       'fields': _fields,
     });
-    final data = (await jsonRequest(
+    final data = await streamFileRequest(
       'POST',
       uri,
-      body: body.takeBytes(),
-      headers: {'Content-Type': 'multipart/related; boundary=$boundary'},
-    ) as Map).cast<String, dynamic>();
+      file,
+      contentType: 'multipart/related; boundary=$boundary',
+      prefix: prefix,
+      suffix: suffix,
+    );
     return _ref(data, localPath: localPath);
   }
 
   @override
-  Future<DocumentRef> replaceContent(DocumentRef document, String localPath) async {
+  Future<DocumentRef> replaceContent(
+    DocumentRef document,
+    String localPath,
+  ) async {
     final file = File(localPath);
-    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    if (!await file.exists()) {
+      throw FileSystemException('File not found', localPath);
+    }
     final id = document.remoteId ?? document.id;
-    final uri = Uri.parse('$_uploadBase/files/${DirectCloudDocumentProvider.safePathSegment(id)}').replace(
-      queryParameters: {'uploadType': 'media', 'fields': _fields},
-    );
-    final data = (await jsonRequest(
+    final uri = Uri.parse(
+      '$_uploadBase/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+    ).replace(queryParameters: {'uploadType': 'media', 'fields': _fields});
+    final data = await streamFileRequest(
       'PATCH',
       uri,
-      body: await file.readAsBytes(),
-      headers: {'Content-Type': 'application/pdf'},
-    ) as Map).cast<String, dynamic>();
+      file,
+      contentType: 'application/pdf',
+    );
     return _ref(data, localPath: localPath);
   }
 
   @override
   Future<void> rename(DocumentRef document, String newName) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('PATCH', Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}'), body: {'name': newName});
+    await jsonRequest(
+      'PATCH',
+      Uri.parse(
+        '$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ),
+      body: {'name': newName},
+    );
   }
 
   @override
@@ -206,23 +278,30 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     final current = await getById(id);
     final oldParent = current?.remotePath;
-    final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}').replace(
-      queryParameters: {
-        'addParents': parentId,
-        if (oldParent != null && oldParent.isNotEmpty) 'removeParents': oldParent,
-      },
-    );
+    final uri = Uri.parse(
+      '$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+    ).replace(queryParameters: {
+      'addParents': parentId,
+      if (oldParent != null && oldParent.isNotEmpty) 'removeParents': oldParent,
+    });
     await jsonRequest('PATCH', uri, body: const <String, dynamic>{});
   }
 
   @override
   Future<void> delete(DocumentRef document) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('DELETE', Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}'));
+    await jsonRequest(
+      'DELETE',
+      Uri.parse(
+        '$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ),
+    );
   }
 
   DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) {
-    final parents = (data['parents'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+    final parents =
+        (data['parents'] as List?)?.map((e) => e.toString()).toList() ??
+            const [];
     return DocumentRef(
       id: data['id'].toString(),
       name: data['name']?.toString() ?? 'document.pdf',
@@ -233,7 +312,9 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
       checksum: data['md5Checksum']?.toString(),
       remoteVersion: data['modifiedTime']?.toString(),
       availableOffline: localPath != null,
-      syncState: localPath == null ? DocumentSyncState.remoteOnly : DocumentSyncState.synced,
+      syncState: localPath == null
+          ? DocumentSyncState.remoteOnly
+          : DocumentSyncState.synced,
     );
   }
 }
@@ -258,13 +339,19 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
   Future<List<DocumentRef>> list({String? parentId}) async {
     var uri = parentId == null
         ? Uri.parse('$_base/root/children')
-        : Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}/children');
+        : Uri.parse(
+            '$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}/children',
+          );
     final results = <DocumentRef>[];
     while (true) {
-      final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
+      final data =
+          (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
       for (final raw in (data['value'] as List? ?? const [])) {
         final item = (raw as Map).cast<String, dynamic>();
-        if (item['file'] == null || item['name']?.toString().toLowerCase().endsWith('.pdf') != true) continue;
+        if (item['file'] == null ||
+            item['name']?.toString().toLowerCase().endsWith('.pdf') != true) {
+          continue;
+        }
         results.add(_ref(item));
       }
       final next = data['@odata.nextLink']?.toString();
@@ -277,7 +364,13 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<DocumentRef?> getById(String id) async {
     try {
-      final data = (await jsonRequest('GET', Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}')) as Map).cast<String, dynamic>();
+      final data = (await jsonRequest(
+        'GET',
+        Uri.parse(
+          '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}',
+        ),
+      ) as Map)
+          .cast<String, dynamic>();
       return _ref(data);
     } on HttpException catch (error) {
       if (error.message.startsWith('404:')) return null;
@@ -290,53 +383,93 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
     final existing = document.localPath;
     if (existing != null && await File(existing).exists()) return existing;
     final id = document.remoteId ?? document.id;
-    return cacheBytes(document, await bytesRequest('GET', Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}/content')));
+    return streamToCache(
+      document,
+      Uri.parse(
+        '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}/content',
+      ),
+    );
   }
 
   @override
   Future<DocumentRef> upload(String localPath, {String? parentId}) async {
     final file = File(localPath);
-    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    if (!await file.exists()) {
+      throw FileSystemException('File not found', localPath);
+    }
     final name = DirectCloudDocumentProvider.basename(localPath);
     final encodedName = DirectCloudDocumentProvider.safePathSegment(name);
     final uri = parentId == null
         ? Uri.parse('$_base/root:/$encodedName:/content')
-        : Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}:/$encodedName:/content');
-    final data = (await jsonRequest('PUT', uri, body: await file.readAsBytes(), headers: {'Content-Type': 'application/pdf'}) as Map).cast<String, dynamic>();
+        : Uri.parse(
+            '$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}:/$encodedName:/content',
+          );
+    final data = await streamFileRequest(
+      'PUT',
+      uri,
+      file,
+      contentType: 'application/pdf',
+    );
     return _ref(data, localPath: localPath);
   }
 
   @override
-  Future<DocumentRef> replaceContent(DocumentRef document, String localPath) async {
+  Future<DocumentRef> replaceContent(
+    DocumentRef document,
+    String localPath,
+  ) async {
     final file = File(localPath);
-    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    if (!await file.exists()) {
+      throw FileSystemException('File not found', localPath);
+    }
     final id = document.remoteId ?? document.id;
-    final data = (await jsonRequest(
+    final data = await streamFileRequest(
       'PUT',
-      Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}/content'),
-      body: await file.readAsBytes(),
-      headers: {'Content-Type': 'application/pdf'},
-    ) as Map).cast<String, dynamic>();
+      Uri.parse(
+        '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}/content',
+      ),
+      file,
+      contentType: 'application/pdf',
+    );
     return _ref(data, localPath: localPath);
   }
 
   @override
   Future<void> rename(DocumentRef document, String newName) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('PATCH', Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'), body: {'name': newName});
+    await jsonRequest(
+      'PATCH',
+      Uri.parse(
+        '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ),
+      body: {'name': newName},
+    );
   }
 
   @override
   Future<void> move(DocumentRef document, {String? parentId}) async {
     if (parentId == null) return;
     final id = document.remoteId ?? document.id;
-    await jsonRequest('PATCH', Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'), body: {'parentReference': {'id': parentId}});
+    await jsonRequest(
+      'PATCH',
+      Uri.parse(
+        '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ),
+      body: {
+        'parentReference': {'id': parentId},
+      },
+    );
   }
 
   @override
   Future<void> delete(DocumentRef document) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('DELETE', Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'));
+    await jsonRequest(
+      'DELETE',
+      Uri.parse(
+        '$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}',
+      ),
+    );
   }
 
   DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) {
@@ -349,10 +482,14 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
       localPath: localPath,
       remoteId: data['id'].toString(),
       remotePath: (data['parentReference'] as Map?)?['id']?.toString(),
-      checksum: hashes?['sha1Hash']?.toString() ?? hashes?['quickXorHash']?.toString(),
-      remoteVersion: data['eTag']?.toString() ?? data['lastModifiedDateTime']?.toString(),
+      checksum:
+          hashes?['sha1Hash']?.toString() ?? hashes?['quickXorHash']?.toString(),
+      remoteVersion:
+          data['eTag']?.toString() ?? data['lastModifiedDateTime']?.toString(),
       availableOffline: localPath != null,
-      syncState: localPath == null ? DocumentSyncState.remoteOnly : DocumentSyncState.synced,
+      syncState: localPath == null
+          ? DocumentSyncState.remoteOnly
+          : DocumentSyncState.synced,
     );
   }
 }

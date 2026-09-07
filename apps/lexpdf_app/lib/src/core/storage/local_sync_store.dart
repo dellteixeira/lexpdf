@@ -384,19 +384,48 @@ class LocalSyncStore {
     required String provider,
     required String accountId,
   }) async {
-    db.database.execute('''
-      INSERT INTO local_sync_bindings(entity_id, provider, account_id, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(entity_id) DO UPDATE SET
-        provider = excluded.provider,
-        account_id = excluded.account_id,
-        updated_at = excluded.updated_at;
-    ''', [
-      entityId,
-      provider,
-      accountId,
-      DateTime.now().toUtc().toIso8601String(),
-    ]);
+    final normalizedAccount = accountId.trim();
+    if (normalizedAccount.isEmpty) {
+      throw ArgumentError('accountId cannot be empty.');
+    }
+    final existing = await bindingFor(entityId);
+    final changed = existing != null &&
+        (existing.provider != provider || existing.accountId != normalizedAccount);
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    db.database.execute('BEGIN IMMEDIATE;');
+    try {
+      if (changed) {
+        // A document has exactly one managed-sync binding. When the user
+        // moves it to another provider/account, all state derived from the
+        // previous remote must be discarded so it cannot be compared with
+        // or uploaded to the new account by mistake.
+        db.database.execute(
+          'DELETE FROM local_sync_checkpoints WHERE entity_id = ?;',
+          [entityId],
+        );
+        db.database.execute('''
+          DELETE FROM local_sync_queue
+          WHERE entity_id = ? AND status IN ('pending', 'retry', 'running');
+        ''', [entityId]);
+        db.database.execute('''
+          DELETE FROM local_sync_conflicts
+          WHERE entity_id = ? AND resolution IS NULL;
+        ''', [entityId]);
+      }
+      db.database.execute('''
+        INSERT INTO local_sync_bindings(entity_id, provider, account_id, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(entity_id) DO UPDATE SET
+          provider = excluded.provider,
+          account_id = excluded.account_id,
+          updated_at = excluded.updated_at;
+      ''', [entityId, provider, normalizedAccount, now]);
+      db.database.execute('COMMIT;');
+    } catch (_) {
+      db.database.execute('ROLLBACK;');
+      rethrow;
+    }
   }
 
   Future<LocalSyncBinding?> bindingFor(String entityId) async {

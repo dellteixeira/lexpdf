@@ -9,7 +9,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  prerelease-invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reproducible release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/lexpdf_app/pubspec.lock
+          test -d apps/lexpdf_app/android
+          test -d apps/lexpdf_app/windows
+          test -d apps/lexpdf_app/macos
+          grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
+          legacy='lex''xpdf_app'
+          if grep -R "$legacy" -n apps/lexpdf_app .github/workflows; then
+            echo 'Legacy package identity found.' >&2
+            exit 1
+          fi
+
   android-release:
+    needs: prerelease-invariants
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -21,37 +41,23 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
       - run: flutter analyze
       - run: flutter test
-      - name: Generate Android host project
-        run: flutter create . --platforms=android --org com.lexpdf --project-name lexxpdf_app
-      - name: Configure R8 for Latin-only ML Kit OCR
+      - name: Verify Android release hardening
         shell: bash
         run: |
-          cat > android/app/proguard-rules.pro <<'EOF'
-          # LexPDF instantiates TextRecognizer only with TextRecognitionScript.latin.
-          # google_mlkit_text_recognition references optional script classes in its
-          # Android bridge; suppress those unavailable optional models for R8.
-          -dontwarn com.google.mlkit.vision.text.chinese.**
-          -dontwarn com.google.mlkit.vision.text.devanagari.**
-          -dontwarn com.google.mlkit.vision.text.japanese.**
-          -dontwarn com.google.mlkit.vision.text.korean.**
-          EOF
-          cat >> android/app/build.gradle.kts <<'EOF'
-
-          android {
-              buildTypes {
-                  getByName("release") {
-                      proguardFiles(
-                          getDefaultProguardFile("proguard-android-optimize.txt"),
-                          "proguard-rules.pro"
-                      )
-                  }
-              }
-          }
-          EOF
+          test -f android/app/proguard-rules.pro
+          grep -q 'TextRecognitionScript.latin' lib/src/core/ocr/mobile_pdf_ocr_service.dart
+          grep -q 'com.google.mlkit.vision.text.chinese' android/app/proguard-rules.pro
       - name: Build Android release APK
-        run: flutter build apk --release
+        run: >-
+          flutter build apk --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-android-release
@@ -59,7 +65,11 @@ jobs:
           if-no-files-found: error
 
   windows-release:
-    runs-on: windows-latest
+    needs: prerelease-invariants
+    # platform_ocr 1.0.0 requires the Visual Studio 2022 C++/WinRT toolchain.
+    # windows-latest currently resolves to a newer VS image that fails its
+    # native-assets C++ build hook, so pin this release gate deliberately.
+    runs-on: windows-2022
     defaults:
       run:
         working-directory: apps/lexpdf_app
@@ -71,10 +81,15 @@ jobs:
           cache: true
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
-      - name: Generate Windows host project
-        run: flutter create . --platforms=windows --org com.lexpdf --project-name lexxpdf_app
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
       - name: Build Windows release
-        run: flutter build windows --release
+        run: >-
+          flutter build windows --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-windows-release
@@ -82,6 +97,7 @@ jobs:
           if-no-files-found: error
 
   macos-release:
+    needs: prerelease-invariants
     runs-on: macos-latest
     defaults:
       run:
@@ -94,10 +110,15 @@ jobs:
           cache: true
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
-      - name: Generate macOS host project
-        run: flutter create . --platforms=macos --org com.lexpdf --project-name lexxpdf_app
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
       - name: Build macOS release
-        run: flutter build macos --release
+        run: >-
+          flutter build macos --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-macos-release

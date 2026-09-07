@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/core/notebook/ink_shape_recognizer.dart';
-import 'package:lexxpdf_app/src/core/notebook/notebook_object_models.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/core/notebook/ink_shape_recognizer.dart';
+import 'package:lexpdf_app/src/core/notebook/notebook_object_models.dart';
 
 void main() {
   const recognizer = InkShapeRecognizer();

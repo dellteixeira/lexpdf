@@ -1,4 +1,4 @@
-name: lexxpdf_app
+name: lexpdf_app
 description: LexPDF offline-first PDF reader, editor and digital notebook.
 publish_to: "none"
 version: 0.1.0+1
@@ -20,6 +20,7 @@ dependencies:
   path_provider: ^2.1.5
   pdf: ^3.13.0
   pdfrx: ^2.6.1
+  platform_ocr: ^1.0.0
   printing: ^5.15.0
   sqlite3: ^2.9.3
   sqlite3_flutter_libs: ^0.5.42
@@ -32,7 +33,7 @@ dependency_overrides:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: any
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true

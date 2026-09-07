@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/pdf/pdf_print_range_parser.dart';
+import 'package:lexpdf_app/src/core/pdf/pdf_print_range_parser.dart';
 
 void main() {
   const parser = PdfPrintRangeParser();

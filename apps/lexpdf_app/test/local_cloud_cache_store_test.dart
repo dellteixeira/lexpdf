@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/storage/local_cloud_cache_store.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_cloud_cache_store.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
 
 void main() {
   test('evicts oldest unpinned files while preserving pinned cache', () async {

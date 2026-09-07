@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/cloud/cloud_oauth_service.dart';
-import 'package:lexxpdf_app/src/core/cloud/direct_cloud_document_provider.dart';
+import 'package:lexpdf_app/src/core/cloud/cloud_oauth_service.dart';
+import 'package:lexpdf_app/src/core/cloud/direct_cloud_document_provider.dart';
 
 void main() {
   test('OAuth configuration exposes provider readiness', () {

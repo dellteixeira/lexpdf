@@ -1,0 +1,10 @@
+// Application-level settings for the Runner target.
+
+// The application's user-facing name.
+PRODUCT_NAME = LexPDF
+
+// Stable bundle identifier for LexPDF desktop releases.
+PRODUCT_BUNDLE_IDENTIFIER = com.lexpdf.lexpdfApp
+
+// The copyright displayed in application information.
+PRODUCT_COPYRIGHT = Copyright © 2026 LexPDF. All rights reserved.

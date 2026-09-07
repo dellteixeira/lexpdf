@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/core/notebook/notebook_object_models.dart';
-import 'package:lexxpdf_app/src/core/notebook/notebook_pdf_exporter.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/core/notebook/notebook_object_models.dart';
+import 'package:lexpdf_app/src/core/notebook/notebook_pdf_exporter.dart';
 
 void main() {
   test('exports a notebook page as a valid PDF with vector content', () async {

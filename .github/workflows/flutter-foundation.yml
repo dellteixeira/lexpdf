@@ -24,6 +24,9 @@ jobs:
           channel: stable
           cache: true
       - run: flutter --version
+      - run: test -f pubspec.lock
       - run: flutter pub get
+      - name: Verify dependency lock is stable
+        run: git diff --exit-code -- pubspec.lock
       - run: flutter analyze
       - run: flutter test

@@ -70,7 +70,9 @@ class CloudOAuthService {
       callbackUrlScheme: config.callbackScheme,
     );
     final code = Uri.parse(result).queryParameters['code'];
-    if (code == null || code.isEmpty) throw StateError('Google OAuth returned no code.');
+    if (code == null || code.isEmpty) {
+      throw StateError('Google OAuth returned no code.');
+    }
     final token = await _exchangeForm(
       Uri.parse('https://oauth2.googleapis.com/token'),
       {
@@ -81,15 +83,7 @@ class CloudOAuthService {
         'redirect_uri': redirectUri,
       },
     );
-    final accessToken = token['access_token']?.toString();
-    if (accessToken == null || accessToken.isEmpty) {
-      throw StateError('Google OAuth returned no access token.');
-    }
-    await credentials.writeToken(
-      provider: 'google_drive',
-      accountId: accountId,
-      token: accessToken,
-    );
+    await _saveCredential('google_drive', accountId, token);
   }
 
   Future<void> connectOneDrive({required String accountId}) async {
@@ -116,7 +110,9 @@ class CloudOAuthService {
       callbackUrlScheme: config.callbackScheme,
     );
     final code = Uri.parse(result).queryParameters['code'];
-    if (code == null || code.isEmpty) throw StateError('Microsoft OAuth returned no code.');
+    if (code == null || code.isEmpty) {
+      throw StateError('Microsoft OAuth returned no code.');
+    }
     final token = await _exchangeForm(
       Uri.parse('https://login.microsoftonline.com/$tenant/oauth2/v2.0/token'),
       {
@@ -128,14 +124,94 @@ class CloudOAuthService {
         'scope': 'openid profile offline_access Files.ReadWrite',
       },
     );
+    await _saveCredential('onedrive', accountId, token);
+  }
+
+  Future<String> validAccessToken({
+    required String provider,
+    required String accountId,
+  }) async {
+    final oauth = await credentials.readOAuthCredential(
+      provider: provider,
+      accountId: accountId,
+    );
+    if (oauth == null) {
+      final legacy = await credentials.readToken(
+        provider: provider,
+        accountId: accountId,
+      );
+      if (legacy == null || legacy.isEmpty) {
+        throw StateError('$provider/$accountId is not authenticated.');
+      }
+      return legacy;
+    }
+    if (!oauth.isExpired) return oauth.accessToken;
+    final refreshToken = oauth.refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw StateError('$provider/$accountId needs to be reconnected.');
+    }
+
+    final refreshed = switch (provider) {
+      'google_drive' => await _exchangeForm(
+          Uri.parse('https://oauth2.googleapis.com/token'),
+          {
+            'client_id': config.googleClientId,
+            'refresh_token': refreshToken,
+            'grant_type': 'refresh_token',
+          },
+        ),
+      'onedrive' => await _exchangeForm(
+          Uri.parse(
+            'https://login.microsoftonline.com/${Uri.encodeComponent(config.microsoftTenant)}/oauth2/v2.0/token',
+          ),
+          {
+            'client_id': config.microsoftClientId,
+            'refresh_token': refreshToken,
+            'grant_type': 'refresh_token',
+            'scope': 'openid profile offline_access Files.ReadWrite',
+          },
+        ),
+      _ => throw StateError('OAuth refresh is not supported for $provider.'),
+    };
+    await _saveCredential(
+      provider,
+      accountId,
+      refreshed,
+      fallbackRefreshToken: refreshToken,
+    );
+    final updated = await credentials.readOAuthCredential(
+      provider: provider,
+      accountId: accountId,
+    );
+    if (updated == null || updated.accessToken.isEmpty) {
+      throw StateError('OAuth refresh did not return a usable access token.');
+    }
+    return updated.accessToken;
+  }
+
+  Future<void> _saveCredential(
+    String provider,
+    String accountId,
+    Map<String, dynamic> token, {
+    String? fallbackRefreshToken,
+  }) async {
     final accessToken = token['access_token']?.toString();
     if (accessToken == null || accessToken.isEmpty) {
-      throw StateError('Microsoft OAuth returned no access token.');
+      throw StateError('$provider OAuth returned no access token.');
     }
-    await credentials.writeToken(
-      provider: 'onedrive',
+    final expiresIn = (token['expires_in'] as num?)?.toInt();
+    final expiresAt = expiresIn == null
+        ? null
+        : DateTime.now().toUtc().add(Duration(seconds: expiresIn));
+    await credentials.writeOAuthCredential(
+      provider: provider,
       accountId: accountId,
-      token: accessToken,
+      credential: CloudOAuthCredential(
+        accessToken: accessToken,
+        refreshToken:
+            token['refresh_token']?.toString() ?? fallbackRefreshToken,
+        expiresAt: expiresAt,
+      ),
     );
   }
 
@@ -150,7 +226,8 @@ class CloudOAuthService {
       charset: 'utf-8',
     );
     request.write(fields.entries
-        .map((entry) => '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}')
+        .map((entry) =>
+            '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}')
         .join('&'));
     final response = await request.close();
     final body = await utf8.decoder.bind(response).join();
@@ -161,7 +238,8 @@ class CloudOAuthService {
   }
 
   static String _randomVerifier() {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
     final random = Random.secure();
     return List.generate(64, (_) => chars[random.nextInt(chars.length)]).join();
   }

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ai/ai_models.dart';
-import 'package:lexxpdf_app/src/core/ai/local_study_engine.dart';
+import 'package:lexpdf_app/src/core/ai/ai_models.dart';
+import 'package:lexpdf_app/src/core/ai/local_study_engine.dart';
 
 void main() {
   const engine = LocalStudyEngine();

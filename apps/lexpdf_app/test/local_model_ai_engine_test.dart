@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ai/ai_models.dart';
-import 'package:lexxpdf_app/src/core/ai/local_model_ai_engine.dart';
+import 'package:lexpdf_app/src/core/ai/ai_models.dart';
+import 'package:lexpdf_app/src/core/ai/local_model_ai_engine.dart';
 
 class _FakeRunner implements LocalModelRunner {
   _FakeRunner({this.available = true});

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../documents/document_provider.dart';
 import 'cloud_credential_store.dart';
 
@@ -34,20 +36,34 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
 
   @override
   Future<List<DocumentRef>> list({String? parentId}) async {
-    final uri = _uri('/v1/cloud/$_providerName/files', {
-      'account': accountId,
-      if (parentId != null) 'parent': parentId,
-    });
-    final data = await _json('GET', uri);
-    final values = switch (data) {
-      List<dynamic> legacy => legacy,
-      Map<String, dynamic> paged =>
-        (paged['items'] as List<dynamic>? ?? const <dynamic>[]),
-      _ => throw const FormatException('Resposta inválida da listagem em nuvem.'),
-    };
-    return values
-        .map((value) => _fromJson((value as Map).cast<String, dynamic>()))
-        .toList(growable: false);
+    final results = <DocumentRef>[];
+    String? cursor;
+    do {
+      final uri = _uri('/v1/cloud/$_providerName/files', {
+        'account': accountId,
+        if (parentId != null) 'parent': parentId,
+        if (cursor != null) 'cursor': cursor,
+        'limit': '500',
+      });
+      final data = await _json('GET', uri);
+      if (data is List<dynamic>) {
+        results.addAll(
+          data.map((value) => _fromJson((value as Map).cast<String, dynamic>())),
+        );
+        break;
+      }
+      if (data is! Map<String, dynamic>) {
+        throw const FormatException('Resposta inválida da listagem em nuvem.');
+      }
+      final values = data['items'] as List<dynamic>? ?? const <dynamic>[];
+      results.addAll(
+        values.map((value) => _fromJson((value as Map).cast<String, dynamic>())),
+      );
+      final truncated = data['truncated'] == true;
+      final next = data['cursor']?.toString();
+      cursor = truncated && next != null && next.isNotEmpty ? next : null;
+    } while (cursor != null);
+    return results;
   }
 
   @override
@@ -66,9 +82,14 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     final existing = document.localPath;
     if (existing != null && await File(existing).exists()) return existing;
     await cacheDirectory.create(recursive: true);
-    final file = File('${cacheDirectory.path}${Platform.pathSeparator}${document.id}-${_safeName(document.name)}');
-    final uri = _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content', {'account': accountId});
-    await file.writeAsBytes(await _bytes('GET', uri), flush: true);
+    final file = File(
+      '${cacheDirectory.path}${Platform.pathSeparator}${document.id}-${_safeName(document.name)}',
+    );
+    final uri = _uri(
+      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content',
+      {'account': accountId},
+    );
+    await _downloadToFile(uri, file);
     return file.path;
   }
 
@@ -95,7 +116,10 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   Future<DocumentRef> replaceContent(DocumentRef document, String localPath) async {
     final file = File(localPath);
     if (!await file.exists()) throw FileSystemException('File not found', localPath);
-    final uri = _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content', {'account': accountId});
+    final uri = _uri(
+      '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content',
+      {'account': accountId},
+    );
     final decoded = jsonDecode(
       utf8.decode(
         await _fileRequest(
@@ -117,7 +141,10 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   Future<void> rename(DocumentRef document, String newName) async {
     await _json(
       'PATCH',
-      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+      _uri(
+        '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
+        {'account': accountId},
+      ),
       body: {'name': newName},
     );
   }
@@ -126,7 +153,10 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   Future<void> move(DocumentRef document, {String? parentId}) async {
     await _json(
       'PATCH',
-      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+      _uri(
+        '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
+        {'account': accountId},
+      ),
       body: {'parentId': parentId},
     );
   }
@@ -135,25 +165,41 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   Future<void> delete(DocumentRef document) async {
     await _json(
       'DELETE',
-      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+      _uri(
+        '/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}',
+        {'account': accountId},
+      ),
     );
   }
 
   Uri _uri(String path, Map<String, String> query) => gatewayBaseUrl.replace(
-        path: '${gatewayBaseUrl.path.endsWith('/') ? gatewayBaseUrl.path.substring(0, gatewayBaseUrl.path.length - 1) : gatewayBaseUrl.path}$path',
+        path:
+            '${gatewayBaseUrl.path.endsWith('/') ? gatewayBaseUrl.path.substring(0, gatewayBaseUrl.path.length - 1) : gatewayBaseUrl.path}$path',
         queryParameters: query,
       );
 
   Future<void> _authorize(HttpClientRequest request) async {
-    final token = await _credentials.readToken(provider: _providerName, accountId: accountId);
+    var token = await _credentials.readToken(
+      provider: _providerName,
+      accountId: accountId,
+    );
+    if ((token == null || token.isEmpty) && kind == DocumentProviderKind.r2) {
+      token = Supabase.instance.client.auth.currentSession?.accessToken;
+    }
     if (token == null || token.isEmpty) {
-      throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
+      throw StateError(
+        'Cloud account $_providerName/$accountId is not authenticated.',
+      );
     }
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
   }
 
-  Future<dynamic> _json(String method, Uri uri, {Map<String, dynamic>? body}) async {
+  Future<dynamic> _json(
+    String method,
+    Uri uri, {
+    Map<String, dynamic>? body,
+  }) async {
     final request = await _http.openUrl(method, uri);
     await _authorize(request);
     if (body != null) {
@@ -161,7 +207,10 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
       request.write(jsonEncode(body));
     }
     final response = await request.close();
-    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (all, part) => all..addAll(part),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     }
@@ -169,15 +218,31 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     return jsonDecode(utf8.decode(bytes));
   }
 
-  Future<Uint8List> _bytes(String method, Uri uri) async {
-    final request = await _http.openUrl(method, uri);
+  Future<void> _downloadToFile(Uri uri, File destination) async {
+    final request = await _http.getUrl(uri);
     await _authorize(request);
     final response = await request.close();
-    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+      final errorBytes = await response.fold<List<int>>(
+        <int>[],
+        (all, part) => all..addAll(part),
+      );
+      throw HttpException(
+        '${response.statusCode}: ${utf8.decode(errorBytes)}',
+        uri: uri,
+      );
     }
-    return Uint8List.fromList(bytes);
+    final temp = File('${destination.path}.part');
+    final sink = temp.openWrite();
+    try {
+      await response.pipe(sink);
+      if (await destination.exists()) await destination.delete();
+      await temp.rename(destination.path);
+    } catch (_) {
+      await sink.close();
+      if (await temp.exists()) await temp.delete();
+      rethrow;
+    }
   }
 
   Future<Uint8List> _fileRequest(
@@ -195,7 +260,10 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     }
     await request.addStream(file.openRead());
     final response = await request.close();
-    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (all, part) => all..addAll(part),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
     }
@@ -214,6 +282,7 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
         syncState: DocumentSyncState.remoteOnly,
       );
 
-  String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  String _safeName(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
   String _basename(String path) => path.replaceAll('\\', '/').split('/').last;
 }

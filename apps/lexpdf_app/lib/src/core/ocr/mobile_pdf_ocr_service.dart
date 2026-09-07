@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdfrx/pdfrx.dart';
+import 'package:platform_ocr/platform_ocr.dart';
 
 import '../storage/local_ocr_store.dart';
 import '../storage/local_pdf_navigation_store.dart';
@@ -25,12 +28,24 @@ class PdfOcrSummary {
 }
 
 class MobilePdfOcrService {
-  const MobilePdfOcrService({required this.ocrStore, required this.navigationStore});
+  const MobilePdfOcrService({
+    required this.ocrStore,
+    required this.navigationStore,
+  });
 
   final LocalOcrStore ocrStore;
   final LocalPdfNavigationStore navigationStore;
 
-  bool get nativeOcrSupported => Platform.isAndroid || Platform.isIOS;
+  bool get mlKitOcrSupported => Platform.isAndroid || Platform.isIOS;
+  bool get desktopNativeOcrSupported => Platform.isWindows || Platform.isMacOS;
+  bool get nativeOcrSupported => mlKitOcrSupported || desktopNativeOcrSupported;
+
+  String get _engineName {
+    if (mlKitOcrSupported) return 'mlkit-latin-offline';
+    if (Platform.isWindows) return 'windows-media-ocr-offline';
+    if (Platform.isMacOS) return 'apple-vision-ocr-offline';
+    return 'embedded-text-fallback';
+  }
 
   Future<PdfOcrSummary> process({
     required String documentId,
@@ -39,23 +54,28 @@ class MobilePdfOcrService {
   }) async {
     final document = await PdfDocument.openFile(filePath);
     TextRecognizer? recognizer;
+    PlatformOcr? desktopOcr;
     final indexed = <int, String>{};
     var recognizedPages = 0;
-    final engine = nativeOcrSupported ? 'mlkit-latin-offline' : 'embedded-text-fallback';
+    final engine = _engineName;
 
     try {
-      if (nativeOcrSupported) {
+      if (mlKitOcrSupported) {
         recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      } else if (desktopNativeOcrSupported) {
+        desktopOcr = PlatformOcr();
       }
+
       for (var index = 0; index < document.pages.length; index++) {
         final pageNumber = index + 1;
         final page = document.pages[index];
         String text;
         List<OcrTextLine> lines = const [];
+
         if (recognizer != null) {
           final rendered = await page.render(
-            width: (page.width * 2).round(),
-            height: (page.height * 2).round(),
+            width: (page.width * 2).round().clamp(1, 8000),
+            height: (page.height * 2).round().clamp(1, 8000),
             backgroundColor: 0xFFFFFFFF,
           );
           if (rendered == null) {
@@ -90,6 +110,25 @@ class MobilePdfOcrService {
               rendered.dispose();
             }
           }
+        } else if (desktopOcr != null) {
+          final rendered = await page.render(
+            width: (page.width * 2).round().clamp(1, 8000),
+            height: (page.height * 2).round().clamp(1, 8000),
+            backgroundColor: 0xFFFFFFFF,
+          );
+          if (rendered == null) {
+            text = '';
+          } else {
+            try {
+              final png = Uint8List.fromList(
+                img.encodePng(rendered.createImageNF()),
+              );
+              final result = await desktopOcr.recognizeText(OcrSource.memory(png));
+              text = result.text.trim();
+            } finally {
+              rendered.dispose();
+            }
+          }
         } else {
           final structured = await page.loadStructuredText();
           text = structured.fullText.trim();
@@ -108,9 +147,13 @@ class MobilePdfOcrService {
           ),
         );
         onProgress?.call(
-          PdfOcrProgress(pageNumber: pageNumber, pageCount: document.pages.length),
+          PdfOcrProgress(
+            pageNumber: pageNumber,
+            pageCount: document.pages.length,
+          ),
         );
       }
+
       await navigationStore.replacePageTextIndex(
         documentId: documentId,
         pages: indexed,

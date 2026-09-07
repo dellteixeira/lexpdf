@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/documents/local_document_provider.dart';
+import 'package:lexpdf_app/src/core/documents/local_document_provider.dart';
 
 void main() {
   test('lists only PDF files and resolves a local copy', () async {

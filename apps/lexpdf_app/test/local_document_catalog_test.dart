@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
+import 'package:lexpdf_app/src/core/documents/document_provider.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_document_catalog.dart';
 
 void main() {
   test('persists and restores local PDF metadata offline', () async {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
-import 'package:lexxpdf_app/src/core/storage/local_text_annotation_store.dart';
+import 'package:lexpdf_app/src/core/documents/document_provider.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_document_catalog.dart';
+import 'package:lexpdf_app/src/core/storage/local_text_annotation_store.dart';
 
 void main() {
   test('persists, updates and deletes text annotations offline', () async {

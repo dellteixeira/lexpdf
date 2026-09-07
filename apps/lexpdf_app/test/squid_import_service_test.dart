@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/backup/squid_import_service.dart';
+import 'package:lexpdf_app/src/core/backup/squid_import_service.dart';
 
 void main() {
   test('imports embedded PDFs without overwriting duplicate names', () async {
