@@ -87,9 +87,11 @@ class PdfPageManipulationService {
   Future<Uint8List> addBlankPage(
     String sourcePath, {
     int? afterPageNumber,
-    double width = gen.PdfPageFormat.a4.width,
-    double height = gen.PdfPageFormat.a4.height,
+    double? width,
+    double? height,
   }) async {
+    final pageWidth = width ?? gen.PdfPageFormat.a4.width;
+    final pageHeight = height ?? gen.PdfPageFormat.a4.height;
     final source = await PdfDocument.openFile(sourcePath);
     final blankFile = File(
       '${Directory.systemTemp.path}${Platform.pathSeparator}lexpdf-blank-${DateTime.now().microsecondsSinceEpoch}.pdf',
@@ -97,7 +99,7 @@ class PdfPageManipulationService {
     final blankDocument = pw.Document();
     blankDocument.addPage(
       pw.Page(
-        pageFormat: gen.PdfPageFormat(width, height, marginAll: 0),
+        pageFormat: gen.PdfPageFormat(pageWidth, pageHeight, marginAll: 0),
         build: (_) => pw.Container(color: gen.PdfColors.white),
       ),
     );
