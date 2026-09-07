@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lexxpdf_app/src/core/backup/lex_backup_service.dart';
 import 'package:lexxpdf_app/src/core/storage/local_database.dart';
 import 'package:lexxpdf_app/src/core/storage/local_ink_store.dart';
+import 'package:lexxpdf_app/src/core/storage/local_notebook_layer_store.dart';
 
 void main() {
   test('creates and validates portable LexPDF backup data', () async {
@@ -56,7 +57,9 @@ void main() {
     final db = LocalDatabase.inMemory();
     addTearDown(db.close);
     final ink = LocalInkStore(db);
-    await ink.ensureDefaultPage();
+    final page = await ink.ensureDefaultPage();
+    final layers = LocalNotebookLayerStore(db);
+    await layers.ensureDefaultLayer(page.id);
     final notebooksBefore = await ink.listNotebooks();
     expect(notebooksBefore, isNotEmpty);
 
