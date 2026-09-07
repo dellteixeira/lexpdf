@@ -7,16 +7,42 @@ import 'ai_models.dart';
 
 class RemoteAiStudyEngine implements AiStudyEngine {
   RemoteAiStudyEngine({
-    required this.endpoint,
+    required Uri endpoint,
     this.bearerToken,
     this.inputPolicy = const AiInputPolicy(maxCharacters: 60000),
     HttpClient? httpClient,
-  }) : _http = httpClient ?? HttpClient();
+  })  : endpoint = _validatedEndpoint(endpoint),
+        _http = httpClient ?? HttpClient();
 
   final Uri endpoint;
   final String? bearerToken;
   final AiInputPolicy inputPolicy;
   final HttpClient _http;
+
+  static Uri _validatedEndpoint(Uri endpoint) {
+    if (endpoint.scheme.toLowerCase() != 'https') {
+      throw ArgumentError.value(
+        endpoint,
+        'endpoint',
+        'Remote AI endpoints must use HTTPS.',
+      );
+    }
+    if (endpoint.host.trim().isEmpty) {
+      throw ArgumentError.value(
+        endpoint,
+        'endpoint',
+        'Remote AI endpoint must include a host.',
+      );
+    }
+    if (endpoint.userInfo.isNotEmpty) {
+      throw ArgumentError.value(
+        endpoint,
+        'endpoint',
+        'Remote AI endpoint must not embed credentials in the URL.',
+      );
+    }
+    return endpoint;
+  }
 
   @override
   AiEngineKind get kind => AiEngineKind.remote;
