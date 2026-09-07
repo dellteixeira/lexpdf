@@ -26,6 +26,18 @@ class SyncInspection {
   final LocalSyncCheckpoint? checkpoint;
 }
 
+class _CachedChecksum {
+  const _CachedChecksum({
+    required this.size,
+    required this.modifiedMicros,
+    required this.checksum,
+  });
+
+  final int size;
+  final int modifiedMicros;
+  final String checksum;
+}
+
 class CloudSyncCoordinator {
   CloudSyncCoordinator({
     required this.catalog,
@@ -36,6 +48,7 @@ class CloudSyncCoordinator {
   final LocalDocumentCatalog catalog;
   final LocalSyncStore store;
   final SyncProviderResolver resolveProvider;
+  final Map<String, _CachedChecksum> _checksumCache = {};
 
   Future<SyncInspection> inspect({
     required DocumentRef document,
@@ -45,7 +58,7 @@ class CloudSyncCoordinator {
     final cloud = await resolveProvider(provider, accountId);
     final localPath = document.localPath;
     final localExists = localPath != null && await File(localPath).exists();
-    final localChecksum = localExists ? await SyncEngine.sha256File(localPath) : null;
+    final localChecksum = localExists ? await _checksumForFile(localPath) : null;
     final remoteId = document.remoteId;
     final remote = remoteId == null ? null : await cloud.getById(remoteId);
     final checkpoint = await store.checkpoint(document.id, provider);
@@ -265,7 +278,7 @@ class CloudSyncCoordinator {
     if (path == null || !await File(path).exists()) {
       throw FileSystemException('Local sync source is missing.', path);
     }
-    final localChecksum = await SyncEngine.sha256File(path);
+    final localChecksum = await _checksumForFile(path);
     final remote = document.remoteId == null
         ? await provider.upload(path, parentId: document.remotePath)
         : await provider.replaceContent(document, path);
@@ -314,11 +327,24 @@ class CloudSyncCoordinator {
     final downloadedPath = await provider.ensureLocalCopy(remoteOnly);
     final targetPath = document.localPath;
     var finalPath = downloadedPath;
-    if (targetPath != null && targetPath != downloadedPath) {
-      await File(downloadedPath).copy(targetPath);
+    String localChecksum;
+
+    if (targetPath != null && !_samePath(targetPath, downloadedPath)) {
+      localChecksum = await _replaceFileAtomically(
+        sourcePath: downloadedPath,
+        targetPath: targetPath,
+        expectedChecksum: remote.checksum,
+      );
       finalPath = targetPath;
+    } else {
+      localChecksum = await _checksumForFile(finalPath);
+      _verifyExpectedChecksum(
+        actual: localChecksum,
+        expected: remote.checksum,
+        path: finalPath,
+      );
     }
-    final localChecksum = await SyncEngine.sha256File(finalPath);
+
     final updated = DocumentRef(
       id: document.id,
       name: remote.name,
@@ -342,6 +368,98 @@ class CloudSyncCoordinator {
     );
   }
 
+  Future<String> _replaceFileAtomically({
+    required String sourcePath,
+    required String targetPath,
+    String? expectedChecksum,
+  }) async {
+    final source = File(sourcePath);
+    if (!await source.exists()) {
+      throw FileSystemException('Downloaded sync file is missing.', sourcePath);
+    }
+    final target = File(targetPath);
+    await target.parent.create(recursive: true);
+    final token = DateTime.now().microsecondsSinceEpoch;
+    final partial = File('$targetPath.lexpdf-sync-partial-$token');
+    final backup = File('$targetPath.lexpdf-sync-backup-$token');
+    var parkedOriginal = false;
+
+    try {
+      await source.openRead().pipe(partial.openWrite());
+      final checksum = await _checksumForFile(partial.path);
+      _verifyExpectedChecksum(
+        actual: checksum,
+        expected: expectedChecksum,
+        path: partial.path,
+      );
+
+      if (await target.exists()) {
+        await target.rename(backup.path);
+        parkedOriginal = true;
+      }
+      try {
+        await partial.rename(target.path);
+      } catch (_) {
+        if (parkedOriginal && await backup.exists()) {
+          await backup.rename(target.path);
+          parkedOriginal = false;
+        }
+        rethrow;
+      }
+      if (await backup.exists()) await backup.delete();
+      parkedOriginal = false;
+      _checksumCache.remove(partial.path);
+      await _rememberChecksum(target.path, checksum);
+      return checksum;
+    } finally {
+      if (await partial.exists()) await partial.delete();
+      _checksumCache.remove(partial.path);
+      if (parkedOriginal && await backup.exists() && !await target.exists()) {
+        await backup.rename(target.path);
+      } else if (await backup.exists()) {
+        await backup.delete();
+      }
+    }
+  }
+
+  Future<String> _checksumForFile(String path) async {
+    final file = File(path);
+    final stat = await file.stat();
+    final modifiedMicros = stat.modified.toUtc().microsecondsSinceEpoch;
+    final cached = _checksumCache[path];
+    if (cached != null &&
+        cached.size == stat.size &&
+        cached.modifiedMicros == modifiedMicros) {
+      return cached.checksum;
+    }
+    final checksum = await SyncEngine.sha256File(path);
+    _checksumCache[path] = _CachedChecksum(
+      size: stat.size,
+      modifiedMicros: modifiedMicros,
+      checksum: checksum,
+    );
+    return checksum;
+  }
+
+  Future<void> _rememberChecksum(String path, String checksum) async {
+    final stat = await File(path).stat();
+    _checksumCache[path] = _CachedChecksum(
+      size: stat.size,
+      modifiedMicros: stat.modified.toUtc().microsecondsSinceEpoch,
+      checksum: checksum,
+    );
+  }
+
+  void _verifyExpectedChecksum({
+    required String actual,
+    required String? expected,
+    required String path,
+  }) {
+    if (expected != null && expected.isNotEmpty && actual != expected) {
+      throw StateError('Downloaded file checksum mismatch: $path');
+    }
+  }
+
   Future<void> _checkpoint({
     required DocumentRef document,
     required String provider,
@@ -358,6 +476,14 @@ class CloudSyncCoordinator {
           syncedAt: DateTime.now().toUtc(),
         ),
       );
+
+  static bool _samePath(String a, String b) {
+    final left = File(a).absolute.path;
+    final right = File(b).absolute.path;
+    return Platform.isWindows
+        ? left.toLowerCase() == right.toLowerCase()
+        : left == right;
+  }
 
   static String _conflictCopyPath(String path) {
     final dot = path.lastIndexOf('.');
