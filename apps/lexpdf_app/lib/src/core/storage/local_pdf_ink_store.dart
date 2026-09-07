@@ -76,6 +76,36 @@ class LocalPdfInkStore {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  Future<List<PdfInkStroke>> listForPageRange(
+    String documentId,
+    int startPage,
+    int endPage,
+  ) async {
+    if (endPage < startPage) return const [];
+    final rows = db.database.select('''
+      SELECT * FROM pdf_ink_strokes
+      WHERE document_id = ? AND page_number BETWEEN ? AND ?
+      ORDER BY page_number ASC, created_at ASC;
+    ''', [documentId, startPage, endPage]);
+    return rows.map(_fromRow).toList(growable: false);
+  }
+
+  Future<int> countForDocument(String documentId) async {
+    final row = db.database.select(
+      'SELECT COUNT(*) AS value FROM pdf_ink_strokes WHERE document_id = ?;',
+      [documentId],
+    ).single;
+    return row['value'] as int;
+  }
+
+  Future<List<int>> pagesWithInk(String documentId) async {
+    final rows = db.database.select('''
+      SELECT DISTINCT page_number FROM pdf_ink_strokes
+      WHERE document_id = ? ORDER BY page_number;
+    ''', [documentId]);
+    return rows.map((row) => row['page_number'] as int).toList(growable: false);
+  }
+
   Future<void> deleteStroke(String id) async {
     db.database.execute('DELETE FROM pdf_ink_strokes WHERE id = ?;', [id]);
   }
