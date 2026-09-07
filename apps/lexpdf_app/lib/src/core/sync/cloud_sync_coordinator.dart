@@ -137,6 +137,7 @@ class CloudSyncCoordinator {
           remoteVersion: inspection.remote?.remoteVersion,
           state: DocumentSyncState.synced,
         );
+        break;
       case SyncDecision.upload:
         await store.enqueue(
           entityId: document.id,
@@ -148,6 +149,7 @@ class CloudSyncCoordinator {
           id: document.id,
           state: DocumentSyncState.syncPending,
         );
+        break;
       case SyncDecision.download:
         await store.enqueue(
           entityId: document.id,
@@ -159,6 +161,7 @@ class CloudSyncCoordinator {
           id: document.id,
           state: DocumentSyncState.syncPending,
         );
+        break;
       case SyncDecision.conflict:
         await store.addConflict(
           entityId: document.id,
@@ -172,6 +175,7 @@ class CloudSyncCoordinator {
           id: document.id,
           state: DocumentSyncState.conflict,
         );
+        break;
     }
     return inspection.decision;
   }
@@ -190,15 +194,19 @@ class CloudSyncCoordinator {
     switch (item.operation) {
       case LocalSyncOperation.upload:
         await _upload(document, item.provider, provider);
+        break;
       case LocalSyncOperation.download:
         await _download(document, item.provider, provider);
+        break;
       case LocalSyncOperation.delete:
         await provider.delete(document);
+        break;
       case LocalSyncOperation.metadata:
         final newName = item.payload['name']?.toString();
         if (newName != null && newName.isNotEmpty) {
           await provider.rename(document, newName);
         }
+        break;
     }
   }
 
@@ -223,8 +231,10 @@ class CloudSyncCoordinator {
     switch (resolution) {
       case ConflictResolution.keepLocal:
         await _upload(document, conflict.provider, provider);
+        break;
       case ConflictResolution.keepRemote:
         await _download(document, conflict.provider, provider);
+        break;
       case ConflictResolution.keepBoth:
         final path = document.localPath;
         if (path != null && await File(path).exists()) {
@@ -241,6 +251,7 @@ class CloudSyncCoordinator {
           await catalog.upsert(localCopy);
         }
         await _download(document, conflict.provider, provider);
+        break;
     }
     await store.resolveConflict(conflict.id, resolution);
   }
