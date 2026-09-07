@@ -13,16 +13,12 @@ class AiStudyScreen extends StatefulWidget {
   const AiStudyScreen({
     this.initialText,
     this.documentPath,
-    this.initialAction,
-    this.autorun = false,
     this.title = 'Estudo assistido',
     super.key,
   });
 
   final String? initialText;
   final String? documentPath;
-  final AiStudyAction? initialAction;
-  final bool autorun;
   final String title;
 
   @override
@@ -38,7 +34,6 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
   bool _loading = false;
   Object? _error;
   int _itemCount = 8;
-  bool _didAutorun = false;
 
   @override
   void initState() {
@@ -46,8 +41,6 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     _textController.text = widget.initialText?.trim() ?? '';
     if (_textController.text.isEmpty && widget.documentPath != null) {
       unawaited(_loadDocumentText());
-    } else {
-      _scheduleAutorun();
     }
   }
 
@@ -55,14 +48,6 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
   void dispose() {
     _textController.dispose();
     super.dispose();
-  }
-
-  void _scheduleAutorun() {
-    if (_didAutorun || !widget.autorun || widget.initialAction == null) return;
-    _didAutorun = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_run(widget.initialAction!));
-    });
   }
 
   Future<void> _loadDocumentText() async {
@@ -74,9 +59,9 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       if (!mounted) return;
       _textController.text = text;
       if (text.isEmpty) {
-        setState(() => _error = StateError('Nenhum texto incorporado foi encontrado. Use OCR antes desta ação.'));
-      } else {
-        _scheduleAutorun();
+        setState(() => _error = StateError(
+              'Nenhum texto incorporado foi encontrado. Use OCR antes desta ação.',
+            ));
       }
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -88,7 +73,9 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
   AiStudyEngine _engine() {
     if (_engineKind == AiEngineKind.local) return _local;
     const config = BackendConfig.fromEnvironment;
-    if (!config.hasAiGateway) throw StateError('Nenhum gateway de IA foi configurado.');
+    if (!config.hasAiGateway) {
+      throw StateError('Nenhum gateway de IA foi configurado.');
+    }
     return RemoteAiStudyEngine(endpoint: Uri.parse(config.aiGatewayUrl));
   }
 
@@ -100,7 +87,11 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       _error = null;
     });
     try {
-      final result = await _engine().run(action: action, text: text, itemCount: _itemCount);
+      final result = await _engine().run(
+        action: action,
+        text: text,
+        itemCount: _itemCount,
+      );
       if (mounted) setState(() => _result = result);
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -125,28 +116,50 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Text('Fonte', style: Theme.of(context).textTheme.titleMedium)),
+                      Expanded(
+                        child: Text(
+                          'Fonte',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
                       SegmentedButton<AiEngineKind>(
                         segments: [
-                          const ButtonSegment(value: AiEngineKind.local, icon: Icon(Icons.offline_bolt_outlined), label: Text('Local')),
-                          ButtonSegment(value: AiEngineKind.remote, enabled: config.hasAiGateway, icon: const Icon(Icons.auto_awesome_outlined), label: const Text('IA online')),
+                          const ButtonSegment(
+                            value: AiEngineKind.local,
+                            icon: Icon(Icons.offline_bolt_outlined),
+                            label: Text('Local'),
+                          ),
+                          ButtonSegment(
+                            value: AiEngineKind.remote,
+                            enabled: config.hasAiGateway,
+                            icon: const Icon(Icons.auto_awesome_outlined),
+                            label: const Text('IA online'),
+                          ),
                         ],
                         selected: {_engineKind},
-                        onSelectionChanged: _loading ? null : (value) => setState(() => _engineKind = value.first),
+                        onSelectionChanged: _loading
+                            ? null
+                            : (value) =>
+                                setState(() => _engineKind = value.first),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(_engineKind == AiEngineKind.local
-                      ? 'Processamento determinístico e offline; nenhum texto sai do dispositivo. A arquitetura aceita um modelo local futuro sem trocar a UI.'
-                      : 'O texto será enviado ao gateway de IA configurado pelo usuário.'),
+                  Text(
+                    _engineKind == AiEngineKind.local
+                        ? 'Processamento determinístico e offline; nenhum texto sai do dispositivo. A arquitetura aceita um modelo local futuro sem trocar a UI.'
+                        : 'O texto será enviado ao gateway de IA configurado pelo usuário.',
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _textController,
                     minLines: 6,
                     maxLines: 14,
                     enabled: !_loading,
-                    decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Texto de estudo'),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Texto de estudo',
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -159,7 +172,11 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
                           divisions: 19,
                           label: '$_itemCount',
                           value: _itemCount.toDouble(),
-                          onChanged: _loading ? null : (value) => setState(() => _itemCount = value.round()),
+                          onChanged: _loading
+                              ? null
+                              : (value) => setState(
+                                    () => _itemCount = value.round(),
+                                  ),
                         ),
                       ),
                       SizedBox(width: 32, child: Text('$_itemCount')),
@@ -169,22 +186,58 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      FilledButton.tonalIcon(onPressed: _loading ? null : () => _run(AiStudyAction.explain), icon: const Icon(Icons.lightbulb_outline), label: const Text('Explicar')),
-                      FilledButton.tonalIcon(onPressed: _loading ? null : () => _run(AiStudyAction.summarize), icon: const Icon(Icons.summarize_outlined), label: const Text('Resumir')),
-                      FilledButton.tonalIcon(onPressed: _loading ? null : () => _run(AiStudyAction.flashcards), icon: const Icon(Icons.style_outlined), label: const Text('Flashcards')),
-                      FilledButton.tonalIcon(onPressed: _loading ? null : () => _run(AiStudyAction.questions), icon: const Icon(Icons.quiz_outlined), label: const Text('Perguntas')),
+                      FilledButton.tonalIcon(
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.explain),
+                        icon: const Icon(Icons.lightbulb_outline),
+                        label: const Text('Explicar'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.summarize),
+                        icon: const Icon(Icons.summarize_outlined),
+                        label: const Text('Resumir'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.flashcards),
+                        icon: const Icon(Icons.style_outlined),
+                        label: const Text('Flashcards'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: _loading
+                            ? null
+                            : () => _run(AiStudyAction.questions),
+                        icon: const Icon(Icons.quiz_outlined),
+                        label: const Text('Perguntas'),
+                      ),
                     ],
                   ),
                 ],
               ),
             ),
           ),
-          if (_loading) ...[const SizedBox(height: 16), const LinearProgressIndicator()],
+          if (_loading) ...[
+            const SizedBox(height: 16),
+            const LinearProgressIndicator(),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 16),
-            Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Não foi possível concluir a ação'), subtitle: Text('$_error'))),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.error_outline),
+                title: const Text('Não foi possível concluir a ação'),
+                subtitle: Text('$_error'),
+              ),
+            ),
           ],
-          if (_result != null) ...[const SizedBox(height: 16), _ResultView(result: _result!)],
+          if (_result != null) ...[
+            const SizedBox(height: 16),
+            _ResultView(result: _result!),
+          ],
         ],
       ),
     );
@@ -198,24 +251,49 @@ class _ResultView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final engine = result.engine == AiEngineKind.local ? 'Local/offline' : 'IA online';
+    final engine =
+        result.engine == AiEngineKind.local ? 'Local/offline' : 'IA online';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Expanded(child: Text('Resultado', style: Theme.of(context).textTheme.titleLarge)), Chip(label: Text(engine))]),
-            if (result.text?.trim().isNotEmpty == true) ...[const SizedBox(height: 12), SelectableText(result.text!)],
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Resultado',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                Chip(label: Text(engine)),
+              ],
+            ),
+            if (result.text?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              SelectableText(result.text!),
+            ],
             if (result.flashcards.isNotEmpty) ...[
               const SizedBox(height: 12),
-              for (var index = 0; index < result.flashcards.length; index++)
-                ListTile(contentPadding: EdgeInsets.zero, leading: CircleAvatar(child: Text('${index + 1}')), title: Text(result.flashcards[index].question), subtitle: Text(result.flashcards[index].answer)),
+              for (var index = 0;
+                  index < result.flashcards.length;
+                  index++)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(child: Text('${index + 1}')),
+                  title: Text(result.flashcards[index].question),
+                  subtitle: Text(result.flashcards[index].answer),
+                ),
             ],
             if (result.questions.isNotEmpty) ...[
               const SizedBox(height: 12),
               for (var index = 0; index < result.questions.length; index++)
-                ListTile(contentPadding: EdgeInsets.zero, leading: CircleAvatar(child: Text('${index + 1}')), title: Text(result.questions[index])),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(child: Text('${index + 1}')),
+                  title: Text(result.questions[index]),
+                ),
             ],
           ],
         ),
