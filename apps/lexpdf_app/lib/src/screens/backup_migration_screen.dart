@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/backup/lex_backup_service.dart';
+import '../core/backup/lex_backup_streaming_restore_service.dart';
+import '../core/backup/lex_backup_streaming_service.dart';
 import '../core/backup/squid_import_service.dart';
 import '../core/storage/local_database.dart';
 
@@ -20,6 +22,10 @@ class BackupMigrationScreen extends StatefulWidget {
 
 class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
   late final LexBackupService _backup = LexBackupService(widget.db);
+  late final LexBackupStreamingService _streamingBackup =
+      LexBackupStreamingService(widget.db);
+  late final LexBackupStreamingRestoreService _streamingRestore =
+      LexBackupStreamingRestoreService(widget.db);
   static const SquidImportService _squid = SquidImportService();
   bool _busy = false;
 
@@ -40,6 +46,19 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
     return path;
   }
 
+  Future<String?> _backupDestination(String suggestedName) async {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final location = await getSaveLocation(suggestedName: suggestedName);
+      return location?.path;
+    }
+    final directory = await getApplicationDocumentsDirectory();
+    final folder = Directory(
+      '${directory.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}backups',
+    );
+    await folder.create(recursive: true);
+    return '${folder.path}${Platform.pathSeparator}$suggestedName';
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -57,28 +76,31 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
   }
 
   Future<void> _createBackup() => _run(() async {
-        final bytes = await _backup.createBackup();
-        final validation = await _backup.validate(bytes);
+        final name =
+            'lexpdf_${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}.lexbackup';
+        final path = await _backupDestination(name);
+        if (path == null) return;
+        final file = await _streamingBackup.createBackupFile(path);
+        final validation = await _streamingRestore.validateFile(file);
         if (!validation.valid) {
-          throw StateError(validation.error ?? 'O backup criado não passou na validação.');
+          if (await file.exists()) await file.delete();
+          throw StateError(
+            validation.error ?? 'O backup criado não passou na validação.',
+          );
         }
-        final path = await _saveBytes(
-          bytes,
-          'lexpdf_${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}.lexbackup',
-        );
-        if (mounted && path != null) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Backup validado e salvo em: $path')),
+            SnackBar(content: Text('Backup validado e salvo em: ${file.path}')),
           );
         }
       });
 
   Future<void> _restoreBackup() => _run(() async {
         const type = XTypeGroup(label: 'LexPDF backup', extensions: ['lexbackup']);
-        final file = await openFile(acceptedTypeGroups: const [type]);
-        if (file == null) return;
-        final bytes = await file.readAsBytes();
-        final validation = await _backup.validate(bytes);
+        final selected = await openFile(acceptedTypeGroups: const [type]);
+        if (selected == null) return;
+        final source = File(selected.path);
+        final validation = await _streamingRestore.validateFile(source);
         if (!validation.valid) {
           throw FormatException(validation.error ?? 'Backup inválido.');
         }
@@ -107,7 +129,7 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         final target = Directory(
           '${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}restored-documents',
         );
-        await _backup.restore(bytes, documentDirectory: target);
+        await _streamingRestore.restoreFile(source, documentDirectory: target);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Backup restaurado e validado.')),
@@ -138,7 +160,9 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         final bytes = _backup.exportNotebook(notebookId);
         final validation = _backup.validateNotebook(bytes);
         if (!validation.valid) {
-          throw StateError(validation.error ?? 'O .lexnote criado não passou na validação.');
+          throw StateError(
+            validation.error ?? 'O .lexnote criado não passou na validação.',
+          );
         }
         final safeTitle = (validation.title ?? 'caderno').replaceAll(
           RegExp(r'[^A-Za-z0-9._-]+'),
@@ -208,7 +232,10 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         final destination = Directory(
           '${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}imports',
         );
-        final result = await _squid.importSafely(file.path, destination: destination);
+        final result = await _squid.importSafely(
+          file.path,
+          destination: destination,
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -227,7 +254,10 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Text('Proteção dos dados', style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            'Proteção dos dados',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: 8),
           const Text(
             'Backups e cadernos portáteis são validados por checksum antes de restauração/importação. O estado local continua sendo a fonte primária offline.',
