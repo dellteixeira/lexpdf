@@ -1,9 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/backend/backend_config.dart';
 import '../core/cloud/cloud_credential_store.dart';
+import '../core/cloud/cloud_oauth_service.dart';
+import '../core/cloud/native_file_provider_service.dart';
 import '../core/storage/local_cloud_account_store.dart';
+import '../core/storage/local_cloud_cache_store.dart';
 import '../core/storage/local_database.dart';
+import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_sync_store.dart';
 import 'cloud_files_screen.dart';
 
@@ -18,156 +25,204 @@ class CloudSyncScreen extends StatefulWidget {
 
 class _CloudSyncScreenState extends State<CloudSyncScreen> {
   late final LocalCloudAccountStore _accounts;
+  late final LocalCloudCacheStore _cache;
+  late final LocalDocumentCatalog _catalog;
   late final LocalSyncStore _sync;
   final CloudCredentialStore _credentials = const CloudCredentialStore();
+  final CloudOAuthService _oauth = CloudOAuthService();
+  static const NativeFileProviderService _fileProvider = NativeFileProviderService();
   late Future<void> _loadFuture;
   List<LocalCloudAccount> _accountItems = const [];
   List<LocalSyncItem> _queue = const [];
   List<LocalSyncConflict> _conflicts = const [];
+  List<CloudCacheEntry> _cacheItems = const [];
+  bool _connecting = false;
 
   @override
   void initState() {
     super.initState();
     _accounts = LocalCloudAccountStore(widget.db);
+    _cache = LocalCloudCacheStore(widget.db);
+    _catalog = LocalDocumentCatalog(widget.db);
     _sync = LocalSyncStore(widget.db);
     _loadFuture = _load();
   }
 
   Future<void> _load() async {
+    await _cache.pruneMissingFiles();
     final accounts = await _accounts.list();
     final queue = await _sync.list();
     final conflicts = await _sync.listConflicts(unresolvedOnly: true);
+    final cacheItems = await _cache.list();
     if (!mounted) return;
     setState(() {
       _accountItems = accounts;
       _queue = queue;
       _conflicts = conflicts;
+      _cacheItems = cacheItems;
     });
   }
 
-  Future<void> _addAccount() async {
-    String provider = 'google_drive';
-    final account = TextEditingController();
-    final display = TextEditingController();
-    final gateway = TextEditingController(
-      text: BackendConfig.fromEnvironment.cloudGatewayUrl,
+  Future<String?> _askAlias(String title) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Identificador local da conta',
+            hintText: 'Ex.: pessoal, trabalho',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
     );
+    controller.dispose();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  Future<void> _connectGoogle() async {
+    final alias = await _askAlias('Conectar Google Drive');
+    if (alias == null) return;
+    await _connect(() async {
+      await _oauth.connectGoogleDrive(accountId: alias);
+      await _accounts.upsert(
+        LocalCloudAccount(
+          provider: 'google_drive',
+          accountId: alias,
+          displayName: 'Google Drive • $alias',
+          gatewayUrl: '',
+          status: 'connected',
+          updatedAt: DateTime.now().toUtc(),
+        ),
+      );
+    });
+  }
+
+  Future<void> _connectOneDrive() async {
+    final alias = await _askAlias('Conectar OneDrive');
+    if (alias == null) return;
+    await _connect(() async {
+      await _oauth.connectOneDrive(accountId: alias);
+      await _accounts.upsert(
+        LocalCloudAccount(
+          provider: 'onedrive',
+          accountId: alias,
+          displayName: 'OneDrive • $alias',
+          gatewayUrl: '',
+          status: 'connected',
+          updatedAt: DateTime.now().toUtc(),
+        ),
+      );
+    });
+  }
+
+  Future<void> _connectR2() async {
+    final account = TextEditingController(text: 'default');
+    final gateway = TextEditingController(text: BackendConfig.fromEnvironment.cloudGatewayUrl);
     final token = TextEditingController();
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Conectar nuvem'),
-          content: SizedBox(
-            width: 480,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: provider,
-                    decoration: const InputDecoration(labelText: 'Provedor'),
-                    items: const [
-                      DropdownMenuItem(value: 'google_drive', child: Text('Google Drive')),
-                      DropdownMenuItem(value: 'onedrive', child: Text('OneDrive')),
-                      DropdownMenuItem(value: 'icloud', child: Text('iCloud / File Provider')),
-                      DropdownMenuItem(value: 'r2', child: Text('LexPDF Cloud / R2')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) setDialogState(() => provider = value);
-                    },
-                  ),
-                  TextField(
-                    controller: account,
-                    decoration: const InputDecoration(labelText: 'ID da conta'),
-                  ),
-                  TextField(
-                    controller: display,
-                    decoration: const InputDecoration(labelText: 'Nome de exibição'),
-                  ),
-                  TextField(
-                    controller: gateway,
-                    decoration: const InputDecoration(labelText: 'URL do gateway'),
-                  ),
-                  TextField(
-                    controller: token,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Token do gateway/OAuth',
-                      helperText: 'Salvo apenas no armazenamento seguro do sistema.',
-                    ),
-                  ),
-                ],
+      builder: (context) => AlertDialog(
+        title: const Text('Conectar LexPDF Cloud / R2'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: account, decoration: const InputDecoration(labelText: 'Conta')),
+              TextField(controller: gateway, decoration: const InputDecoration(labelText: 'Gateway HTTPS')),
+              TextField(
+                controller: token,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Token Supabase/gateway'),
               ),
-            ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Conectar'),
-            ),
-          ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Conectar')),
+        ],
       ),
     );
-    if (accepted != true) {
-      account.dispose();
-      display.dispose();
-      gateway.dispose();
-      token.dispose();
-      return;
-    }
-    final accountId = account.text.trim();
-    final gatewayUrl = gateway.text.trim();
-    final secret = token.text;
-    if (accountId.isEmpty || gatewayUrl.isEmpty || secret.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Conta, gateway e token são obrigatórios.')),
-        );
-      }
-    } else {
+    if (accepted == true) {
+      final accountId = account.text.trim();
+      final gatewayUrl = gateway.text.trim();
+      final secret = token.text;
       final uri = Uri.tryParse(gatewayUrl);
-      if (uri == null || !uri.hasScheme || (uri.scheme != 'https' && uri.host != 'localhost')) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Use um gateway HTTPS válido.')),
-          );
-        }
+      if (accountId.isEmpty || secret.isEmpty || uri == null || uri.scheme != 'https') {
+        _message('Conta, token e gateway HTTPS válido são obrigatórios.');
       } else {
-        await _credentials.writeToken(
-          provider: provider,
-          accountId: accountId,
-          token: secret,
-        );
-        await _accounts.upsert(
-          LocalCloudAccount(
-            provider: provider,
-            accountId: accountId,
-            displayName: display.text.trim().isEmpty ? accountId : display.text.trim(),
-            gatewayUrl: gatewayUrl,
-            status: 'connected',
-            updatedAt: DateTime.now().toUtc(),
-          ),
-        );
-        await _load();
+        await _connect(() async {
+          await _credentials.writeToken(provider: 'r2', accountId: accountId, token: secret);
+          await _accounts.upsert(
+            LocalCloudAccount(
+              provider: 'r2',
+              accountId: accountId,
+              displayName: 'LexPDF Cloud • $accountId',
+              gatewayUrl: gatewayUrl,
+              status: 'connected',
+              updatedAt: DateTime.now().toUtc(),
+            ),
+          );
+        });
       }
     }
     account.dispose();
-    display.dispose();
     gateway.dispose();
     token.dispose();
   }
 
+  Future<void> _importFileProvider() async {
+    await _connect(() async {
+      final root = await getApplicationSupportDirectory();
+      final cacheDirectory = Directory(
+        '${root.path}${Platform.pathSeparator}cloud-cache${Platform.pathSeparator}icloud',
+      );
+      final document = await _fileProvider.pickPdf(cacheDirectory: cacheDirectory);
+      if (document == null) return;
+      await _catalog.upsert(document);
+      await _cache.upsert(
+        documentId: document.id,
+        provider: 'icloud',
+        accountId: 'file-provider',
+        localPath: document.localPath!,
+        pinned: true,
+      );
+      _message('${document.name} disponível offline pelo File Provider.');
+    });
+  }
+
+  Future<void> _connect(Future<void> Function() action) async {
+    if (_connecting) return;
+    setState(() => _connecting = true);
+    try {
+      await action();
+      await _load();
+    } catch (error) {
+      _message('Não foi possível concluir: $error');
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
+  }
+
+  void _message(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   Future<void> _remove(LocalCloudAccount account) async {
-    await _credentials.deleteToken(
-      provider: account.provider,
-      accountId: account.accountId,
-    );
+    await _credentials.deleteToken(provider: account.provider, accountId: account.accountId);
     await _accounts.remove(account.provider, account.accountId);
     await _load();
   }
@@ -177,14 +232,25 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     await _load();
   }
 
+  Future<void> _setPinned(CloudCacheEntry entry, bool value) async {
+    await _cache.setPinned(entry.documentId, entry.provider, entry.accountId, value);
+    await _load();
+  }
+
+  Future<void> _trimCache() async {
+    const maxBytes = 1024 * 1024 * 1024;
+    final removed = await _cache.evictToLimit(maxBytes);
+    await _load();
+    _message('$removed item(ns) removido(s) do cache não fixado.');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nuvem e sincronização'),
         actions: [
-          IconButton(onPressed: _addAccount, icon: const Icon(Icons.add_link), tooltip: 'Conectar conta'),
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh), tooltip: 'Atualizar'),
+          IconButton(onPressed: _connecting ? null : _load, icon: const Icon(Icons.refresh), tooltip: 'Atualizar'),
         ],
       ),
       body: FutureBuilder<void>(
@@ -196,7 +262,36 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              Text('Contas', style: Theme.of(context).textTheme.titleLarge),
+              Text('Provedores', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _connecting || !_oauth.googleConfigured ? null : _connectGoogle,
+                    icon: const Icon(Icons.add_to_drive_outlined),
+                    label: Text(_oauth.googleConfigured ? 'Google Drive' : 'Google Drive • configure Client ID'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _connecting || !_oauth.microsoftConfigured ? null : _connectOneDrive,
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: Text(_oauth.microsoftConfigured ? 'OneDrive' : 'OneDrive • configure Client ID'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _connecting ? null : _importFileProvider,
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: const Text('iCloud / File Provider'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _connecting ? null : _connectR2,
+                    icon: const Icon(Icons.cloud_queue_outlined),
+                    label: const Text('LexPDF Cloud / R2'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text('Contas conectadas', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               if (_accountItems.isEmpty)
                 const Card(child: ListTile(title: Text('Nenhuma conta conectada.')))
@@ -204,21 +299,48 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 for (final account in _accountItems)
                   Card(
                     child: ListTile(
-                      leading: const Icon(Icons.cloud_outlined),
+                      leading: const Icon(Icons.cloud_done_outlined),
                       title: Text(account.displayName),
                       subtitle: Text('${account.provider} • ${account.status}'),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CloudFilesScreen(
-                            account: account,
-                            syncStore: _sync,
-                          ),
-                        ),
-                      ),
+                      onTap: account.provider == 'icloud'
+                          ? null
+                          : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => CloudFilesScreen(
+                                    account: account,
+                                    catalog: _catalog,
+                                    syncStore: _sync,
+                                  ),
+                                ),
+                              ),
                       trailing: IconButton(
                         tooltip: 'Desconectar',
                         onPressed: () => _remove(account),
                         icon: const Icon(Icons.link_off),
+                      ),
+                    ),
+                  ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(child: Text('Disponibilidade offline', style: Theme.of(context).textTheme.titleLarge)),
+                  TextButton.icon(onPressed: _trimCache, icon: const Icon(Icons.cleaning_services_outlined), label: const Text('Limitar a 1 GB')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_cacheItems.isEmpty)
+                const Card(child: ListTile(title: Text('Nenhum arquivo cloud em cache.')))
+              else
+                for (final entry in _cacheItems)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.offline_pin_outlined),
+                      title: Text(entry.documentId),
+                      subtitle: Text('${entry.provider} • ${(entry.sizeBytes / 1024 / 1024).toStringAsFixed(1)} MB'),
+                      trailing: IconButton(
+                        tooltip: entry.pinned ? 'Permitir remoção automática' : 'Manter sempre offline',
+                        onPressed: () => _setPinned(entry, !entry.pinned),
+                        icon: Icon(entry.pinned ? Icons.push_pin : Icons.push_pin_outlined),
                       ),
                     ),
                   ),

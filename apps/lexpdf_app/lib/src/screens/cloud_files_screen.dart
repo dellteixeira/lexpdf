@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/cloud/cloud_gateway_document_provider.dart';
+import '../core/cloud/direct_cloud_document_provider.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_cloud_account_store.dart';
+import '../core/storage/local_cloud_cache_store.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_sync_store.dart';
 
@@ -27,7 +29,8 @@ class CloudFilesScreen extends StatefulWidget {
 }
 
 class _CloudFilesScreenState extends State<CloudFilesScreen> {
-  CloudGatewayDocumentProvider? _provider;
+  DocumentProvider? _provider;
+  LocalCloudCacheStore? _cacheStore;
   Future<List<DocumentRef>>? _future;
   bool _busy = false;
 
@@ -42,15 +45,29 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
     final cache = Directory(
       '${root.path}${Platform.pathSeparator}cloud-cache${Platform.pathSeparator}${widget.account.provider}${Platform.pathSeparator}${widget.account.accountId}',
     );
-    final provider = CloudGatewayDocumentProvider(
-      kind: _kind(widget.account.provider),
-      accountId: widget.account.accountId,
-      gatewayBaseUrl: Uri.parse(widget.account.gatewayUrl),
-      cacheDirectory: cache,
-    );
+    final provider = switch (widget.account.provider) {
+      'google_drive' => GoogleDriveDocumentProvider(
+          accountId: widget.account.accountId,
+          cacheDirectory: cache,
+        ),
+      'onedrive' => OneDriveDocumentProvider(
+          accountId: widget.account.accountId,
+          cacheDirectory: cache,
+        ),
+      'r2' => CloudGatewayDocumentProvider(
+          kind: DocumentProviderKind.r2,
+          accountId: widget.account.accountId,
+          gatewayBaseUrl: Uri.parse(widget.account.gatewayUrl),
+          cacheDirectory: cache,
+        ),
+      _ => throw StateError('Unsupported browsable provider: ${widget.account.provider}'),
+    };
     if (!mounted) return;
     setState(() {
       _provider = provider;
+      if (widget.syncStore != null) {
+        _cacheStore = LocalCloudCacheStore(widget.syncStore!.db);
+      }
       _future = provider.list();
     });
   }
@@ -89,6 +106,12 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
         syncState: DocumentSyncState.synced,
       );
       await widget.catalog?.upsert(cached);
+      await _cacheStore?.upsert(
+        documentId: document.id,
+        provider: widget.account.provider,
+        accountId: widget.account.accountId,
+        localPath: path,
+      );
       if (job != null) await widget.syncStore!.markDone(job.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -221,12 +244,4 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
             ),
     );
   }
-
-  DocumentProviderKind _kind(String provider) => switch (provider) {
-        'google_drive' => DocumentProviderKind.googleDrive,
-        'onedrive' => DocumentProviderKind.oneDrive,
-        'icloud' => DocumentProviderKind.iCloud,
-        'r2' => DocumentProviderKind.r2,
-        _ => throw StateError('Unsupported cloud provider: $provider'),
-      };
 }
