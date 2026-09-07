@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_pdf_reader/dart_pdf_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lexpdf_app/src/core/pdf/huge_pdf_policy.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 void main() {
@@ -44,7 +45,11 @@ void main() {
 
     expect(source, contains('loadPageDimensionsOnDemand: true'));
     expect(source, contains('limitRenderingCache: true'));
-    expect(source, contains('maxImageBytesCachedOnMemory: 48 * 1024 * 1024'));
+    expect(
+      source,
+      contains('maxImageBytesCachedOnMemory: HugePdfPolicy.viewerImageCacheBytes'),
+    );
+    expect(HugePdfPolicy.viewerImageCacheBytes, lessThanOrEqualTo(96 * 1024 * 1024));
     expect(source, contains('useProgressiveLoading: true'));
     expect(source, isNot(contains('FutureBuilder<ReadingProgressState?>')));
   });
