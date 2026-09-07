@@ -34,6 +34,7 @@ void main() {
     expect(screen, contains('addBlankPageToFile'));
     expect(screen, contains('insertImageOnPageToFile'));
     expect(screen, contains('splitEveryPageToDirectory'));
+    expect(screen, isNot(contains('Uint8List')));
     expect(screen, isNot(contains('final outputs = await _service.splitEveryPage(source);')));
     expect(screen, isNot(contains('_service.compose(')));
     expect(screen, isNot(contains('_service.merge(')));
