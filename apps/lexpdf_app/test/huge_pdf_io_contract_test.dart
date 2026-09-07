@@ -3,14 +3,17 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('searchable export is chunked and uses bounded rendering', () async {
+  test('searchable export preserves source and appends OCR incrementally', () async {
     final source = await File(
       'lib/src/core/ocr/searchable_pdf_exporter.dart',
     ).readAsString();
-    expect(source, contains('pagesPerChunk = 16'));
-    expect(source, contains('HugePdfPolicy.boundedRenderSize'));
+    expect(source, contains('LocalPdfByteSource'));
     expect(source, contains('ocrStore.getPage'));
-    expect(source, contains('createTemp(\'lexpdf-searchable-export-\')'));
+    expect(source, contains('editor.injectTextLayer'));
+    expect(source, contains('saveTail()'));
+    expect(source, contains('FileMode.append'));
+    expect(source, isNot(contains('page.render(')));
+    expect(source, isNot(contains('pw.Document')));
     expect(source, isNot(contains('ocrStore.listForDocument(documentId)')));
   });
 
