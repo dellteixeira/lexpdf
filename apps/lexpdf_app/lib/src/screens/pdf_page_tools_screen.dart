@@ -58,6 +58,7 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
       return;
     }
     try {
+      await _writer.recoverPending(path);
       final document = await PdfDocument.openFile(path);
       try {
         _pages.clear();
@@ -138,6 +139,20 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
     }
   }
 
+  Future<T> _withComposedTemp<T>(Future<T> Function(String path) action) async {
+    if (_pages.isEmpty) throw StateError('O documento não pode ficar sem páginas.');
+    final bytes = await _service.compose(_specs(_pages));
+    final file = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}lexpdf-plan-${DateTime.now().microsecondsSinceEpoch}.pdf',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    try {
+      return await action(file.path);
+    } finally {
+      if (await file.exists()) await file.delete();
+    }
+  }
+
   Future<void> _savePlan() => _run(() async {
         if (_pages.isEmpty) throw StateError('O documento não pode ficar sem páginas.');
         final bytes = await _service.compose(_specs(_pages));
@@ -183,6 +198,53 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         if (files.isEmpty) return;
         final bytes = await _service.imagesToPdf(files.map((file) => file.path).toList());
         await _saveBytes(bytes, 'lexpdf_imagens.pdf');
+      });
+
+  Future<void> _insertBlankPage() => _run(() async {
+        final selectedIndexes = <int>[
+          for (var i = 0; i < _pages.length; i++)
+            if (_pages[i].selected) i,
+        ];
+        if (selectedIndexes.length > 1) {
+          throw StateError('Para inserir uma página em branco, selecione no máximo uma página.');
+        }
+        final after = selectedIndexes.isEmpty ? _pages.length : selectedIndexes.single + 1;
+        final bytes = await _withComposedTemp(
+          (path) => _service.addBlankPage(path, afterPageNumber: after),
+        );
+        await _saveBytes(bytes, 'lexpdf_com_pagina_em_branco.pdf');
+      });
+
+  Future<void> _insertImageOnSelectedPage() => _run(() async {
+        final selectedIndexes = <int>[
+          for (var i = 0; i < _pages.length; i++)
+            if (_pages[i].selected) i,
+        ];
+        if (selectedIndexes.length != 1) {
+          throw StateError('Selecione exatamente uma página para inserir a imagem.');
+        }
+        const types = <XTypeGroup>[
+          XTypeGroup(
+            label: 'Imagem',
+            extensions: ['jpg', 'jpeg', 'png', 'webp'],
+            mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+            uniformTypeIdentifiers: ['public.jpeg', 'public.png', 'org.webmproject.webp'],
+          ),
+        ];
+        final image = await openFile(acceptedTypeGroups: types);
+        if (image == null) return;
+        final bytes = await _withComposedTemp(
+          (path) => _service.insertImageOnPage(
+            sourcePath: path,
+            imagePath: image.path,
+            pageNumber: selectedIndexes.single + 1,
+          ),
+        );
+        await _saveBytes(
+          bytes,
+          'lexpdf_com_imagem.pdf',
+          successLabel: 'PDF com imagem inserida salvo',
+        );
       });
 
   Future<void> _splitEveryPage() => _run(() async {
@@ -250,11 +312,16 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
           PopupMenuButton<String>(
             enabled: !_busy && !_loading,
             onSelected: (value) {
+              if (value == 'blank') _insertBlankPage();
+              if (value == 'insert_image') _insertImageOnSelectedPage();
               if (value == 'merge') _mergePdf();
               if (value == 'images') _imagesToPdf();
               if (value == 'split') _splitEveryPage();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'blank', child: Text('Inserir página em branco')),
+              PopupMenuItem(value: 'insert_image', child: Text('Inserir imagem na página selecionada')),
+              PopupMenuDivider(),
               PopupMenuItem(value: 'merge', child: Text('Combinar com outro PDF')),
               PopupMenuItem(value: 'images', child: Text('Criar PDF de imagens')),
               PopupMenuItem(value: 'split', child: Text('Dividir em PDFs individuais')),
