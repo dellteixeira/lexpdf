@@ -50,8 +50,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     0xFF1C1B1F,
   ];
 
-  late final Future<ReadingProgressState?> _initialProgress =
-      widget.readingProgress.get(widget.document.id);
   final PdfViewerController _viewerController = PdfViewerController();
   final TextEditingController _searchController = TextEditingController();
   late final PdfTextSearcher _textSearcher =
@@ -60,22 +58,75 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   final Map<int, List<_RenderedAnnotation>> _renderedAnnotations = {};
   final Map<int, List<PdfInkStroke>> _pdfInkByPage = {};
 
-  int? _currentPage;
+  Timer? _progressSaveTimer;
+  Timer? _deferredOverlayLoadTimer;
+  int _restoredPage = 1;
+  int? _currentPage = 1;
   int _selectedAnnotationColor = _palette.first;
   int _inkColor = 0xFF246BFD;
   double _inkWidth = 3.0;
   InkTool _inkTool = InkTool.pen;
+  bool _viewerReady = false;
   bool _searchMode = false;
   bool _loadingAnnotations = false;
   bool _inkMode = false;
   bool _inkEraserMode = false;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_restoreReadingProgress());
+  }
+
+  @override
   void dispose() {
+    _progressSaveTimer?.cancel();
+    _deferredOverlayLoadTimer?.cancel();
+    final page = _currentPage;
+    if (page != null) {
+      unawaited(
+        widget.readingProgress.save(
+          documentId: widget.document.id,
+          pageNumber: page,
+        ),
+      );
+    }
     _textSearcher.removeListener(_onSearchChanged);
     _textSearcher.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _restoreReadingProgress() async {
+    final saved = await widget.readingProgress.get(widget.document.id);
+    _restoredPage = saved?.pageNumber ?? 1;
+    if (_restoredPage < 1) _restoredPage = 1;
+    if (_viewerReady && _viewerController.isReady) {
+      await _goToRestoredPage();
+    }
+  }
+
+  Future<void> _goToRestoredPage() async {
+    if (!_viewerController.isReady || _restoredPage <= 1) return;
+    final count = _viewerController.document.pages.length;
+    if (count < 1) return;
+    final target = _restoredPage.clamp(1, count);
+    await _viewerController.goToPage(
+      pageNumber: target,
+      anchor: PdfPageAnchor.top,
+    );
+  }
+
+  void _scheduleProgressSave(int pageNumber) {
+    _progressSaveTimer?.cancel();
+    _progressSaveTimer = Timer(const Duration(milliseconds: 400), () {
+      unawaited(
+        widget.readingProgress.save(
+          documentId: widget.document.id,
+          pageNumber: pageNumber,
+        ),
+      );
+    });
   }
 
   void _onSearchChanged() {
@@ -114,133 +165,162 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               ),
         actions: _searchMode ? _buildSearchActions() : _buildReaderActions(),
       ),
-      body: FutureBuilder<ReadingProgressState?>(
-        future: _initialProgress,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final initialPage = snapshot.data?.pageNumber ?? 1;
-          _currentPage ??= initialPage;
-
-          return Stack(
-            children: [
-              ColoredBox(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: PdfViewer.file(
-                  path,
-                  controller: _viewerController,
-                  initialPageNumber: initialPage,
-                  params: PdfViewerParams(
-                    panEnabled: !_inkMode,
-                    scaleEnabled: !_inkMode,
-                    textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),
-                    customizeContextMenuItems:
-                        _inkMode ? null : _customizeContextMenuItems,
-                    pagePaintCallbacks: [
-                      _paintTextAnnotations,
-                      _textSearcher.pageTextMatchPaintCallback,
-                    ],
-                    pageOverlaysBuilder: (context, pageRect, page) => [
-                      Positioned.fill(
-                        child: PdfInkPageOverlay(
-                          key: ValueKey(
-                            'pdf-ink-${page.pageNumber}-$_inkMode-$_inkEraserMode',
-                          ),
-                          documentId: widget.document.id,
-                          pageNumber: page.pageNumber,
-                          strokes: _pdfInkByPage[page.pageNumber] ?? const [],
-                          enabled: _inkMode,
-                          tool: _inkTool,
-                          colorValue: _inkColor,
-                          strokeWidth: _effectiveInkWidth,
-                          eraserMode: _inkEraserMode,
-                          onStrokeCompleted: _onPdfStrokeCompleted,
-                          onStrokeErased: _onPdfStrokeErased,
-                          onEraseApplied: _onPdfEraseApplied,
+      body: Stack(
+        children: [
+          ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: PdfViewer.file(
+              path,
+              controller: _viewerController,
+              initialPageNumber: 1,
+              useProgressiveLoading: true,
+              params: PdfViewerParams(
+                limitRenderingCache: true,
+                maxImageBytesCachedOnMemory: 48 * 1024 * 1024,
+                horizontalCacheExtent: 0.35,
+                verticalCacheExtent: 0.35,
+                onePassRenderingSizeThreshold: 1400,
+                behaviorControlParams: const PdfViewerBehaviorControlParams(
+                  loadPageDimensionsOnDemand: true,
+                  enableLowResolutionPagePreview: true,
+                  trailingPageLoadingDelay: Duration(milliseconds: 250),
+                  pageImageCachingDelay: Duration(milliseconds: 40),
+                  partialImageLoadingDelay: Duration(milliseconds: 60),
+                ),
+                panEnabled: !_inkMode,
+                scaleEnabled: !_inkMode,
+                textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),
+                customizeContextMenuItems:
+                    _inkMode ? null : _customizeContextMenuItems,
+                loadingBannerBuilder: (context, bytesDownloaded, totalBytes) =>
+                    const Center(child: CircularProgressIndicator()),
+                errorBannerBuilder: (context, error, stackTrace, documentRef) =>
+                    Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.picture_as_pdf_outlined, size: 42),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Não foi possível renderizar este PDF.',
+                          textAlign: TextAlign.center,
                         ),
+                        const SizedBox(height: 8),
+                        SelectableText(
+                          '$error',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                pagePaintCallbacks: [
+                  _paintTextAnnotations,
+                  _textSearcher.pageTextMatchPaintCallback,
+                ],
+                pageOverlaysBuilder: (context, pageRect, page) => [
+                  Positioned.fill(
+                    child: PdfInkPageOverlay(
+                      key: ValueKey(
+                        'pdf-ink-${page.pageNumber}-$_inkMode-$_inkEraserMode',
+                      ),
+                      documentId: widget.document.id,
+                      pageNumber: page.pageNumber,
+                      strokes: _pdfInkByPage[page.pageNumber] ?? const [],
+                      enabled: _inkMode,
+                      tool: _inkTool,
+                      colorValue: _inkColor,
+                      strokeWidth: _effectiveInkWidth,
+                      eraserMode: _inkEraserMode,
+                      onStrokeCompleted: _onPdfStrokeCompleted,
+                      onStrokeErased: _onPdfStrokeErased,
+                      onEraseApplied: _onPdfEraseApplied,
+                    ),
+                  ),
+                ],
+                onViewerReady: (document, controller) {
+                  _viewerReady = true;
+                  unawaited(_goToRestoredPage());
+                  _deferredOverlayLoadTimer?.cancel();
+                  _deferredOverlayLoadTimer =
+                      Timer(const Duration(milliseconds: 180), () {
+                    if (!mounted || !_viewerController.isReady) return;
+                    unawaited(_loadSavedAnnotations(document));
+                    unawaited(_loadPdfInk());
+                  });
+                },
+                onPageChanged: (pageNumber) {
+                  if (pageNumber == null) return;
+                  if (_currentPage != pageNumber && mounted) {
+                    setState(() => _currentPage = pageNumber);
+                  }
+                  _scheduleProgressSave(pageNumber);
+                },
+              ),
+            ),
+          ),
+          if (_inkMode)
+            Positioned(
+              left: 16,
+              bottom: 16,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _inkEraserMode ? Icons.auto_fix_off : Icons.edit,
+                        color: _inkEraserMode ? null : Color(_inkColor),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _inkEraserMode
+                            ? 'Borracha parcial'
+                            : '${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}',
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: _inkEraserMode ? null : _showInkSettings,
+                        icon: const Icon(Icons.tune),
+                        label: const Text('Ajustar'),
                       ),
                     ],
-                    onViewerReady: (document, controller) {
-                      unawaited(_loadSavedAnnotations(document));
-                      unawaited(_loadPdfInk());
-                    },
-                    onPageChanged: (pageNumber) {
-                      if (pageNumber == null) return;
-                      if (_currentPage != pageNumber && mounted) {
-                        setState(() => _currentPage = pageNumber);
-                      }
-                      unawaited(
-                        widget.readingProgress.save(
-                          documentId: widget.document.id,
-                          pageNumber: pageNumber,
-                        ),
-                      );
-                    },
                   ),
                 ),
               ),
-              if (_inkMode)
-                Positioned(
-                  left: 16,
-                  bottom: 16,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
+            ),
+          if (_loadingAnnotations)
+            const Positioned(
+              right: 16,
+              bottom: 16,
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _inkEraserMode ? Icons.auto_fix_off : Icons.edit,
-                            color: _inkEraserMode ? null : Color(_inkColor),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _inkEraserMode
-                                ? 'Borracha parcial'
-                                : '${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}',
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton.icon(
-                            onPressed: _inkEraserMode ? null : _showInkSettings,
-                            icon: const Icon(Icons.tune),
-                            label: const Text('Ajustar'),
-                          ),
-                        ],
-                      ),
-                    ),
+                      SizedBox(width: 8),
+                      Text('Carregando anotações'),
+                    ],
                   ),
                 ),
-              if (_loadingAnnotations)
-                const Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: Card(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 8),
-                          Text('Carregando anotações'),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
+              ),
+            ),
+        ],
       ),
     );
   }
