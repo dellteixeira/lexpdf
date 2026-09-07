@@ -113,6 +113,26 @@ class LocalOcrStore {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  /// Returns only tiny resume metadata instead of hydrating OCR text/layout for
+  /// thousands of pages. The bool indicates whether the stored page has text.
+  Future<Map<int, bool>> processedPageState(
+    String documentId, {
+    required Set<String> acceptedEngines,
+  }) async {
+    if (acceptedEngines.isEmpty) return const <int, bool>{};
+    final placeholders = List.filled(acceptedEngines.length, '?').join(', ');
+    final rows = db.database.select('''
+      SELECT page_number, length(trim(text)) AS has_text
+      FROM ocr_page_results
+      WHERE document_id = ? AND engine IN ($placeholders)
+      ORDER BY page_number;
+    ''', [documentId, ...acceptedEngines]);
+    return {
+      for (final row in rows)
+        row['page_number'] as int: ((row['has_text'] as int?) ?? 0) > 0,
+    };
+  }
+
   Future<OcrPageResult?> getPage(String documentId, int pageNumber) async {
     final rows = db.database.select('''
       SELECT * FROM ocr_page_results

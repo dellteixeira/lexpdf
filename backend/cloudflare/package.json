@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && node scripts/verify-upload-limit.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260906.1",

@@ -14,14 +14,21 @@ class HugePdfPolicy {
   /// Keep the rendered image cache bounded even for 2,000–5,000+ page files.
   static const int viewerImageCacheBytes = 64 * 1024 * 1024;
 
-  /// OCR bitmap budget. 12 MP is about 48 MiB for one RGBA surface before
-  /// encoder/native overhead and is intentionally far below 8000 x 8000.
-  static const int ocrMaxPixels = 12 * 1024 * 1024;
-  static const int ocrMaxDimension = 4096;
+  /// OCR bitmap budget. Mobile/native bitmap OCR is capped at 8 MP, while
+  /// desktop OCR is capped at 6 MP because the platform bridge also needs an
+  /// encoded image buffer. This keeps the peak per-page working set bounded.
+  static const int ocrMaxPixels = 8 * 1024 * 1024;
+  static const int ocrDesktopMaxPixels = 6 * 1024 * 1024;
+  static const int ocrMaxDimension = 3072;
   static const double ocrPreferredScale = 2.0;
 
+  /// If a page already exposes enough embedded text, prefer it over raster OCR.
+  /// This makes born-digital 2,000–5,000 page documents dramatically faster and
+  /// avoids allocating a bitmap for pages that do not need OCR at all.
+  static const int ocrEmbeddedTextMinChars = 24;
+
   /// Work in small batches so the event loop/UI gets opportunities to run.
-  static const int ocrYieldEveryPages = 4;
+  static const int ocrYieldEveryPages = 2;
 
   static ({int width, int height}) boundedRenderSize({
     required double pageWidth,
