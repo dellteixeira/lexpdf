@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CloudOAuthCredential {
   const CloudOAuthCredential({
@@ -16,7 +17,9 @@ class CloudOAuthCredential {
   bool get isExpired {
     final expiry = expiresAt;
     if (expiry == null) return false;
-    return DateTime.now().toUtc().isAfter(expiry.subtract(const Duration(minutes: 2)));
+    return DateTime.now().toUtc().isAfter(
+          expiry.subtract(const Duration(minutes: 2)),
+        );
   }
 
   Map<String, dynamic> toJson() => {
@@ -58,7 +61,17 @@ class CloudCredentialStore {
   Future<String?> readToken({
     required String provider,
     required String accountId,
-  }) => _storage.read(key: _key(provider, accountId));
+  }) async {
+    if (provider == 'r2') {
+      try {
+        final sessionToken = Supabase.instance.client.auth.currentSession?.accessToken;
+        if (sessionToken != null && sessionToken.isNotEmpty) return sessionToken;
+      } catch (_) {
+        // Supabase can be intentionally unavailable in isolated unit tests.
+      }
+    }
+    return _storage.read(key: _key(provider, accountId));
+  }
 
   Future<void> writeOAuthCredential({
     required String provider,
