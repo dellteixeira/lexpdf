@@ -1,6 +1,7 @@
 enum PdfAnnotationObjectType {
   note,
   text,
+  image,
   line,
   arrow,
   rectangle,
@@ -103,6 +104,7 @@ class PdfAnnotationObject {
   static String typeToDb(PdfAnnotationObjectType type) => switch (type) {
         PdfAnnotationObjectType.note => 'note',
         PdfAnnotationObjectType.text => 'text',
+        PdfAnnotationObjectType.image => 'image',
         PdfAnnotationObjectType.line => 'line',
         PdfAnnotationObjectType.arrow => 'arrow',
         PdfAnnotationObjectType.rectangle => 'rectangle',
@@ -114,6 +116,7 @@ class PdfAnnotationObject {
   static PdfAnnotationObjectType typeFromDb(String value) => switch (value) {
         'note' => PdfAnnotationObjectType.note,
         'text' => PdfAnnotationObjectType.text,
+        'image' => PdfAnnotationObjectType.image,
         'line' => PdfAnnotationObjectType.line,
         'arrow' => PdfAnnotationObjectType.arrow,
         'rectangle' => PdfAnnotationObjectType.rectangle,
