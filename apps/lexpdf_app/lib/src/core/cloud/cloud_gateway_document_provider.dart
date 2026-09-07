@@ -38,8 +38,16 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
       'account': accountId,
       if (parentId != null) 'parent': parentId,
     });
-    final data = await _json('GET', uri) as List<dynamic>;
-    return data.map((value) => _fromJson((value as Map).cast<String, dynamic>())).toList(growable: false);
+    final data = await _json('GET', uri);
+    final values = switch (data) {
+      List<dynamic> legacy => legacy,
+      Map<String, dynamic> paged =>
+        (paged['items'] as List<dynamic>? ?? const <dynamic>[]),
+      _ => throw const FormatException('Resposta inválida da listagem em nuvem.'),
+    };
+    return values
+        .map((value) => _fromJson((value as Map).cast<String, dynamic>()))
+        .toList(growable: false);
   }
 
   @override
@@ -73,8 +81,14 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
       if (parentId != null) 'parent': parentId,
       'name': _basename(localPath),
     });
-    final decoded = jsonDecode(utf8.decode(await _bytesRequest('POST', uri, await file.readAsBytes()))) as Map<String, dynamic>;
-    return _fromJson(decoded).copyWith(localPath: localPath, availableOffline: true, syncState: DocumentSyncState.synced);
+    final decoded = jsonDecode(
+      utf8.decode(await _fileRequest('POST', uri, file)),
+    ) as Map<String, dynamic>;
+    return _fromJson(decoded).copyWith(
+      localPath: localPath,
+      availableOffline: true,
+      syncState: DocumentSyncState.synced,
+    );
   }
 
   @override
@@ -82,23 +96,47 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     final file = File(localPath);
     if (!await file.exists()) throw FileSystemException('File not found', localPath);
     final uri = _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}/content', {'account': accountId});
-    final decoded = jsonDecode(utf8.decode(await _bytesRequest('PUT', uri, await file.readAsBytes()))) as Map<String, dynamic>;
-    return _fromJson(decoded).copyWith(localPath: localPath, availableOffline: true, syncState: DocumentSyncState.synced);
+    final decoded = jsonDecode(
+      utf8.decode(
+        await _fileRequest(
+          'PUT',
+          uri,
+          file,
+          ifMatch: document.remoteVersion,
+        ),
+      ),
+    ) as Map<String, dynamic>;
+    return _fromJson(decoded).copyWith(
+      localPath: localPath,
+      availableOffline: true,
+      syncState: DocumentSyncState.synced,
+    );
   }
 
   @override
   Future<void> rename(DocumentRef document, String newName) async {
-    await _json('PATCH', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}), body: {'name': newName});
+    await _json(
+      'PATCH',
+      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+      body: {'name': newName},
+    );
   }
 
   @override
   Future<void> move(DocumentRef document, {String? parentId}) async {
-    await _json('PATCH', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}), body: {'parentId': parentId});
+    await _json(
+      'PATCH',
+      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+      body: {'parentId': parentId},
+    );
   }
 
   @override
   Future<void> delete(DocumentRef document) async {
-    await _json('DELETE', _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}));
+    await _json(
+      'DELETE',
+      _uri('/v1/cloud/$_providerName/files/${document.remoteId ?? document.id}', {'account': accountId}),
+    );
   }
 
   Uri _uri(String path, Map<String, String> query) => gatewayBaseUrl.replace(
@@ -108,7 +146,9 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
 
   Future<void> _authorize(HttpClientRequest request) async {
     final token = await _credentials.readToken(provider: _providerName, accountId: accountId);
-    if (token == null || token.isEmpty) throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
+    if (token == null || token.isEmpty) {
+      throw StateError('Cloud account $_providerName/$accountId is not authenticated.');
+    }
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
   }
@@ -122,7 +162,9 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     }
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
     if (bytes.isEmpty) return null;
     return jsonDecode(utf8.decode(bytes));
   }
@@ -132,18 +174,31 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
     await _authorize(request);
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
     return Uint8List.fromList(bytes);
   }
 
-  Future<Uint8List> _bytesRequest(String method, Uri uri, Uint8List body) async {
+  Future<Uint8List> _fileRequest(
+    String method,
+    Uri uri,
+    File file, {
+    String? ifMatch,
+  }) async {
     final request = await _http.openUrl(method, uri);
     await _authorize(request);
-    request.headers.contentType = ContentType.binary;
-    request.add(body);
+    request.headers.contentType = ContentType('application', 'pdf');
+    request.contentLength = await file.length();
+    if (ifMatch != null && ifMatch.isNotEmpty) {
+      request.headers.set(HttpHeaders.ifMatchHeader, ifMatch);
+    }
+    await request.addStream(file.openRead());
     final response = await request.close();
     final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
-    if (response.statusCode < 200 || response.statusCode >= 300) throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
     return Uint8List.fromList(bytes);
   }
 

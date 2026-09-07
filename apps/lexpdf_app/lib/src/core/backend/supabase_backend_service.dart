@@ -27,6 +27,16 @@ class SupabaseBackendService {
 
   Future<void> signOut() => client.auth.signOut();
 
+  Future<void> upsertProfile({String? displayName, String? avatarUrl}) async {
+    final user = _requireUser();
+    await client.from('profiles').upsert({
+      'id': user.id,
+      'display_name': displayName,
+      'avatar_url': avatarUrl,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
   Future<String> ensureRemoteDocument(DocumentRef document) async {
     final user = _requireUser();
     final mapped = await mapStore.remoteId('document', document.id);
@@ -104,6 +114,7 @@ class SupabaseBackendService {
     int? sizeBytes,
   }) async {
     final user = _requireUser();
+    final normalizedStatus = _backupStatus(status);
     await client.from('backup_history').insert({
       'user_id': user.id,
       'provider': provider,
@@ -111,8 +122,8 @@ class SupabaseBackendService {
       'location': location,
       'checksum': checksum,
       'size_bytes': sizeBytes,
-      'status': status,
-      if (status == 'validated')
+      'status': normalizedStatus,
+      if (normalizedStatus == 'valid')
         'validated_at': DateTime.now().toUtc().toIso8601String(),
     });
   }
@@ -146,6 +157,14 @@ class SupabaseBackendService {
     if (user == null) throw StateError('Supabase authentication is required.');
     return user;
   }
+
+  static String _backupStatus(String value) => switch (value.trim().toLowerCase()) {
+        'pending' => 'pending',
+        'validating' => 'validating',
+        'valid' || 'validated' => 'valid',
+        'failed' || 'error' => 'failed',
+        _ => throw ArgumentError.value(value, 'status', 'Unsupported backup status'),
+      };
 
   static String _providerName(DocumentProviderKind kind) => switch (kind) {
         DocumentProviderKind.local => 'local',
