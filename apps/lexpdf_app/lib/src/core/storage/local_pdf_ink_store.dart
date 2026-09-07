@@ -3,7 +3,12 @@ import '../ink/pdf_ink_models.dart';
 import 'local_database.dart';
 
 class LocalPdfInkStore {
-  const LocalPdfInkStore(this.db);
+  LocalPdfInkStore(this.db) {
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS pdf_ink_document_page_range_idx
+      ON pdf_ink_strokes(document_id, page_number, created_at);
+    ''');
+  }
 
   final LocalDatabase db;
 
