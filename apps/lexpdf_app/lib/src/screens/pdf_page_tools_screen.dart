@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
+import '../core/pdf/large_pdf_manipulation_service.dart';
 import '../core/pdf/pdf_page_manipulation_service.dart';
 import '../core/pdf/safe_pdf_writer.dart';
 
@@ -34,6 +35,7 @@ class _PlannedPage {
 
 class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   static const _service = PdfPageManipulationService();
+  static const _largeService = LargePdfManipulationService();
   static const _writer = SafePdfWriter();
   final List<_PlannedPage> _pages = [];
   bool _loading = true;
@@ -41,6 +43,16 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   Object? _error;
 
   String? get _sourcePath => widget.document.localPath;
+
+  bool get _planIsIdentity {
+    for (var index = 0; index < _pages.length; index++) {
+      final page = _pages[index];
+      if (page.sourcePageNumber != index + 1 || page.clockwiseQuarterTurns % 4 != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   @override
   void initState() {
@@ -226,32 +238,41 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         const types = <XTypeGroup>[
           XTypeGroup(
             label: 'Imagem',
-            extensions: ['jpg', 'jpeg', 'png', 'webp'],
-            mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-            uniformTypeIdentifiers: ['public.jpeg', 'public.png', 'org.webmproject.webp'],
+            extensions: ['jpg', 'jpeg', 'png'],
+            mimeTypes: ['image/jpeg', 'image/png'],
+            uniformTypeIdentifiers: ['public.jpeg', 'public.png'],
           ),
         ];
         final image = await openFile(acceptedTypeGroups: types);
         if (image == null) return;
-        final bytes = await _withComposedTemp(
-          (path) => _service.insertImageOnPage(
-            sourcePath: path,
+        final destination = await _chooseOutputPath('lexpdf_com_imagem.pdf');
+        if (destination == null) return;
+        final source = _sourcePath;
+        if (source == null) return;
+
+        Future<void> stamp(String effectiveSource) async {
+          await _largeService.insertImageOnPageToFile(
+            sourcePath: effectiveSource,
             imagePath: image.path,
             pageNumber: selectedIndexes.single + 1,
-          ),
-        );
-        await _saveBytes(
-          bytes,
-          'lexpdf_com_imagem.pdf',
-          successLabel: 'PDF com imagem inserida salvo',
+            outputPath: destination,
+          );
+        }
+
+        if (_planIsIdentity) {
+          await stamp(source);
+        } else {
+          await _withComposedTemp(stamp);
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF com imagem inserida salvo: $destination')),
         );
       });
 
   Future<void> _splitEveryPage() => _run(() async {
         final source = _sourcePath;
         if (source == null) return;
-        final outputs = await _service.splitEveryPage(source);
-        if (outputs.isEmpty) return;
         String? directory;
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isAndroid) {
           directory = await getDirectoryPath(canCreateDirectories: true);
@@ -260,19 +281,15 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
           final app = await getApplicationDocumentsDirectory();
           directory = '${app.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}split';
         }
-        await Directory(directory).create(recursive: true);
-        for (var index = 0; index < outputs.length; index++) {
-          await _writer.saveAs(
-            bytes: outputs[index],
-            destinationPath: '$directory${Platform.pathSeparator}pagina_${index + 1}.pdf',
-            replaceExisting: true,
-          );
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${outputs.length} PDFs salvos em: $directory')),
-          );
-        }
+        final target = Directory(directory);
+        final count = await _service.splitEveryPageToDirectory(
+          source,
+          outputDirectory: target,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$count PDFs salvos em: $directory')),
+        );
       });
 
   void _move(int index, int delta) {
