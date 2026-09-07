@@ -1,10 +1,13 @@
 import 'dart:math' as math;
 
 import 'ai_engine.dart';
+import 'ai_input_policy.dart';
 import 'ai_models.dart';
 
 class LocalStudyEngine implements AiStudyEngine {
-  const LocalStudyEngine();
+  const LocalStudyEngine({this.inputPolicy = const AiInputPolicy()});
+
+  final AiInputPolicy inputPolicy;
 
   static const _stopwords = <String>{
     'a','o','as','os','um','uma','uns','umas','de','da','do','das','dos','e','ou','em','no','na','nos','nas','por','para','com','sem','que','se','ao','aos','à','às','é','são','foi','ser','como','mais','menos','muito','muita','muitos','muitas','este','esta','esse','essa','isso','isto','aquele','aquela','também','já','não','sim','entre','sobre','sob','quando','onde','qual','quais','quem','seu','sua','seus','suas','pela','pelo','pelas','pelos','num','numa','nuns','numas','the','and','of','to','in','is','are','for','with','that','this','on','by','or','an','be','from'
@@ -19,16 +22,15 @@ class LocalStudyEngine implements AiStudyEngine {
     required String text,
     int itemCount = 8,
   }) async {
-    final source = _normalize(text);
-    if (source.isEmpty) {
-      throw ArgumentError('O texto de origem está vazio.');
-    }
+    final input = inputPolicy.prepare(text, itemCount);
+    final source = input.text;
+    final count = input.itemCount;
     return switch (action) {
       AiStudyAction.summarize => AiStudyResult(
           action: action,
           engine: kind,
           sourceText: source,
-          text: _summarize(source, maxSentences: math.max(2, math.min(8, itemCount))),
+          text: _summarize(source, maxSentences: math.max(2, math.min(8, count))),
         ),
       AiStudyAction.explain => AiStudyResult(
           action: action,
@@ -40,13 +42,13 @@ class LocalStudyEngine implements AiStudyEngine {
           action: action,
           engine: kind,
           sourceText: source,
-          flashcards: _flashcards(source, itemCount),
+          flashcards: _flashcards(source, count),
         ),
       AiStudyAction.questions => AiStudyResult(
           action: action,
           engine: kind,
           sourceText: source,
-          questions: _questions(source, itemCount),
+          questions: _questions(source, count),
         ),
     };
   }
@@ -59,10 +61,7 @@ class LocalStudyEngine implements AiStudyEngine {
     for (var index = 0; index < sentences.length; index++) {
       final words = _words(sentences[index]);
       if (words.isEmpty) continue;
-      final score = words.fold<double>(
-            0,
-            (sum, word) => sum + (frequencies[word] ?? 0),
-          ) /
+      final score = words.fold<double>(0, (sum, word) => sum + (frequencies[word] ?? 0)) /
           math.sqrt(words.length);
       scored.add((index: index, sentence: sentences[index], score: score));
     }
@@ -90,9 +89,7 @@ class LocalStudyEngine implements AiStudyEngine {
   }
 
   List<AiFlashcard> _flashcards(String text, int count) {
-    final sentences = _sentences(text)
-        .where((sentence) => sentence.length >= 35)
-        .toList(growable: false);
+    final sentences = _sentences(text).where((sentence) => sentence.length >= 35).toList(growable: false);
     final cards = <AiFlashcard>[];
     final seen = <String>{};
     for (final sentence in sentences) {
@@ -100,24 +97,16 @@ class LocalStudyEngine implements AiStudyEngine {
       final terms = _topTerms(sentence, 2);
       if (terms.isEmpty) continue;
       final term = terms.first;
-      final key = term.toLowerCase();
-      if (!seen.add(key)) continue;
-      cards.add(
-        AiFlashcard(
-          question: 'O que o trecho afirma sobre “$term”?',
-          answer: sentence,
-        ),
-      );
+      if (!seen.add(term.toLowerCase())) continue;
+      cards.add(AiFlashcard(question: 'O que o trecho afirma sobre “$term”?', answer: sentence));
     }
     if (cards.isEmpty) {
-      cards.add(
-        AiFlashcard(
-          question: 'Qual é a ideia principal do trecho?',
-          answer: _summarize(text, maxSentences: 2),
-        ),
-      );
+      cards.add(AiFlashcard(
+        question: 'Qual é a ideia principal do trecho?',
+        answer: _summarize(text, maxSentences: 2),
+      ));
     }
-    return cards;
+    return cards.take(count).toList(growable: false);
   }
 
   List<String> _questions(String text, int count) {
@@ -130,7 +119,7 @@ class LocalStudyEngine implements AiStudyEngine {
     if (questions.isEmpty) {
       questions.add('Qual é a tese central do trecho e quais elementos a sustentam?');
     }
-    return questions;
+    return questions.take(count).toList(growable: false);
   }
 
   Map<String, int> _wordFrequencies(String text) {
@@ -161,6 +150,4 @@ class LocalStudyEngine implements AiStudyEngine {
       .allMatches(text.toLowerCase())
       .map((match) => match.group(0)!)
       .toList(growable: false);
-
-  String _normalize(String value) => value.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
