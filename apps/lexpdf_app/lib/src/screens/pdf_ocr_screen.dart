@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
+import '../core/ocr/searchable_pdf_exporter.dart';
+import '../core/pdf/safe_pdf_writer.dart';
 import '../core/storage/local_ocr_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 
@@ -28,6 +33,7 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
   PdfOcrProgress? _progress;
   PdfOcrSummary? _summary;
   bool _processing = false;
+  bool _exporting = false;
   Object? _error;
 
   @override
@@ -73,6 +79,55 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
     }
   }
 
+  Future<String?> _chooseExportPath() async {
+    final baseName = widget.document.name.toLowerCase().endsWith('.pdf')
+        ? widget.document.name.substring(0, widget.document.name.length - 4)
+        : widget.document.name;
+    final suggested = '${baseName}_pesquisavel.pdf';
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final location = await getSaveLocation(suggestedName: suggested);
+      return location?.path;
+    }
+    final app = await getApplicationDocumentsDirectory();
+    final directory = Directory(
+      '${app.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}exports',
+    );
+    await directory.create(recursive: true);
+    return '${directory.path}${Platform.pathSeparator}$suggested';
+  }
+
+  Future<void> _exportSearchable() async {
+    final sourcePath = widget.document.localPath;
+    if (sourcePath == null || sourcePath.isEmpty || _results.isEmpty || _exporting) {
+      return;
+    }
+    setState(() {
+      _exporting = true;
+      _error = null;
+    });
+    try {
+      final destination = await _chooseExportPath();
+      if (destination == null) return;
+      final bytes = await SearchablePdfExporter(ocrStore: _store).export(
+        documentId: widget.document.id,
+        sourcePath: sourcePath,
+      );
+      await const SafePdfWriter().saveAs(
+        bytes: bytes,
+        destinationPath: destination,
+        replaceExisting: Platform.isAndroid || Platform.isIOS,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF pesquisável salvo em: $destination')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final progress = _progress;
@@ -92,19 +147,37 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             const SizedBox(height: 8),
             Text(
               _service.nativeOcrSupported
-                  ? 'OCR local por ML Kit. O processamento acontece no aparelho e o texto reconhecido entra na busca offline.'
-                  : 'Nesta plataforma o OCR nativo ainda não está disponível. O LexPDF indexará o texto já incorporado ao PDF; PDFs somente-imagem exigem o engine móvel local.',
+                  ? 'OCR local por ML Kit. O processamento acontece no aparelho, preserva a geometria das linhas e entra na busca FTS5 offline.'
+                  : 'Nesta plataforma o LexPDF indexa o texto já incorporado ao PDF. PDFs somente-imagem exigem o engine OCR móvel local; a extração de texto desktop não é apresentada como OCR.',
             ),
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _processing || !widget.document.availableOffline ? null : _run,
-              icon: _processing
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.document_scanner_outlined),
-              label: const Text('Processar documento'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _processing || !widget.document.availableOffline ? null : _run,
+                  icon: _processing
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.document_scanner_outlined),
+                  label: const Text('Processar documento'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _exporting || _processing || _results.isEmpty
+                      ? null
+                      : _exportSearchable,
+                  icon: _exporting
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.find_in_page_outlined),
+                  label: const Text('Exportar PDF pesquisável'),
+                ),
+              ],
             ),
             if (progress != null) ...[
               const SizedBox(height: 12),
@@ -125,7 +198,7 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(
-                'Falha no OCR: $_error',
+                'Operação não concluída: $_error',
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
@@ -147,7 +220,11 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          subtitle: Text(result.engine),
+                          subtitle: Text(
+                            result.lines.isEmpty
+                                ? result.engine
+                                : '${result.engine} • ${result.lines.length} linhas posicionadas',
+                          ),
                         );
                       },
                     ),
