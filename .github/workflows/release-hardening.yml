@@ -22,7 +22,8 @@ jobs:
           test -d apps/lexpdf_app/windows
           test -d apps/lexpdf_app/macos
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
-          if grep -R "lexxpdf_app" -n apps/lexpdf_app .github/workflows; then
+          legacy='lex''xpdf_app'
+          if grep -R "$legacy" -n apps/lexpdf_app .github/workflows; then
             echo 'Legacy package identity found.' >&2
             exit 1
           fi
