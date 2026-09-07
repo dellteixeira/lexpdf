@@ -45,3 +45,22 @@ jobs:
             echo 'Potential credential material found in migration.' >&2
             exit 1
           fi
+
+      - name: Verify sync parent ownership guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='backend/supabase/migrations/20260907230000_harden_sync_parent_ownership.sql'
+          test -s "$file"
+          grep -q 'sync_queue_single_parent_check' "$file"
+          grep -q 'sync_conflicts_single_parent_check' "$file"
+          grep -q 'sync_queue_parent_owner_guard' "$file"
+          grep -q 'sync_conflicts_parent_owner_guard' "$file"
+          test "$(grep -c 'as restrictive' "$file")" -ge 2
+          test "$(grep -c 'num_nonnulls(document_id, notebook_id) = 1' "$file")" -ge 2
+          test "$(grep -c 'd.user_id = (select auth.uid())' "$file")" -ge 4
+          test "$(grep -c 'n.user_id = (select auth.uid())' "$file")" -ge 4
+          if grep -Eqi '(sb_secret_|postgres://)[[:space:]]*=' "$file"; then
+            echo 'Potential credential material found in migration.' >&2
+            exit 1
+          fi
