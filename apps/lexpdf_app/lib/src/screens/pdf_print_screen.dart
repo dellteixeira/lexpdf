@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import '../core/documents/document_provider.dart';
 import '../core/pdf/lexpdf_export_service.dart';
 import '../core/pdf/pdf_page_manipulation_service.dart';
+import '../core/pdf/pdf_print_range_parser.dart';
 import '../core/storage/local_pdf_annotation_object_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
@@ -29,6 +30,7 @@ class PdfPrintScreen extends StatefulWidget {
 }
 
 class _PdfPrintScreenState extends State<PdfPrintScreen> {
+  static const _rangeParser = PdfPrintRangeParser();
   final TextEditingController _rangeController = TextEditingController();
   bool _includeAnnotations = true;
   bool _busy = false;
@@ -57,41 +59,13 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
     }
   }
 
-  List<int> _parseRange(String value, int maxPage) {
-    final text = value.trim();
-    if (text.isEmpty) return List<int>.generate(maxPage, (index) => index + 1);
-    final pages = <int>{};
-    for (final part in text.split(',')) {
-      final token = part.trim();
-      if (token.isEmpty) continue;
-      if (token.contains('-')) {
-        final bits = token.split('-');
-        if (bits.length != 2) throw const FormatException('Faixa inválida.');
-        final start = int.tryParse(bits[0].trim());
-        final end = int.tryParse(bits[1].trim());
-        if (start == null || end == null || start < 1 || end < start || end > maxPage) {
-          throw const FormatException('Faixa de páginas inválida.');
-        }
-        for (var page = start; page <= end; page++) pages.add(page);
-      } else {
-        final page = int.tryParse(token);
-        if (page == null || page < 1 || page > maxPage) {
-          throw const FormatException('Número de página inválido.');
-        }
-        pages.add(page);
-      }
-    }
-    if (pages.isEmpty) throw const FormatException('Nenhuma página selecionada.');
-    return pages.toList()..sort();
-  }
-
   Future<Uint8List> _buildPrintableBytes() async {
     final sourcePath = widget.document.localPath;
     final pageCount = _pageCount;
     if (sourcePath == null || pageCount == null) {
       throw StateError('PDF indisponível para impressão.');
     }
-    final pages = _parseRange(_rangeController.text, pageCount);
+    final pages = _rangeParser.parse(_rangeController.text, pageCount);
     String workingPath = sourcePath;
     File? temp;
     if (_includeAnnotations) {
@@ -106,7 +80,9 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
         sourcePath: sourcePath,
       );
       final directory = await getTemporaryDirectory();
-      temp = File('${directory.path}${Platform.pathSeparator}lexpdf-print-${DateTime.now().microsecondsSinceEpoch}.pdf');
+      temp = File(
+        '${directory.path}${Platform.pathSeparator}lexpdf-print-${DateTime.now().microsecondsSinceEpoch}.pdf',
+      );
       await temp.writeAsBytes(flattened, flush: true);
       workingPath = temp.path;
     }
@@ -115,7 +91,7 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
       if (pages.length == pageCount && pages.first == 1 && pages.last == pageCount) {
         return await File(workingPath).readAsBytes();
       }
-      final service = const PdfPageManipulationService();
+      const service = PdfPageManipulationService();
       return await service.compose(
         pages
             .map((page) => PdfPageSpec(sourcePath: workingPath, pageNumber: page))
@@ -160,7 +136,9 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Incluir anotações LexPDF'),
-            subtitle: const Text('Imprime uma versão achatada com ink, marcações, objetos e assinaturas.'),
+            subtitle: const Text(
+              'Imprime uma versão achatada com ink, marcações, objetos e assinaturas.',
+            ),
             value: _includeAnnotations,
             onChanged: _busy ? null : (value) => setState(() => _includeAnnotations = value),
           ),
@@ -173,6 +151,11 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
               labelText: 'Páginas',
               hintText: 'Ex.: 1-3, 7, 10-12 — vazio imprime todas',
             ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'A impressão usa o fluxo nativo do sistema: Android Print Framework, Windows e macOS/AirPrint quando disponível.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
