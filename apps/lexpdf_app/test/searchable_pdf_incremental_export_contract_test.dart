@@ -11,6 +11,7 @@ void main() {
       'lib/src/core/ocr/local_pdf_byte_source.dart',
     ).readAsString();
 
+    // Huge searchable exports must never rebuild/rasterize the source PDF.
     expect(exporter, contains('exportToFile'));
     expect(exporter, contains('PdfDocument.openSource'));
     expect(exporter, contains('injectTextLayer'));
