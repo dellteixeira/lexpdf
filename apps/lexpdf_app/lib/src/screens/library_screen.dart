@@ -17,6 +17,7 @@ import 'notebook_screen.dart';
 import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_navigation_screen.dart';
 import 'pdf_ocr_screen.dart';
+import 'pdf_page_tools_screen.dart';
 import 'pdf_reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -231,6 +232,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           onTap: _openingDocument ? null : _openAdvancedAnnotations,
         ),
         _QuickAction(
+          icon: Icons.edit_document,
+          title: 'Editar páginas',
+          subtitle: 'Adicionar, excluir, reordenar, girar, extrair, combinar e dividir',
+          onTap: _openingDocument ? null : _openPageToolsPicker,
+        ),
+        _QuickAction(
           icon: Icons.document_scanner_outlined,
           title: 'OCR offline',
           subtitle: 'Reconhecer e indexar texto de PDFs digitalizados',
@@ -319,6 +326,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           : null,
                     ),
                     IconButton(
+                      tooltip: 'Editar páginas',
+                      icon: const Icon(Icons.edit_document),
+                      onPressed: document.availableOffline
+                          ? () => _openPageToolsDocument(document)
+                          : null,
+                    ),
+                    IconButton(
                       tooltip: 'OCR offline',
                       icon: const Icon(Icons.document_scanner_outlined),
                       onPressed: document.availableOffline
@@ -402,6 +416,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _openPageToolsPicker() async {
+    if (_openingDocument) return;
+    setState(() => _openingDocument = true);
+    try {
+      final stored = await _pickAndStorePdf();
+      if (stored != null) await _openPageToolsDocument(stored);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível abrir o editor de páginas: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingDocument = false);
+    }
+  }
+
   Future<void> _openOcrPicker() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
@@ -457,6 +487,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
           document: document,
           annotations: widget.annotations,
         ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openPageToolsDocument(DocumentRef document) async {
+    await widget.catalog.markOpened(document.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfPageToolsScreen(document: document),
       ),
     );
     if (mounted) setState(() {});

@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:pdf/pdf.dart' as gen;
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
 class PdfPageSpec {
@@ -82,6 +84,46 @@ class PdfPageManipulationService {
     }
   }
 
+  Future<Uint8List> addBlankPage(
+    String sourcePath, {
+    int? afterPageNumber,
+    double? width,
+    double? height,
+  }) async {
+    final pageWidth = width ?? gen.PdfPageFormat.a4.width;
+    final pageHeight = height ?? gen.PdfPageFormat.a4.height;
+    final source = await PdfDocument.openFile(sourcePath);
+    final blankFile = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}lexpdf-blank-${DateTime.now().microsecondsSinceEpoch}.pdf',
+    );
+    final blankDocument = pw.Document();
+    blankDocument.addPage(
+      pw.Page(
+        pageFormat: gen.PdfPageFormat(pageWidth, pageHeight, marginAll: 0),
+        build: (_) => pw.Container(color: gen.PdfColors.white),
+      ),
+    );
+    await blankFile.writeAsBytes(await blankDocument.save(), flush: true);
+    final blank = await PdfDocument.openFile(blankFile.path);
+    final output = await PdfDocument.createNew(sourceName: 'lexpdf-with-blank-page.pdf');
+    try {
+      final insertAfter = (afterPageNumber ?? source.pages.length)
+          .clamp(0, source.pages.length)
+          .toInt();
+      output.pages = [
+        ...source.pages.take(insertAfter),
+        blank.pages.first,
+        ...source.pages.skip(insertAfter),
+      ];
+      return await output.encodePdf();
+    } finally {
+      await output.dispose();
+      await blank.dispose();
+      await source.dispose();
+      if (await blankFile.exists()) await blankFile.delete();
+    }
+  }
+
   Future<List<Uint8List>> splitEveryPage(String sourcePath) async {
     final source = await PdfDocument.openFile(sourcePath);
     try {
@@ -143,6 +185,80 @@ class PdfPageManipulationService {
       for (final document in imageDocuments) {
         await document.dispose();
       }
+    }
+  }
+
+  Future<Uint8List> insertImageOnPage({
+    required String sourcePath,
+    required String imagePath,
+    required int pageNumber,
+    double leftFraction = 0.10,
+    double topFraction = 0.10,
+    double widthFraction = 0.35,
+    double renderScale = 1.5,
+  }) async {
+    if (leftFraction < 0 || leftFraction > 1 ||
+        topFraction < 0 || topFraction > 1 ||
+        widthFraction <= 0 || widthFraction > 1) {
+      throw ArgumentError('Image placement must use normalized page fractions.');
+    }
+    final source = await PdfDocument.openFile(sourcePath);
+    final imageBytes = await File(imagePath).readAsBytes();
+    final decoded = img.decodeImage(imageBytes);
+    if (decoded == null) throw FormatException('Unsupported image: $imagePath');
+    if (pageNumber < 1 || pageNumber > source.pages.length) {
+      await source.dispose();
+      throw RangeError.range(pageNumber, 1, source.pages.length, 'pageNumber');
+    }
+
+    final overlayBytes = Uint8List.fromList(img.encodePng(decoded));
+    final overlay = pw.MemoryImage(overlayBytes);
+    final output = pw.Document();
+    try {
+      for (final page in source.pages) {
+        final render = await page.render(
+          width: (page.width * renderScale).round().clamp(1, 10000),
+          height: (page.height * renderScale).round().clamp(1, 10000),
+          backgroundColor: 0xFFFFFFFF,
+          annotationRenderingMode: PdfAnnotationRenderingMode.annotationAndForms,
+        );
+        if (render == null) {
+          throw StateError('Could not render page ${page.pageNumber}.');
+        }
+        late final Uint8List pagePng;
+        try {
+          pagePng = Uint8List.fromList(img.encodePng(render.createImageNF()));
+        } finally {
+          render.dispose();
+        }
+        final base = pw.MemoryImage(pagePng);
+        final targetWidth = page.width * widthFraction;
+        final targetHeight = targetWidth * decoded.height / decoded.width;
+        output.addPage(
+          pw.Page(
+            pageFormat: gen.PdfPageFormat(page.width, page.height, marginAll: 0),
+            build: (_) => pw.Stack(
+              children: [
+                pw.Image(base, width: page.width, height: page.height, fit: pw.BoxFit.fill),
+                if (page.pageNumber == pageNumber)
+                  pw.Positioned(
+                    left: page.width * leftFraction,
+                    top: page.height * topFraction,
+                    child: pw.Image(
+                      overlay,
+                      width: targetWidth,
+                      height: targetHeight,
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      }
+      return await output.save();
+    } finally {
+      await source.dispose();
     }
   }
 }
