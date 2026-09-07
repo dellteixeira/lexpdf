@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/backup/lex_backup_service.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_ink_store.dart';
-import 'package:lexxpdf_app/src/core/storage/local_notebook_layer_store.dart';
+import 'package:lexpdf_app/src/core/backup/lex_backup_service.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_ink_store.dart';
+import 'package:lexpdf_app/src/core/storage/local_notebook_layer_store.dart';
 
 void main() {
   test('creates and validates portable LexPDF backup data', () async {

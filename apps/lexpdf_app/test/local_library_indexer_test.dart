@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/documents/local_document_provider.dart';
-import 'package:lexxpdf_app/src/core/documents/local_library_indexer.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
+import 'package:lexpdf_app/src/core/documents/local_document_provider.dart';
+import 'package:lexpdf_app/src/core/documents/local_library_indexer.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_document_catalog.dart';
 
 void main() {
   test('indexes only PDFs from a local directory into SQLite', () async {

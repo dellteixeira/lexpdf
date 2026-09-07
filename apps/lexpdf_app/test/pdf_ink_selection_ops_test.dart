@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/core/ink/pdf_ink_models.dart';
-import 'package:lexxpdf_app/src/core/ink/pdf_ink_selection_ops.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/core/ink/pdf_ink_models.dart';
+import 'package:lexpdf_app/src/core/ink/pdf_ink_selection_ops.dart';
 
 void main() {
   const ops = PdfInkSelectionOps();

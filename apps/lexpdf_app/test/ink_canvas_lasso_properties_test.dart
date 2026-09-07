@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/widgets/ink_canvas.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/widgets/ink_canvas.dart';
 
 void main() {
   testWidgets('cor e espessura alteram apenas strokes selecionados', (tester) async {

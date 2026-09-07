@@ -2,9 +2,9 @@ import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/core/ink/pdf_ink_models.dart';
-import 'package:lexxpdf_app/src/widgets/pdf_ink_page_overlay.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/core/ink/pdf_ink_models.dart';
+import 'package:lexpdf_app/src/widgets/pdf_ink_page_overlay.dart';
 
 void main() {
   testWidgets(

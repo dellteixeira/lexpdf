@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/annotations/saved_signature.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_signature_store.dart';
+import 'package:lexpdf_app/src/core/annotations/saved_signature.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_signature_store.dart';
 
 void main() {
   test('persists reusable vector signatures offline', () async {

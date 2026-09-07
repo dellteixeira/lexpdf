@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
-import 'package:lexxpdf_app/src/core/storage/local_sync_store.dart';
-import 'package:lexxpdf_app/src/core/sync/cloud_sync_coordinator.dart';
-import 'package:lexxpdf_app/src/core/sync/sync_engine.dart';
+import 'package:lexpdf_app/src/core/documents/document_provider.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_document_catalog.dart';
+import 'package:lexpdf_app/src/core/storage/local_sync_store.dart';
+import 'package:lexpdf_app/src/core/sync/cloud_sync_coordinator.dart';
+import 'package:lexpdf_app/src/core/sync/sync_engine.dart';
 
 void main() {
   late Directory temp;

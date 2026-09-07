@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/notebook/notebook_object_models.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_ink_store.dart';
-import 'package:lexxpdf_app/src/core/storage/local_notebook_object_store.dart';
+import 'package:lexpdf_app/src/core/notebook/notebook_object_models.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_ink_store.dart';
+import 'package:lexpdf_app/src/core/storage/local_notebook_object_store.dart';
 
 void main() {
   test('current schema persists notebook objects offline', () async {

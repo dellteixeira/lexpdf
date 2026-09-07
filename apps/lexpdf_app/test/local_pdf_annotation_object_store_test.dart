@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/annotations/pdf_annotation_object.dart';
-import 'package:lexxpdf_app/src/core/documents/document_provider.dart';
-import 'package:lexxpdf_app/src/core/storage/local_database.dart';
-import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
-import 'package:lexxpdf_app/src/core/storage/local_pdf_annotation_object_store.dart';
+import 'package:lexpdf_app/src/core/annotations/pdf_annotation_object.dart';
+import 'package:lexpdf_app/src/core/documents/document_provider.dart';
+import 'package:lexpdf_app/src/core/storage/local_database.dart';
+import 'package:lexpdf_app/src/core/storage/local_document_catalog.dart';
+import 'package:lexpdf_app/src/core/storage/local_pdf_annotation_object_store.dart';
 
 void main() {
   Future<(LocalDatabase, LocalPdfAnnotationObjectStore)> setup() async {

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lexxpdf_app/src/core/ink/ink_models.dart';
-import 'package:lexxpdf_app/src/core/ink/pdf_ink_eraser.dart';
-import 'package:lexxpdf_app/src/core/ink/pdf_ink_models.dart';
+import 'package:lexpdf_app/src/core/ink/ink_models.dart';
+import 'package:lexpdf_app/src/core/ink/pdf_ink_eraser.dart';
+import 'package:lexpdf_app/src/core/ink/pdf_ink_models.dart';
 
 void main() {
   PdfInkStroke strokeWith(List<InkPoint> points) => PdfInkStroke(
