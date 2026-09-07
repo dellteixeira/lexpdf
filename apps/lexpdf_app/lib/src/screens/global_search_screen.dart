@@ -27,12 +27,14 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   List<LocalSearchHit> _hits = const [];
   bool _searching = false;
   bool _indexing = false;
+  bool _cancelIndexing = false;
   String _indexStatus = '';
 
   LocalGlobalSearchFts get _fts => LocalGlobalSearchFts(widget.store.db);
 
   @override
   void dispose() {
+    _cancelIndexing = true;
     _query.dispose();
     super.dispose();
   }
@@ -43,16 +45,18 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
       appBar: AppBar(
         title: const Text('Busca local'),
         actions: [
-          IconButton(
-            tooltip: 'Indexar PDFs locais',
-            onPressed: _indexing ? null : _indexAllLocalPdfs,
-            icon: _indexing
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.manage_search_outlined),
-          ),
+          if (_indexing)
+            IconButton(
+              tooltip: 'Cancelar indexação',
+              onPressed: () => setState(() => _cancelIndexing = true),
+              icon: const Icon(Icons.stop_circle_outlined),
+            )
+          else
+            IconButton(
+              tooltip: 'Indexar PDFs locais',
+              onPressed: _indexAllLocalPdfs,
+              icon: const Icon(Icons.manage_search_outlined),
+            ),
         ],
       ),
       body: Padding(
@@ -161,14 +165,20 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     if (_indexing) return;
     setState(() {
       _indexing = true;
+      _cancelIndexing = false;
       _indexStatus = 'Preparando indexação local…';
     });
     var indexed = 0;
     var failed = 0;
+    var cancelled = false;
     try {
       await pdfrxFlutterInitialize();
       final documents = await widget.catalog.list(limit: 1000);
       for (var i = 0; i < documents.length; i++) {
+        if (_cancelIndexing) {
+          cancelled = true;
+          break;
+        }
         final item = documents[i];
         final path = item.localPath;
         if (path == null || path.isEmpty || !item.availableOffline) continue;
@@ -180,16 +190,41 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
         PdfDocument? pdf;
         try {
           pdf = await PdfDocument.openFile(path);
-          final pages = <int, String>{};
+          widget.store.db.database.execute(
+            'DELETE FROM pdf_page_text_index WHERE document_id = ?;',
+            [item.id],
+          );
           for (var pageNumber = 1; pageNumber <= pdf.pages.length; pageNumber++) {
+            if (_cancelIndexing) {
+              cancelled = true;
+              break;
+            }
             final page = pdf.pages[pageNumber - 1];
             final text = await page.loadStructuredText();
-            pages[pageNumber] = text.fullText;
+            widget.store.db.database.execute('''
+              INSERT INTO pdf_page_text_index(
+                document_id, page_number, content, indexed_at
+              ) VALUES (?, ?, ?, ?)
+              ON CONFLICT(document_id, page_number) DO UPDATE SET
+                content = excluded.content,
+                indexed_at = excluded.indexed_at;
+            ''', [
+              item.id,
+              pageNumber,
+              text.fullText,
+              DateTime.now().toUtc().toIso8601String(),
+            ]);
+            if (mounted && (pageNumber == 1 || pageNumber % 25 == 0)) {
+              setState(() {
+                _indexStatus =
+                    'Indexando ${i + 1}/${documents.length}: ${item.name} · página $pageNumber/${pdf!.pages.length}';
+              });
+            }
+            if (pageNumber % 8 == 0) {
+              await Future<void>.delayed(Duration.zero);
+            }
           }
-          await widget.store.replacePageTextIndex(
-            documentId: item.id,
-            pages: pages,
-          );
+          if (cancelled) break;
           indexed++;
         } catch (_) {
           failed++;
@@ -202,10 +237,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
       if (mounted) {
         setState(() {
           _indexing = false;
-          _indexStatus = 'Indexação FTS5 concluída: $indexed PDF(s); $failed falha(s).';
+          _indexStatus = cancelled
+              ? 'Indexação interrompida. O conteúdo já processado foi preservado.'
+              : 'Indexação FTS5 concluída: $indexed PDF(s); $failed falha(s).';
         });
       }
     }
-    if (_query.text.trim().isNotEmpty) await _search();
+    if (!cancelled && _query.text.trim().isNotEmpty) await _search();
   }
 }
