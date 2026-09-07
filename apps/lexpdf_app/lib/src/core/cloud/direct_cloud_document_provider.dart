@@ -129,7 +129,7 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<DocumentRef?> getById(String id) async {
     try {
-      final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+      final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}').replace(
         queryParameters: {'fields': 'id,name,parents,modifiedTime,md5Checksum,size'},
       );
       final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
@@ -145,7 +145,7 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     final existing = document.localPath;
     if (existing != null && await File(existing).exists()) return existing;
     final id = document.remoteId ?? document.id;
-    final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+    final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}').replace(
       queryParameters: {'alt': 'media'},
     );
     return cacheBytes(document, await bytesRequest('GET', uri));
@@ -157,7 +157,7 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     if (!await file.exists()) throw FileSystemException('File not found', localPath);
     final boundary = 'lexpdf-${DateTime.now().microsecondsSinceEpoch}';
     final metadata = jsonEncode({
-      'name': basename(localPath),
+      'name': DirectCloudDocumentProvider.basename(localPath),
       'mimeType': 'application/pdf',
       if (parentId != null) 'parents': [parentId],
     });
@@ -185,7 +185,7 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     await jsonRequest(
       'PATCH',
-      Uri.parse('$_base/files/${safePathSegment(id)}'),
+      Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}'),
       body: {'name': newName},
     );
   }
@@ -196,7 +196,7 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     final current = await getById(id);
     final oldParent = current?.remotePath;
-    final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+    final uri = Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}').replace(
       queryParameters: {
         'addParents': parentId,
         if (oldParent != null && oldParent.isNotEmpty) 'removeParents': oldParent,
@@ -208,7 +208,10 @@ class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<void> delete(DocumentRef document) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('DELETE', Uri.parse('$_base/files/${safePathSegment(id)}'));
+    await jsonRequest(
+      'DELETE',
+      Uri.parse('$_base/files/${DirectCloudDocumentProvider.safePathSegment(id)}'),
+    );
   }
 
   DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) {
@@ -246,7 +249,7 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
   Future<List<DocumentRef>> list({String? parentId}) async {
     var uri = parentId == null
         ? Uri.parse('$_base/root/children')
-        : Uri.parse('$_base/items/${safePathSegment(parentId)}/children');
+        : Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}/children');
     final results = <DocumentRef>[];
     while (true) {
       final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
@@ -267,7 +270,7 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
     try {
       final data = (await jsonRequest(
         'GET',
-        Uri.parse('$_base/items/${safePathSegment(id)}'),
+        Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'),
       ) as Map).cast<String, dynamic>();
       return _ref(data);
     } on HttpException catch (error) {
@@ -283,7 +286,10 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     return cacheBytes(
       document,
-      await bytesRequest('GET', Uri.parse('$_base/items/${safePathSegment(id)}/content')),
+      await bytesRequest(
+        'GET',
+        Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}/content'),
+      ),
     );
   }
 
@@ -291,10 +297,11 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
   Future<DocumentRef> upload(String localPath, {String? parentId}) async {
     final file = File(localPath);
     if (!await file.exists()) throw FileSystemException('File not found', localPath);
-    final name = basename(localPath);
+    final name = DirectCloudDocumentProvider.basename(localPath);
+    final encodedName = DirectCloudDocumentProvider.safePathSegment(name);
     final uri = parentId == null
-        ? Uri.parse('$_base/root:/${safePathSegment(name)}:/content')
-        : Uri.parse('$_base/items/${safePathSegment(parentId)}:/${safePathSegment(name)}:/content');
+        ? Uri.parse('$_base/root:/$encodedName:/content')
+        : Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(parentId)}:/$encodedName:/content');
     final data = (await jsonRequest(
       'PUT',
       uri,
@@ -309,7 +316,7 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     await jsonRequest(
       'PATCH',
-      Uri.parse('$_base/items/${safePathSegment(id)}'),
+      Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'),
       body: {'name': newName},
     );
   }
@@ -320,7 +327,7 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
     final id = document.remoteId ?? document.id;
     await jsonRequest(
       'PATCH',
-      Uri.parse('$_base/items/${safePathSegment(id)}'),
+      Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'),
       body: {'parentReference': {'id': parentId}},
     );
   }
@@ -328,7 +335,10 @@ class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
   @override
   Future<void> delete(DocumentRef document) async {
     final id = document.remoteId ?? document.id;
-    await jsonRequest('DELETE', Uri.parse('$_base/items/${safePathSegment(id)}'));
+    await jsonRequest(
+      'DELETE',
+      Uri.parse('$_base/items/${DirectCloudDocumentProvider.safePathSegment(id)}'),
+    );
   }
 
   DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) => DocumentRef(
