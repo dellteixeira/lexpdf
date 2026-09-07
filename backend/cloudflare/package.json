@@ -1,0 +1,13 @@
+{
+  "name": "lexpdf-cloudflare-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260906.1",
+    "typescript": "7.0.2"
+  }
+}
