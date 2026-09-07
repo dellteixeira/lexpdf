@@ -19,9 +19,23 @@ void main() {
     expect(reader, contains('_renderedAnnotations'));
     expect(reader, contains('_pdfInkByPage'));
     expect(reader, contains('removeWhere'));
-    expect(reader, isNot(contains('widget.annotations.listForDocument(widget.document.id)')));
-    expect(reader, isNot(contains('widget.pdfInkStore.listForDocument(widget.document.id)')));
 
+    final overlayStart = reader.indexOf('Future<void> _loadOverlayWindow');
+    final overlayEnd = reader.indexOf('void _onPdfStrokeCompleted', overlayStart);
+    expect(overlayStart, greaterThanOrEqualTo(0));
+    expect(overlayEnd, greaterThan(overlayStart));
+    final overlayLoader = reader.substring(overlayStart, overlayEnd);
+    expect(
+      overlayLoader,
+      isNot(contains('widget.annotations.listForDocument(widget.document.id)')),
+    );
+    expect(
+      overlayLoader,
+      isNot(contains('widget.pdfInkStore.listForDocument(widget.document.id)')),
+    );
+
+    // A user-opened annotations panel may intentionally enumerate the complete
+    // annotation list. The normal reader/viewport hydration above must not.
     expect(annotations, contains('annotations_document_page_range_idx'));
     expect(ink, contains('pdf_ink_document_page_range_idx'));
   });
