@@ -45,7 +45,37 @@ jobs:
           test -n "$KEY_ALIAS"
           test -n "$KEY_PASSWORD"
           test -n "$STORE_PASSWORD"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > android/app/lexpdf-release.jks
+
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          import pathlib
+          import re
+          import sys
+
+          raw = os.environ['KEYSTORE_B64'].lstrip('\ufeff').strip()
+          if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
+              raw = raw[1:-1]
+          normalized = re.sub(r'\s+', '', raw)
+          try:
+              data = base64.b64decode(normalized, validate=True)
+          except (binascii.Error, ValueError) as exc:
+              print(f'Invalid LEXPDF_ANDROID_KEYSTORE_BASE64: {exc}', file=sys.stderr)
+              print('Regenerate it directly from the .jks and replace the GitHub secret.', file=sys.stderr)
+              sys.exit(1)
+          if len(data) < 32:
+              print('Decoded keystore is unexpectedly small.', file=sys.stderr)
+              sys.exit(1)
+          pathlib.Path('android/app/lexpdf-release.jks').write_bytes(data)
+          print(f'Android keystore decoded successfully ({len(data)} bytes).')
+          PY
+
+          keytool -list \
+            -keystore android/app/lexpdf-release.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" >/dev/null
+
           cat > android/key.properties <<EOF
           storePassword=$STORE_PASSWORD
           keyPassword=$KEY_PASSWORD
