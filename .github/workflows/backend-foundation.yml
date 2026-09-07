@@ -1,0 +1,53 @@
+name: Backend Foundation
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'apps/lexpdf_app/lib/src/core/backend/**'
+      - 'apps/lexpdf_app/lib/src/core/cloud/cloud_gateway_document_provider.dart'
+      - '.github/workflows/backend-foundation.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'backend/**'
+      - 'apps/lexpdf_app/lib/src/core/backend/**'
+      - 'apps/lexpdf_app/lib/src/core/cloud/cloud_gateway_document_provider.dart'
+      - '.github/workflows/backend-foundation.yml'
+
+jobs:
+  cloudflare-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: backend/cloudflare/package.json
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+
+  supabase-migration-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Phase 12 migration safety invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='backend/supabase/migrations/20260907020000_complete_phase12_backend_security.sql'
+          test -s "$file"
+          grep -q 'enable row level security' "$file"
+          grep -q 'revoke all on public.backend_events from anon, authenticated' "$file"
+          grep -q 'to authenticated' "$file"
+          grep -q 'as restrictive' "$file"
+          grep -q 'security definer' "$file"
+          grep -q 'revoke execute on function private.handle_new_user()' "$file"
+          if grep -Eqi '(service_role|sb_secret_|postgres://)[[:space:]]*=' "$file"; then
+            echo 'Potential credential material found in migration.' >&2
+            exit 1
+          fi
