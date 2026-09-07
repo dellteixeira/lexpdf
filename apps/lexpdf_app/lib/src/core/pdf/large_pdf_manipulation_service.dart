@@ -263,7 +263,7 @@ class LargePdfManipulationService {
         specs.add(PdfPageSpec(sourcePath: pageFile.path, pageNumber: 1));
         await Future<void>.delayed(Duration.zero);
       }
-      return composeToFile(specs, outputPath: outputPath);
+      return await composeToFile(specs, outputPath: outputPath);
     } finally {
       if (await temp.exists()) await temp.delete(recursive: true);
     }
