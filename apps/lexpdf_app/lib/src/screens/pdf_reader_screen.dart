@@ -7,6 +7,7 @@ import '../core/documents/document_provider.dart';
 import '../core/ink/ink_models.dart';
 import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
+import '../core/pdf/huge_pdf_policy.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
@@ -60,6 +61,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
 
   Timer? _progressSaveTimer;
   Timer? _deferredOverlayLoadTimer;
+  PdfDocument? _activeDocument;
+  int _overlayLoadGeneration = 0;
+  int _annotationCount = 0;
+  int _inkCount = 0;
   int _restoredPage = 1;
   int? _currentPage = 1;
   int _selectedAnnotationColor = _palette.first;
@@ -76,12 +81,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   void initState() {
     super.initState();
     unawaited(_restoreReadingProgress());
+    unawaited(_loadCounts());
   }
 
   @override
   void dispose() {
     _progressSaveTimer?.cancel();
     _deferredOverlayLoadTimer?.cancel();
+    _overlayLoadGeneration++;
     final page = _currentPage;
     if (page != null) {
       unawaited(
@@ -133,6 +140,18 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadCounts() async {
+    final values = await Future.wait<int>([
+      widget.annotations.countForDocument(widget.document.id),
+      widget.pdfInkStore.countForDocument(widget.document.id),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _annotationCount = values[0];
+      _inkCount = values[1];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final path = widget.document.localPath;
@@ -176,9 +195,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               useProgressiveLoading: true,
               params: PdfViewerParams(
                 limitRenderingCache: true,
-                maxImageBytesCachedOnMemory: 48 * 1024 * 1024,
-                horizontalCacheExtent: 0.35,
-                verticalCacheExtent: 0.35,
+                maxImageBytesCachedOnMemory: HugePdfPolicy.viewerImageCacheBytes,
+                horizontalCacheExtent: 0.30,
+                verticalCacheExtent: 0.30,
                 onePassRenderingSizeThreshold: 1400,
                 behaviorControlParams: const PdfViewerBehaviorControlParams(
                   loadPageDimensionsOnDemand: true,
@@ -243,13 +262,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 ],
                 onViewerReady: (document, controller) {
                   _viewerReady = true;
+                  _activeDocument = document;
                   unawaited(_goToRestoredPage());
                   _deferredOverlayLoadTimer?.cancel();
                   _deferredOverlayLoadTimer =
-                      Timer(const Duration(milliseconds: 180), () {
+                      Timer(const Duration(milliseconds: 160), () {
                     if (!mounted || !_viewerController.isReady) return;
-                    unawaited(_loadSavedAnnotations(document));
-                    unawaited(_loadPdfInk());
+                    unawaited(_loadOverlayWindow(document, _restoredPage));
                   });
                 },
                 onPageChanged: (pageNumber) {
@@ -258,6 +277,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                     setState(() => _currentPage = pageNumber);
                   }
                   _scheduleProgressSave(pageNumber);
+                  final document = _activeDocument;
+                  if (document != null) {
+                    unawaited(_loadOverlayWindow(document, pageNumber));
+                  }
                 },
               ),
             ),
@@ -332,15 +355,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       };
 
   List<Widget> _buildReaderActions() {
-    final annotationCount = _renderedAnnotations.values.fold<int>(
-      0,
-      (sum, values) => sum + values.length,
-    );
-    final inkCount = _pdfInkByPage.values.fold<int>(
-      0,
-      (sum, values) => sum + values.length,
-    );
-
     return [
       if (_currentPage != null)
         Padding(
@@ -392,8 +406,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
           icon: const Icon(Icons.palette_outlined),
         ),
         Badge(
-          isLabelVisible: annotationCount > 0,
-          label: Text('$annotationCount'),
+          isLabelVisible: _annotationCount > 0,
+          label: Text('$_annotationCount'),
           child: IconButton(
             tooltip: 'Anotações textuais',
             onPressed: _showAnnotationsPanel,
@@ -402,8 +416,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         ),
       ],
       Badge(
-        isLabelVisible: inkCount > 0,
-        label: Text('$inkCount'),
+        isLabelVisible: _inkCount > 0,
+        label: Text('$_inkCount'),
         child: IconButton(
           tooltip: 'Traços manuscritos',
           onPressed: _showInkSummary,
@@ -466,24 +480,103 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     _viewerController.invalidate();
   }
 
-  Future<void> _loadPdfInk() async {
-    final strokes = await widget.pdfInkStore.listForDocument(widget.document.id);
-    final byPage = <int, List<PdfInkStroke>>{};
-    for (final stroke in strokes) {
-      byPage.putIfAbsent(stroke.pageNumber, () => []).add(stroke);
+  Future<void> _loadOverlayWindow(
+    PdfDocument document,
+    int pageNumber,
+  ) async {
+    final generation = ++_overlayLoadGeneration;
+    final window = HugePdfPolicy.overlayWindow(
+      pageNumber: pageNumber,
+      pageCount: document.pages.length,
+    );
+    if (window.end < window.start) return;
+
+    if (mounted) setState(() => _loadingAnnotations = true);
+    try {
+      final results = await Future.wait<Object>([
+        widget.annotations.listForPageRange(
+          widget.document.id,
+          window.start,
+          window.end,
+        ),
+        widget.pdfInkStore.listForPageRange(
+          widget.document.id,
+          window.start,
+          window.end,
+        ),
+      ]);
+      if (!mounted || generation != _overlayLoadGeneration) return;
+
+      final saved = results[0] as List<LocalTextAnnotation>;
+      final strokes = results[1] as List<PdfInkStroke>;
+      final byAnnotationPage = <int, List<_RenderedAnnotation>>{};
+      final pageTexts = <int, PdfPageText>{};
+      for (final annotation in saved) {
+        if (annotation.pageNumber < window.start ||
+            annotation.pageNumber > window.end) {
+          continue;
+        }
+        final pageText = pageTexts[annotation.pageNumber] ??=
+            await document.pages[annotation.pageNumber - 1]
+                .loadStructuredText();
+        if (!mounted || generation != _overlayLoadGeneration) return;
+        if (annotation.startIndex > pageText.fullText.length ||
+            annotation.endIndex > pageText.fullText.length) {
+          continue;
+        }
+        byAnnotationPage.putIfAbsent(annotation.pageNumber, () => []).add(
+              _RenderedAnnotation(
+                annotation: annotation,
+                range: PdfPageTextRange(
+                  pageText: pageText,
+                  start: annotation.startIndex,
+                  end: annotation.endIndex,
+                ),
+              ),
+            );
+      }
+
+      final byInkPage = <int, List<PdfInkStroke>>{};
+      for (final stroke in strokes) {
+        byInkPage.putIfAbsent(stroke.pageNumber, () => []).add(stroke);
+      }
+      if (!mounted || generation != _overlayLoadGeneration) return;
+
+      setState(() {
+        _renderedAnnotations
+          ..removeWhere(
+            (page, _) => page < window.start || page > window.end,
+          )
+          ..addAll(byAnnotationPage);
+        for (var page = window.start; page <= window.end; page++) {
+          if (!byAnnotationPage.containsKey(page)) {
+            _renderedAnnotations.remove(page);
+          }
+        }
+
+        _pdfInkByPage
+          ..removeWhere(
+            (page, _) => page < window.start || page > window.end,
+          )
+          ..addAll(byInkPage);
+        for (var page = window.start; page <= window.end; page++) {
+          if (!byInkPage.containsKey(page)) {
+            _pdfInkByPage.remove(page);
+          }
+        }
+      });
+      _viewerController.invalidate();
+    } finally {
+      if (mounted && generation == _overlayLoadGeneration) {
+        setState(() => _loadingAnnotations = false);
+      }
     }
-    if (!mounted) return;
-    setState(() {
-      _pdfInkByPage
-        ..clear()
-        ..addAll(byPage);
-    });
-    _viewerController.invalidate();
   }
 
   void _onPdfStrokeCompleted(PdfInkStroke stroke) {
     setState(() {
       _pdfInkByPage.putIfAbsent(stroke.pageNumber, () => []).add(stroke);
+      _inkCount++;
     });
     unawaited(widget.pdfInkStore.addStroke(stroke));
   }
@@ -497,7 +590,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     if (strokes.isEmpty) {
       _pdfInkByPage.remove(stroke.pageNumber);
     }
-    setState(() {});
+    setState(() {
+      if (_inkCount > 0) _inkCount--;
+    });
     unawaited(widget.pdfInkStore.deleteStroke(stroke.id));
     _viewerController.invalidate();
   }
@@ -514,7 +609,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     if (strokes.isEmpty) {
       _pdfInkByPage.remove(result.original.pageNumber);
     }
-    setState(() {});
+    setState(() {
+      _inkCount = (_inkCount - 1 + result.fragments.length).clamp(0, 1 << 31);
+    });
     unawaited(
       widget.pdfInkStore.replaceStrokeWithFragments(
         result.original,
@@ -531,7 +628,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     if (strokes == null || strokes.isEmpty) return;
     final removed = strokes.removeLast();
     await widget.pdfInkStore.deleteStroke(removed.id);
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        if (_inkCount > 0) _inkCount--;
+      });
+    }
     _viewerController.invalidate();
   }
 
@@ -635,9 +736,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   }
 
   Future<void> _showInkSummary() async {
-    final total =
-        _pdfInkByPage.values.fold<int>(0, (sum, value) => sum + value.length);
-    final pages = _pdfInkByPage.keys.toList()..sort();
+    final total = await widget.pdfInkStore.countForDocument(widget.document.id);
+    final pages = await widget.pdfInkStore.pagesWithInk(widget.document.id);
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -656,7 +757,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               Text('$total traços em ${pages.length} página(s).'),
               if (pages.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text('Páginas: ${pages.join(', ')}'),
+                Text(
+                  pages.length <= 40
+                      ? 'Páginas: ${pages.join(', ')}'
+                      : 'Páginas: ${pages.take(40).join(', ')}… (+${pages.length - 40})',
+                ),
               ],
               const SizedBox(height: 10),
               const Text(
@@ -771,48 +876,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       );
     }
     await delegate.clearTextSelection();
-    if (_viewerController.isReady) {
-      await _loadSavedAnnotations(_viewerController.document);
-    }
-  }
-
-  Future<void> _loadSavedAnnotations(PdfDocument document) async {
-    if (mounted) setState(() => _loadingAnnotations = true);
-    try {
-      final saved =
-          await widget.annotations.listForDocument(widget.document.id);
-      final byPage = <int, List<_RenderedAnnotation>>{};
-      final pageTexts = <int, PdfPageText>{};
-      for (final annotation in saved) {
-        if (annotation.pageNumber < 1 ||
-            annotation.pageNumber > document.pages.length) {
-          continue;
-        }
-        final pageText = pageTexts[annotation.pageNumber] ??=
-            await document.pages[annotation.pageNumber - 1]
-                .loadStructuredText();
-        if (annotation.startIndex > pageText.fullText.length ||
-            annotation.endIndex > pageText.fullText.length) {
-          continue;
-        }
-        byPage.putIfAbsent(annotation.pageNumber, () => []).add(
-              _RenderedAnnotation(
-                annotation: annotation,
-                range: PdfPageTextRange(
-                  pageText: pageText,
-                  start: annotation.startIndex,
-                  end: annotation.endIndex,
-                ),
-              ),
-            );
-      }
-      _renderedAnnotations
-        ..clear()
-        ..addAll(byPage);
-      _viewerController.invalidate();
-      if (mounted) setState(() {});
-    } finally {
-      if (mounted) setState(() => _loadingAnnotations = false);
+    await _loadCounts();
+    final document = _activeDocument;
+    final page = _currentPage;
+    if (document != null && page != null) {
+      await _loadOverlayWindow(document, page);
     }
   }
 
@@ -958,8 +1026,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
 
   Future<void> _deleteAnnotation(String id) async {
     await widget.annotations.delete(id);
-    if (_viewerController.isReady) {
-      await _loadSavedAnnotations(_viewerController.document);
+    await _loadCounts();
+    final document = _activeDocument;
+    final page = _currentPage;
+    if (document != null && page != null) {
+      await _loadOverlayWindow(document, page);
     }
   }
 
