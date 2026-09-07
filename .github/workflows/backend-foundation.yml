@@ -2,11 +2,7 @@ name: Backend Foundation
 
 on:
   pull_request:
-    paths:
-      - 'backend/**'
-      - 'apps/lexpdf_app/lib/src/core/backend/**'
-      - 'apps/lexpdf_app/lib/src/core/cloud/cloud_gateway_document_provider.dart'
-      - '.github/workflows/backend-foundation.yml'
+    branches: [develop]
   push:
     branches: [develop]
     paths:

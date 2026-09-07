@@ -2,9 +2,7 @@ name: Flutter Foundation
 
 on:
   pull_request:
-    paths:
-      - 'apps/lexpdf_app/**'
-      - '.github/workflows/flutter-foundation.yml'
+    branches: [develop]
   push:
     branches: [develop]
     paths:

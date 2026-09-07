@@ -2,10 +2,7 @@ name: Release Hardening
 
 on:
   pull_request:
-    paths:
-      - 'apps/lexpdf_app/**'
-      - 'backend/**'
-      - '.github/workflows/release-hardening.yml'
+    branches: [develop]
   workflow_dispatch:
 
 jobs:
@@ -66,9 +63,6 @@ jobs:
 
   windows-release:
     needs: prerelease-invariants
-    # platform_ocr 1.0.0 requires the Visual Studio 2022 C++/WinRT toolchain.
-    # windows-latest currently resolves to a newer VS image that fails its
-    # native-assets C++ build hook, so pin this release gate deliberately.
     runs-on: windows-2022
     defaults:
       run:
