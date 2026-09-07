@@ -5,7 +5,7 @@ on:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -19,10 +19,11 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           grep -q '^version: 0.1.0-beta.1+1$' apps/lexpdf_app/pubspec.yaml
+          grep -q "flutter-version: '3.47.2'" .github/workflows/beta-distribution.yml
 
   android-signed:
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: apps/lexpdf_app
@@ -30,6 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
       - name: Require Android signing secrets
@@ -62,13 +64,11 @@ jobs:
               data = base64.b64decode(normalized, validate=True)
           except (binascii.Error, ValueError) as exc:
               print(f'Invalid LEXPDF_ANDROID_KEYSTORE_BASE64: {exc}', file=sys.stderr)
-              print('Regenerate it directly from the .jks and replace the GitHub secret.', file=sys.stderr)
               sys.exit(1)
           if len(data) < 32:
               print('Decoded keystore is unexpectedly small.', file=sys.stderr)
               sys.exit(1)
           pathlib.Path('android/app/lexpdf-release.jks').write_bytes(data)
-          print(f'Android keystore decoded successfully ({len(data)} bytes).')
           PY
 
           keytool -list \
@@ -102,12 +102,23 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Verify Android signature and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          aab='build/app/outputs/bundle/release/app-release.aab'
+          test -s "$apk"
+          test -s "$aab"
+          apksigner verify --verbose --print-certs "$apk"
+          sha256sum "$apk" "$aab" > SHA256SUMS-Android.txt
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-Android
           path: |
             apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
             apps/lexpdf_app/build/app/outputs/bundle/release/app-release.aab
+            apps/lexpdf_app/SHA256SUMS-Android.txt
           if-no-files-found: error
 
   windows-installer:
@@ -120,8 +131,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
+      - name: Require Windows signing certificate
+        shell: pwsh
+        env:
+          CERT_B64: ${{ secrets.LEXPDF_WINDOWS_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.LEXPDF_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERT_B64)) { throw 'LEXPDF_WINDOWS_CERTIFICATE_BASE64 is required.' }
+          if ([string]::IsNullOrWhiteSpace($env:CERT_PASSWORD)) { throw 'LEXPDF_WINDOWS_CERTIFICATE_PASSWORD is required.' }
+          $bytes = [Convert]::FromBase64String(($env:CERT_B64 -replace '\s',''))
+          $path = Join-Path $env:RUNNER_TEMP 'lexpdf-code-signing.pfx'
+          [IO.File]::WriteAllBytes($path, $bytes)
+          $secure = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
+          $cert = Get-PfxCertificate -FilePath $path -Password $secure
+          if ($null -eq $cert -or -not $cert.HasPrivateKey) { throw 'Windows signing certificate is invalid or has no private key.' }
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - run: git diff --exit-code -- pubspec.lock
@@ -133,6 +159,19 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Sign and verify LexPDF executable
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.LEXPDF_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $signtool) { throw 'signtool.exe was not found.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'lexpdf-code-signing.pfx'
+          $exe = 'build\windows\x64\runner\Release\lexpdf_app.exe'
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:CERT_PASSWORD $exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $signature = Get-AuthenticodeSignature $exe
+          if ($signature.Status -ne 'Valid') { throw "Invalid executable signature: $($signature.Status)" }
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -144,15 +183,33 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
           & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Sign and verify Windows installer
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.LEXPDF_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $signtool) { throw 'signtool.exe was not found.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'lexpdf-code-signing.pfx'
+          $installer = Get-ChildItem 'windows\installer\output\*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer was not produced.' }
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:CERT_PASSWORD $installer.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne 'Valid') { throw "Invalid installer signature: $($signature.Status)" }
+          $hash = Get-FileHash $installer.FullName -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $($installer.Name)" | Set-Content -Encoding ascii 'SHA256SUMS-Windows.txt'
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-Windows-Installer
-          path: apps/lexpdf_app/windows/installer/output/*.exe
+          path: |
+            apps/lexpdf_app/windows/installer/output/*.exe
+            apps/lexpdf_app/SHA256SUMS-Windows.txt
           if-no-files-found: error
 
   macos-dmg:
     needs: preflight
-    runs-on: macos-latest
+    runs-on: macos-15
     defaults:
       run:
         working-directory: apps/lexpdf_app
@@ -160,8 +217,45 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
+      - name: Require Apple signing and notarization secrets
+        shell: bash
+        env:
+          CERT_B64: ${{ secrets.LEXPDF_MACOS_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.LEXPDF_MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.LEXPDF_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.LEXPDF_APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.LEXPDF_APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CERT_B64"
+          test -n "$CERT_PASSWORD"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+          cert="$RUNNER_TEMP/lexpdf-developer-id.p12"
+          printf '%s' "$CERT_B64" | tr -d '\r\n ' | base64 --decode > "$cert"
+          test -s "$cert"
+      - name: Install Developer ID certificate
+        shell: bash
+        env:
+          CERT_PASSWORD: ${{ secrets.LEXPDF_MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/lexpdf-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/lexpdf-developer-id.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk 'NR==1 {print $2}')
+          test -n "$identity"
+          echo "LEXPDF_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "LEXPDF_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
       - run: git diff --exit-code -- pubspec.lock
@@ -173,20 +267,56 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
-      - name: Package macOS DMG
+      - name: Sign and verify macOS app
         shell: bash
         run: |
           set -euo pipefail
           app=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
           test -n "$app"
-          hdiutil create \
-            -volname LexPDF \
-            -srcfolder "$app" \
-            -ov \
-            -format UDZO \
-            "LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg"
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements macos/Runner/Release.entitlements \
+            --sign "$LEXPDF_CODESIGN_IDENTITY" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | grep -q 'Authority=Developer ID Application'
+      - name: Package signed macOS DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$app"
+          dmg="LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg"
+          hdiutil create -volname LexPDF -srcfolder "$app" -ov -format UDZO "$dmg"
+          codesign --force --timestamp --sign "$LEXPDF_CODESIGN_IDENTITY" "$dmg"
+          codesign --verify --verbose=2 "$dmg"
+      - name: Notarize and staple macOS DMG
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.LEXPDF_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.LEXPDF_APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.LEXPDF_APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          dmg="LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg"
+          xcrun notarytool submit "$dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature -v "$dmg"
+          shasum -a 256 "$dmg" > SHA256SUMS-macOS.txt
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${LEXPDF_SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$LEXPDF_SIGNING_KEYCHAIN" || true
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-macOS-DMG
-          path: apps/lexpdf_app/LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg
+          path: |
+            apps/lexpdf_app/LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg
+            apps/lexpdf_app/SHA256SUMS-macOS.txt
           if-no-files-found: error
