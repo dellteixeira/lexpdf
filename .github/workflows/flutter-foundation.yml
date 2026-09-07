@@ -9,6 +9,9 @@ on:
       - 'apps/lexpdf_app/**'
       - '.github/workflows/flutter-foundation.yml'
 
+permissions:
+  contents: write
+
 jobs:
   analyze-and-test:
     runs-on: ubuntu-24.04
@@ -17,6 +20,8 @@ jobs:
         working-directory: apps/lexpdf_app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.2'
@@ -25,6 +30,18 @@ jobs:
       - run: flutter --version
       - run: test -f pubspec.lock
       - run: flutter pub get
+      - name: Commit dependency lock refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- pubspec.lock; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pubspec.lock
+          git commit -m 'chore: refresh Flutter dependency lock'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
       - name: Verify dependency lock is stable
         run: git diff --exit-code -- pubspec.lock
       - run: flutter analyze
