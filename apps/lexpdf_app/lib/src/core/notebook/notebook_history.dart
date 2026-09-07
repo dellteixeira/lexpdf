@@ -5,18 +5,26 @@ class NotebookPageSnapshot {
   const NotebookPageSnapshot({
     required this.strokes,
     required this.objects,
+    this.strokeLayerIds = const {},
+    this.objectLayerIds = const {},
   });
 
   final List<InkStroke> strokes;
   final List<NotebookObject> objects;
+  final Map<String, String> strokeLayerIds;
+  final Map<String, String> objectLayerIds;
 
   factory NotebookPageSnapshot.capture({
     required List<InkStroke> strokes,
     required List<NotebookObject> objects,
+    Map<String, String> strokeLayerIds = const {},
+    Map<String, String> objectLayerIds = const {},
   }) {
     return NotebookPageSnapshot(
       strokes: List<InkStroke>.unmodifiable(strokes),
       objects: List<NotebookObject>.unmodifiable(objects),
+      strokeLayerIds: Map<String, String>.unmodifiable(strokeLayerIds),
+      objectLayerIds: Map<String, String>.unmodifiable(objectLayerIds),
     );
   }
 }
