@@ -18,6 +18,7 @@ class LocalGlobalSearchFts {
   final LocalDatabase db;
 
   Future<void> rebuild() async {
+    final signature = _sourceSignature();
     db.database.execute('BEGIN IMMEDIATE;');
     try {
       db.database.execute('DELETE FROM global_search_fts;');
@@ -82,6 +83,10 @@ class LocalGlobalSearchFts {
         WHERE trim(COALESCE(o.text_value, '')) <> '';
       ''');
 
+      db.database.execute('''
+        INSERT INTO app_metadata(key, value) VALUES ('global_search_fts_signature', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+      ''', [signature]);
       db.database.execute('COMMIT;');
     } catch (_) {
       db.database.execute('ROLLBACK;');
@@ -89,10 +94,53 @@ class LocalGlobalSearchFts {
     }
   }
 
+  Future<void> rebuildIfNeeded() async {
+    final current = _sourceSignature();
+    final rows = db.database.select(
+      "SELECT value FROM app_metadata WHERE key = 'global_search_fts_signature' LIMIT 1;",
+    );
+    final indexed = rows.isEmpty ? null : rows.first['value']?.toString();
+    if (indexed != current) await rebuild();
+  }
+
+  String _sourceSignature() {
+    final row = db.database.select('''
+      SELECT
+        (SELECT COUNT(*) FROM documents) AS documents_count,
+        COALESCE((SELECT MAX(updated_at) FROM documents), '') AS documents_max,
+        (SELECT COUNT(*) FROM pdf_page_text_index) AS text_count,
+        COALESCE((SELECT MAX(indexed_at) FROM pdf_page_text_index), '') AS text_max,
+        (SELECT COUNT(*) FROM annotations) AS annotations_count,
+        COALESCE((SELECT MAX(updated_at) FROM annotations), '') AS annotations_max,
+        (SELECT COUNT(*) FROM pdf_annotation_objects) AS objects_count,
+        COALESCE((SELECT MAX(updated_at) FROM pdf_annotation_objects), '') AS objects_max,
+        (SELECT COUNT(*) FROM notebooks) AS notebooks_count,
+        COALESCE((SELECT MAX(updated_at) FROM notebooks), '') AS notebooks_max,
+        (SELECT COUNT(*) FROM notebook_objects) AS notebook_objects_count,
+        COALESCE((SELECT MAX(updated_at) FROM notebook_objects), '') AS notebook_objects_max,
+        (SELECT COUNT(*) FROM document_tags) AS tags_count;
+    ''').single;
+    return [
+      row['documents_count'],
+      row['documents_max'],
+      row['text_count'],
+      row['text_max'],
+      row['annotations_count'],
+      row['annotations_max'],
+      row['objects_count'],
+      row['objects_max'],
+      row['notebooks_count'],
+      row['notebooks_max'],
+      row['notebook_objects_count'],
+      row['notebook_objects_max'],
+      row['tags_count'],
+    ].join('|');
+  }
+
   Future<List<LocalSearchHit>> search(String query, {int limit = 100}) async {
     final normalized = query.trim();
     if (normalized.isEmpty) return const [];
-    await rebuild();
+    await rebuildIfNeeded();
     final match = _toMatchExpression(normalized);
     if (match.isEmpty) return const [];
 
