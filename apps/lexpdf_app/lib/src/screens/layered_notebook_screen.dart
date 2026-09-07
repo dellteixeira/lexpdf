@@ -680,9 +680,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     child: ReorderableListView.builder(
                       padding: const EdgeInsets.all(12),
                       itemCount: _layers.length,
-                      onReorder: (oldIndex, newIndex) async {
+                      onReorderItem: (oldIndex, newIndex) async {
                         final ids = _layers.map((e) => e.id).toList();
-                        if (newIndex > oldIndex) newIndex--;
                         final moved = ids.removeAt(oldIndex);
                         ids.insert(newIndex, moved);
                         await _layerStore.reorderLayers(_currentPage!.id, ids);
