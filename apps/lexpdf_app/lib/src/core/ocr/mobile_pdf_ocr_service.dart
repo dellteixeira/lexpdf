@@ -51,6 +51,7 @@ class MobilePdfOcrService {
         final pageNumber = index + 1;
         final page = document.pages[index];
         String text;
+        List<OcrTextLine> lines = const [];
         if (recognizer != null) {
           final rendered = await page.render(
             width: (page.width * 2).round(),
@@ -68,6 +69,23 @@ class MobilePdfOcrService {
               );
               final recognized = await recognizer.processImage(input);
               text = recognized.text.trim();
+              final collected = <OcrTextLine>[];
+              for (final block in recognized.blocks) {
+                for (final line in block.lines) {
+                  final box = line.boundingBox;
+                  if (line.text.trim().isEmpty) continue;
+                  collected.add(
+                    OcrTextLine(
+                      text: line.text.trim(),
+                      x: (box.left / rendered.width).clamp(0.0, 1.0),
+                      y: (box.top / rendered.height).clamp(0.0, 1.0),
+                      width: (box.width / rendered.width).clamp(0.0, 1.0),
+                      height: (box.height / rendered.height).clamp(0.0, 1.0),
+                    ),
+                  );
+                }
+              }
+              lines = collected;
             } finally {
               rendered.dispose();
             }
@@ -86,6 +104,7 @@ class MobilePdfOcrService {
             text: text,
             engine: engine,
             processedAt: DateTime.now().toUtc(),
+            lines: lines,
           ),
         );
         onProgress?.call(
