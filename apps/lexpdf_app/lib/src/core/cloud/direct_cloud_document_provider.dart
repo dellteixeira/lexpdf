@@ -1,0 +1,344 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import '../documents/document_provider.dart';
+import 'cloud_credential_store.dart';
+
+abstract class DirectCloudDocumentProvider implements DocumentProvider {
+  DirectCloudDocumentProvider({
+    required this.accountId,
+    required this.cacheDirectory,
+    CloudCredentialStore credentials = const CloudCredentialStore(),
+    HttpClient? httpClient,
+  })  : _credentials = credentials,
+        _http = httpClient ?? HttpClient();
+
+  final String accountId;
+  final Directory cacheDirectory;
+  final CloudCredentialStore _credentials;
+  final HttpClient _http;
+
+  String get credentialProviderName;
+
+  Future<String> _token() async {
+    final value = await _credentials.readToken(
+      provider: credentialProviderName,
+      accountId: accountId,
+    );
+    if (value == null || value.isEmpty) {
+      throw StateError('$credentialProviderName/$accountId is not authenticated.');
+    }
+    return value;
+  }
+
+  Future<dynamic> jsonRequest(
+    String method,
+    Uri uri, {
+    Object? body,
+    Map<String, String>? headers,
+  }) async {
+    final request = await _http.openUrl(method, uri);
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${await _token()}');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    headers?.forEach(request.headers.set);
+    if (body != null) {
+      if (body is List<int>) {
+        request.add(body);
+      } else if (body is String) {
+        request.write(body);
+      } else {
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode(body));
+      }
+    }
+    final response = await request.close();
+    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
+    if (bytes.isEmpty) return null;
+    return jsonDecode(utf8.decode(bytes));
+  }
+
+  Future<Uint8List> bytesRequest(String method, Uri uri) async {
+    final request = await _http.openUrl(method, uri);
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${await _token()}');
+    final response = await request.close();
+    final bytes = await response.fold<List<int>>(<int>[], (all, part) => all..addAll(part));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('${response.statusCode}: ${utf8.decode(bytes)}', uri: uri);
+    }
+    return Uint8List.fromList(bytes);
+  }
+
+  Future<String> cacheBytes(DocumentRef document, Uint8List bytes) async {
+    await cacheDirectory.create(recursive: true);
+    final file = File(
+      '${cacheDirectory.path}${Platform.pathSeparator}${document.id}-${_safeName(document.name)}',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
+  static String safePathSegment(String value) => Uri.encodeComponent(value);
+  static String basename(String path) => path.replaceAll('\\', '/').split('/').last;
+  static String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+}
+
+class GoogleDriveDocumentProvider extends DirectCloudDocumentProvider {
+  GoogleDriveDocumentProvider({
+    required super.accountId,
+    required super.cacheDirectory,
+    super.credentials,
+    super.httpClient,
+  });
+
+  @override
+  DocumentProviderKind get kind => DocumentProviderKind.googleDrive;
+
+  @override
+  String get credentialProviderName => 'google_drive';
+
+  static const _base = 'https://www.googleapis.com/drive/v3';
+  static const _uploadBase = 'https://www.googleapis.com/upload/drive/v3';
+
+  @override
+  Future<List<DocumentRef>> list({String? parentId}) async {
+    final parent = parentId ?? 'root';
+    final query = "'$parent' in parents and trashed=false and mimeType='application/pdf'";
+    String? pageToken;
+    final results = <DocumentRef>[];
+    do {
+      final uri = Uri.parse('$_base/files').replace(queryParameters: {
+        'q': query,
+        'fields': 'nextPageToken,files(id,name,parents,modifiedTime,md5Checksum,size)',
+        'pageSize': '1000',
+        if (pageToken != null) 'pageToken': pageToken,
+      });
+      final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
+      for (final raw in (data['files'] as List? ?? const [])) {
+        final item = (raw as Map).cast<String, dynamic>();
+        results.add(_ref(item));
+      }
+      pageToken = data['nextPageToken']?.toString();
+    } while (pageToken != null && pageToken.isNotEmpty);
+    return results;
+  }
+
+  @override
+  Future<DocumentRef?> getById(String id) async {
+    try {
+      final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+        queryParameters: {'fields': 'id,name,parents,modifiedTime,md5Checksum,size'},
+      );
+      final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
+      return _ref(data);
+    } on HttpException catch (error) {
+      if (error.message.startsWith('404:')) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String> ensureLocalCopy(DocumentRef document) async {
+    final existing = document.localPath;
+    if (existing != null && await File(existing).exists()) return existing;
+    final id = document.remoteId ?? document.id;
+    final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+      queryParameters: {'alt': 'media'},
+    );
+    return cacheBytes(document, await bytesRequest('GET', uri));
+  }
+
+  @override
+  Future<DocumentRef> upload(String localPath, {String? parentId}) async {
+    final file = File(localPath);
+    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    final boundary = 'lexpdf-${DateTime.now().microsecondsSinceEpoch}';
+    final metadata = jsonEncode({
+      'name': basename(localPath),
+      'mimeType': 'application/pdf',
+      if (parentId != null) 'parents': [parentId],
+    });
+    final fileBytes = await file.readAsBytes();
+    final body = BytesBuilder()
+      ..add(utf8.encode('--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$metadata\r\n'))
+      ..add(utf8.encode('--$boundary\r\nContent-Type: application/pdf\r\n\r\n'))
+      ..add(fileBytes)
+      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    final uri = Uri.parse('$_uploadBase/files').replace(queryParameters: {
+      'uploadType': 'multipart',
+      'fields': 'id,name,parents,modifiedTime,md5Checksum,size',
+    });
+    final data = (await jsonRequest(
+      'POST',
+      uri,
+      body: body.takeBytes(),
+      headers: {'Content-Type': 'multipart/related; boundary=$boundary'},
+    ) as Map).cast<String, dynamic>();
+    return _ref(data, localPath: localPath);
+  }
+
+  @override
+  Future<void> rename(DocumentRef document, String newName) async {
+    final id = document.remoteId ?? document.id;
+    await jsonRequest(
+      'PATCH',
+      Uri.parse('$_base/files/${safePathSegment(id)}'),
+      body: {'name': newName},
+    );
+  }
+
+  @override
+  Future<void> move(DocumentRef document, {String? parentId}) async {
+    if (parentId == null) return;
+    final id = document.remoteId ?? document.id;
+    final current = await getById(id);
+    final oldParent = current?.remotePath;
+    final uri = Uri.parse('$_base/files/${safePathSegment(id)}').replace(
+      queryParameters: {
+        'addParents': parentId,
+        if (oldParent != null && oldParent.isNotEmpty) 'removeParents': oldParent,
+      },
+    );
+    await jsonRequest('PATCH', uri, body: const <String, dynamic>{});
+  }
+
+  @override
+  Future<void> delete(DocumentRef document) async {
+    final id = document.remoteId ?? document.id;
+    await jsonRequest('DELETE', Uri.parse('$_base/files/${safePathSegment(id)}'));
+  }
+
+  DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) {
+    final parents = (data['parents'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+    return DocumentRef(
+      id: data['id'].toString(),
+      name: data['name']?.toString() ?? 'document.pdf',
+      provider: kind,
+      localPath: localPath,
+      remoteId: data['id'].toString(),
+      remotePath: parents.isEmpty ? null : parents.first,
+      availableOffline: localPath != null,
+      syncState: localPath == null ? DocumentSyncState.remoteOnly : DocumentSyncState.synced,
+    );
+  }
+}
+
+class OneDriveDocumentProvider extends DirectCloudDocumentProvider {
+  OneDriveDocumentProvider({
+    required super.accountId,
+    required super.cacheDirectory,
+    super.credentials,
+    super.httpClient,
+  });
+
+  @override
+  DocumentProviderKind get kind => DocumentProviderKind.oneDrive;
+
+  @override
+  String get credentialProviderName => 'onedrive';
+
+  static const _base = 'https://graph.microsoft.com/v1.0/me/drive';
+
+  @override
+  Future<List<DocumentRef>> list({String? parentId}) async {
+    var uri = parentId == null
+        ? Uri.parse('$_base/root/children')
+        : Uri.parse('$_base/items/${safePathSegment(parentId)}/children');
+    final results = <DocumentRef>[];
+    while (true) {
+      final data = (await jsonRequest('GET', uri) as Map).cast<String, dynamic>();
+      for (final raw in (data['value'] as List? ?? const [])) {
+        final item = (raw as Map).cast<String, dynamic>();
+        if (item['file'] == null || item['name']?.toString().toLowerCase().endsWith('.pdf') != true) continue;
+        results.add(_ref(item));
+      }
+      final next = data['@odata.nextLink']?.toString();
+      if (next == null || next.isEmpty) break;
+      uri = Uri.parse(next);
+    }
+    return results;
+  }
+
+  @override
+  Future<DocumentRef?> getById(String id) async {
+    try {
+      final data = (await jsonRequest(
+        'GET',
+        Uri.parse('$_base/items/${safePathSegment(id)}'),
+      ) as Map).cast<String, dynamic>();
+      return _ref(data);
+    } on HttpException catch (error) {
+      if (error.message.startsWith('404:')) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String> ensureLocalCopy(DocumentRef document) async {
+    final existing = document.localPath;
+    if (existing != null && await File(existing).exists()) return existing;
+    final id = document.remoteId ?? document.id;
+    return cacheBytes(
+      document,
+      await bytesRequest('GET', Uri.parse('$_base/items/${safePathSegment(id)}/content')),
+    );
+  }
+
+  @override
+  Future<DocumentRef> upload(String localPath, {String? parentId}) async {
+    final file = File(localPath);
+    if (!await file.exists()) throw FileSystemException('File not found', localPath);
+    final name = basename(localPath);
+    final uri = parentId == null
+        ? Uri.parse('$_base/root:/${safePathSegment(name)}:/content')
+        : Uri.parse('$_base/items/${safePathSegment(parentId)}:/${safePathSegment(name)}:/content');
+    final data = (await jsonRequest(
+      'PUT',
+      uri,
+      body: await file.readAsBytes(),
+      headers: {'Content-Type': 'application/pdf'},
+    ) as Map).cast<String, dynamic>();
+    return _ref(data, localPath: localPath);
+  }
+
+  @override
+  Future<void> rename(DocumentRef document, String newName) async {
+    final id = document.remoteId ?? document.id;
+    await jsonRequest(
+      'PATCH',
+      Uri.parse('$_base/items/${safePathSegment(id)}'),
+      body: {'name': newName},
+    );
+  }
+
+  @override
+  Future<void> move(DocumentRef document, {String? parentId}) async {
+    if (parentId == null) return;
+    final id = document.remoteId ?? document.id;
+    await jsonRequest(
+      'PATCH',
+      Uri.parse('$_base/items/${safePathSegment(id)}'),
+      body: {'parentReference': {'id': parentId}},
+    );
+  }
+
+  @override
+  Future<void> delete(DocumentRef document) async {
+    final id = document.remoteId ?? document.id;
+    await jsonRequest('DELETE', Uri.parse('$_base/items/${safePathSegment(id)}'));
+  }
+
+  DocumentRef _ref(Map<String, dynamic> data, {String? localPath}) => DocumentRef(
+        id: data['id'].toString(),
+        name: data['name']?.toString() ?? 'document.pdf',
+        provider: kind,
+        localPath: localPath,
+        remoteId: data['id'].toString(),
+        remotePath: (data['parentReference'] as Map?)?['id']?.toString(),
+        availableOffline: localPath != null,
+        syncState: localPath == null ? DocumentSyncState.remoteOnly : DocumentSyncState.synced,
+      );
+}
