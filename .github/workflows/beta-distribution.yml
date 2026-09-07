@@ -1,0 +1,158 @@
+name: Beta Distribution
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw=$(grep '^version:' apps/lexpdf_app/pubspec.yaml | awk '{print $2}')
+          version=${raw%%+*}
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          grep -q '^version: 0.1.0-beta.1+1$' apps/lexpdf_app/pubspec.yaml
+
+  android-signed:
+    needs: preflight
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Require Android signing secrets
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.LEXPDF_ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.LEXPDF_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.LEXPDF_ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.LEXPDF_ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          test -n "$STORE_PASSWORD"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > android/app/lexpdf-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=lexpdf-release.jks
+          EOF
+      - run: flutter pub get
+      - run: git diff --exit-code -- pubspec.lock
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build signed Android APK
+        run: >-
+          flutter build apk --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Build signed Android App Bundle
+        run: >-
+          flutter build appbundle --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LexPDF-${{ needs.preflight.outputs.version }}-Android
+          path: |
+            apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
+            apps/lexpdf_app/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+  windows-installer:
+    needs: preflight
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: git diff --exit-code -- pubspec.lock
+      - name: Build Windows release
+        run: >-
+          flutter build windows --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $version = '${{ needs.preflight.outputs.version }}'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LexPDF-${{ needs.preflight.outputs.version }}-Windows-Installer
+          path: apps/lexpdf_app/windows/installer/output/*.exe
+          if-no-files-found: error
+
+  macos-dmg:
+    needs: preflight
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: git diff --exit-code -- pubspec.lock
+      - name: Build macOS release
+        run: >-
+          flutter build macos --release
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Package macOS DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$app"
+          hdiutil create \
+            -volname LexPDF \
+            -srcfolder "$app" \
+            -ov \
+            -format UDZO \
+            "LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LexPDF-${{ needs.preflight.outputs.version }}-macOS-DMG
+          path: apps/lexpdf_app/LexPDF-${{ needs.preflight.outputs.version }}-macOS.dmg
+          if-no-files-found: error
