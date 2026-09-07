@@ -20,6 +20,7 @@ dependencies:
   path_provider: ^2.1.5
   pdf: ^3.13.0
   pdfrx: ^2.6.1
+  platform_ocr: ^1.0.0
   printing: ^5.15.0
   sqlite3: ^2.9.3
   sqlite3_flutter_libs: ^0.5.42
