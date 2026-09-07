@@ -5,7 +5,7 @@ import 'package:lexxpdf_app/src/core/storage/local_document_catalog.dart';
 import 'package:lexxpdf_app/src/core/storage/local_ocr_store.dart';
 
 void main() {
-  test('persists and updates OCR page results offline', () async {
+  test('persists and updates OCR page results offline with line geometry', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);
     final catalog = LocalDocumentCatalog(database);
@@ -37,6 +37,15 @@ void main() {
         text: 'texto atualizado',
         engine: 'mlkit-latin-offline',
         processedAt: now.add(const Duration(seconds: 1)),
+        lines: const [
+          OcrTextLine(
+            text: 'texto atualizado',
+            x: 0.10,
+            y: 0.20,
+            width: 0.40,
+            height: 0.05,
+          ),
+        ],
       ),
     );
 
@@ -44,6 +53,12 @@ void main() {
     expect(results, hasLength(1));
     expect(results.single.text, 'texto atualizado');
     expect(results.single.engine, 'mlkit-latin-offline');
+    expect(results.single.lines, hasLength(1));
+    expect(results.single.lines.single.x, closeTo(0.10, 0.0001));
+    expect(results.single.lines.single.height, closeTo(0.05, 0.0001));
+
+    final page = await store.getPage('doc-ocr', 1);
+    expect(page?.lines.single.text, 'texto atualizado');
   });
 
   test('clears OCR results for one document', () async {
