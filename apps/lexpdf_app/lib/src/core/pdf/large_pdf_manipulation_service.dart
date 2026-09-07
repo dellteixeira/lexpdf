@@ -31,6 +31,17 @@ class LargePdfManipulationService {
     if (chunkPages < 1 || chunkPages > 128) {
       throw ArgumentError.value(chunkPages, 'chunkPages', 'Must be 1..128.');
     }
+    final uniqueSources = specs.map((spec) => spec.sourcePath).toSet();
+    for (final path in uniqueSources) {
+      if (!await File(path).exists()) {
+        throw StateError('PDF de origem não existe: $path');
+      }
+      if (_samePath(path, outputPath)) {
+        throw ArgumentError(
+          'A composição deve usar um arquivo de destino diferente das origens.',
+        );
+      }
+    }
 
     final destination = File(outputPath);
     await destination.parent.create(recursive: true);
@@ -46,7 +57,7 @@ class LargePdfManipulationService {
       await partial.writeAsBytes(edit.PdfBlankDocument.create(), flush: true);
 
       for (var start = 0; start < specs.length; start += chunkPages) {
-        final end = (start + chunkPages).clamp(0, specs.length);
+        final end = (start + chunkPages).clamp(0, specs.length).toInt();
         final chunk = specs.sublist(start, end);
         final destinationSource = LocalPdfByteSource(partial.path);
         final sourceHandles = <String, LocalPdfByteSource>{};
@@ -61,7 +72,8 @@ class LargePdfManipulationService {
                 LocalPdfByteSource(spec.sourcePath);
             final sourceDocument = sourceDocuments[spec.sourcePath] ??=
                 await edit.PdfDocument.openSource(source);
-            if (spec.pageNumber < 1 || spec.pageNumber > sourceDocument.pageCount) {
+            if (spec.pageNumber < 1 ||
+                spec.pageNumber > sourceDocument.pageCount) {
               throw RangeError.range(
                 spec.pageNumber,
                 1,
@@ -109,12 +121,12 @@ class LargePdfManipulationService {
         destination: destination,
         backup: backup,
       );
-      // _replaceWithBackup returns false after a successful commit; the value
-      // is only used by the recovery block if an exception interrupts it.
       return destination;
     } finally {
       if (await partial.exists()) await partial.delete();
-      if (replacedExisting && await backup.exists() && !await destination.exists()) {
+      if (replacedExisting &&
+          await backup.exists() &&
+          !await destination.exists()) {
         await backup.rename(destination.path);
       } else if (await backup.exists()) {
         await backup.delete();
@@ -138,7 +150,9 @@ class LargePdfManipulationService {
       }
     }
     if (sourcePaths.any((path) => _samePath(path, outputPath))) {
-      throw ArgumentError('A combinação deve usar um arquivo de destino diferente das origens.');
+      throw ArgumentError(
+        'A combinação deve usar um arquivo de destino diferente das origens.',
+      );
     }
 
     final destination = File(outputPath);
@@ -162,8 +176,7 @@ class LargePdfManipulationService {
           final document = await edit.PdfDocument.openSource(destinationSource);
           final incoming = await edit.PdfDocument.openSource(incomingSource);
           incomingPages = incoming.pageCount;
-          final editor = edit.PdfEditor(document)
-            ..appendPagesFrom(incoming);
+          final editor = edit.PdfEditor(document)..appendPagesFrom(incoming);
           tail = editor.saveTail();
         } finally {
           await destinationSource.close();
@@ -183,7 +196,9 @@ class LargePdfManipulationService {
       return destination;
     } finally {
       if (await partial.exists()) await partial.delete();
-      if (replacedExisting && await backup.exists() && !await destination.exists()) {
+      if (replacedExisting &&
+          await backup.exists() &&
+          !await destination.exists()) {
         await backup.rename(destination.path);
       } else if (await backup.exists()) {
         await backup.delete();
@@ -203,7 +218,8 @@ class LargePdfManipulationService {
       outputPath: outputPath,
       editDocument: (document, editor) {
         final insertAt = (afterPageNumber ?? document.pageCount)
-            .clamp(0, document.pageCount);
+            .clamp(0, document.pageCount)
+            .toInt();
         editor.insertBlankPage(
           at: insertAt,
           width: width,
@@ -240,7 +256,8 @@ class LargePdfManipulationService {
           fit: edit.PdfImageFit.contain,
         );
         final pageFile = File(
-          '${temp.path}${Platform.pathSeparator}image_${index.toString().padLeft(6, '0')}.pdf',
+          '${temp.path}${Platform.pathSeparator}'
+          'image_${index.toString().padLeft(6, '0')}.pdf',
         );
         await pageFile.writeAsBytes(pageBytes, flush: true);
         specs.add(PdfPageSpec(sourcePath: pageFile.path, pageNumber: 1));
@@ -267,7 +284,9 @@ class LargePdfManipulationService {
         topFraction > 1 ||
         widthFraction <= 0 ||
         widthFraction > 1) {
-      throw ArgumentError('Image placement must use normalized page fractions.');
+      throw ArgumentError(
+        'Image placement must use normalized page fractions.',
+      );
     }
     final imageFile = File(imagePath);
     if (!await imageFile.exists()) {
@@ -284,7 +303,12 @@ class LargePdfManipulationService {
       outputPath: outputPath,
       editDocument: (document, editor) {
         if (pageNumber < 1 || pageNumber > document.pageCount) {
-          throw RangeError.range(pageNumber, 1, document.pageCount, 'pageNumber');
+          throw RangeError.range(
+            pageNumber,
+            1,
+            document.pageCount,
+            'pageNumber',
+          );
         }
         final page = document.page(pageNumber - 1);
         final box = page.cropBox;
@@ -309,8 +333,10 @@ class LargePdfManipulationService {
   Future<File> _singleIncrementalEdit({
     required String sourcePath,
     required String outputPath,
-    required void Function(edit.PdfDocument document, edit.PdfEditor editor)
-        editDocument,
+    required void Function(
+      edit.PdfDocument document,
+      edit.PdfEditor editor,
+    ) editDocument,
     int expectedPageDelta = 0,
   }) async {
     final sourceFile = File(sourcePath);
@@ -318,7 +344,9 @@ class LargePdfManipulationService {
       throw StateError('PDF de origem não existe: $sourcePath');
     }
     if (_samePath(sourcePath, outputPath)) {
-      throw ArgumentError('A edição deve ser salva em um arquivo diferente do original.');
+      throw ArgumentError(
+        'A edição deve ser salva em um arquivo diferente do original.',
+      );
     }
 
     final source = LocalPdfByteSource(sourcePath);
@@ -352,7 +380,9 @@ class LargePdfManipulationService {
     } finally {
       await source.close();
       if (await partial.exists()) await partial.delete();
-      if (replacedExisting && await backup.exists() && !await destination.exists()) {
+      if (replacedExisting &&
+          await backup.exists() &&
+          !await destination.exists()) {
         await backup.rename(destination.path);
       } else if (await backup.exists()) {
         await backup.delete();
@@ -398,7 +428,8 @@ class LargePdfManipulationService {
     try {
       if (verified.pages.length != expected) {
         throw StateError(
-          'PDF editado inválido: esperado $expected páginas, encontrado ${verified.pages.length}.',
+          'PDF editado inválido: esperado $expected páginas, '
+          'encontrado ${verified.pages.length}.',
         );
       }
     } finally {
@@ -436,6 +467,7 @@ class LargePdfManipulationService {
       final absolute = File(value).absolute.path;
       return Platform.isWindows ? absolute.toLowerCase() : absolute;
     }
+
     return normalize(a) == normalize(b);
   }
 }
