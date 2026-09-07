@@ -60,6 +60,38 @@ class LocalSyncConflict {
   final DateTime? resolvedAt;
 }
 
+class LocalSyncCheckpoint {
+  const LocalSyncCheckpoint({
+    required this.entityId,
+    required this.provider,
+    required this.localVersion,
+    required this.localChecksum,
+    required this.remoteVersion,
+    required this.remoteChecksum,
+    required this.syncedAt,
+  });
+
+  final String entityId;
+  final String provider;
+  final int localVersion;
+  final String? localChecksum;
+  final String? remoteVersion;
+  final String? remoteChecksum;
+  final DateTime syncedAt;
+}
+
+class LocalSyncBinding {
+  const LocalSyncBinding({
+    required this.entityId,
+    required this.provider,
+    required this.accountId,
+  });
+
+  final String entityId;
+  final String provider;
+  final String accountId;
+}
+
 class LocalSyncStore {
   LocalSyncStore(this.db) {
     _ensureTables();
@@ -101,6 +133,26 @@ class LocalSyncStore {
         created_at TEXT NOT NULL
       );
     ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS local_sync_checkpoints (
+        entity_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        local_version INTEGER NOT NULL,
+        local_checksum TEXT,
+        remote_version TEXT,
+        remote_checksum TEXT,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY(entity_id, provider)
+      );
+    ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS local_sync_bindings (
+        entity_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
   }
 
   Future<LocalSyncItem> enqueue({
@@ -109,8 +161,19 @@ class LocalSyncStore {
     required LocalSyncOperation operation,
     Map<String, dynamic> payload = const {},
   }) async {
+    final existing = db.database.select('''
+      SELECT id FROM local_sync_queue
+      WHERE entity_id = ? AND provider = ? AND operation = ?
+        AND status IN ('pending', 'retry', 'running')
+      ORDER BY created_at DESC LIMIT 1;
+    ''', [entityId, provider, operation.name]);
+    if (existing.isNotEmpty) {
+      return (await get(existing.first['id'] as String))!;
+    }
+
     final now = DateTime.now().toUtc();
-    final id = 'sync-${now.microsecondsSinceEpoch.toRadixString(36)}-${entityId.hashCode.toUnsigned(32).toRadixString(36)}';
+    final id =
+        'sync-${now.microsecondsSinceEpoch.toRadixString(36)}-${entityId.hashCode.toUnsigned(32).toRadixString(36)}';
     db.database.execute('''
       INSERT INTO local_sync_queue(
         id, entity_id, provider, operation, payload_json, status,
@@ -128,6 +191,17 @@ class LocalSyncStore {
     return (await get(id))!;
   }
 
+  Future<void> recoverInterrupted() async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    db.database.execute('''
+      UPDATE local_sync_queue
+      SET status = 'pending',
+          last_error = 'Recovered after interrupted run',
+          updated_at = ?
+      WHERE status = 'running';
+    ''', [now]);
+  }
+
   Future<LocalSyncItem?> get(String id) async {
     final rows = db.database.select(
       'SELECT * FROM local_sync_queue WHERE id = ? LIMIT 1;',
@@ -136,35 +210,33 @@ class LocalSyncStore {
     return rows.isEmpty ? null : _itemFromRow(rows.first);
   }
 
-  Future<List<LocalSyncItem>> ready({int limit = 25, DateTime? now}) async {
+  Future<List<LocalSyncItem>> ready({
+    int limit = 25,
+    DateTime? now,
+  }) async {
     final instant = (now ?? DateTime.now().toUtc()).toIso8601String();
     final rows = db.database.select('''
       SELECT * FROM local_sync_queue
       WHERE status IN ('pending', 'retry')
         AND (next_retry_at IS NULL OR next_retry_at <= ?)
-      ORDER BY created_at ASC
-      LIMIT ?;
+      ORDER BY created_at ASC LIMIT ?;
     ''', [instant, limit]);
     return rows.map(_itemFromRow).toList(growable: false);
   }
 
   Future<List<LocalSyncItem>> list({int limit = 200}) async {
-    final rows = db.database.select('''
-      SELECT * FROM local_sync_queue ORDER BY created_at DESC LIMIT ?;
-    ''', [limit]);
+    final rows = db.database.select(
+      'SELECT * FROM local_sync_queue ORDER BY created_at DESC LIMIT ?;',
+      [limit],
+    );
     return rows.map(_itemFromRow).toList(growable: false);
   }
 
-  Future<void> markRunning(String id) async => _updateStatus(
-        id,
-        LocalSyncStatus.running,
-      );
+  Future<void> markRunning(String id) =>
+      _updateStatus(id, LocalSyncStatus.running);
 
-  Future<void> markDone(String id) async => _updateStatus(
-        id,
-        LocalSyncStatus.done,
-        clearRetry: true,
-      );
+  Future<void> markDone(String id) =>
+      _updateStatus(id, LocalSyncStatus.done, clearRetry: true);
 
   Future<void> markFailed(
     String id,
@@ -208,6 +280,15 @@ class LocalSyncStore {
     String? localChecksum,
     String? remoteChecksum,
   }) async {
+    final unresolved = db.database.select('''
+      SELECT id FROM local_sync_conflicts
+      WHERE entity_id = ? AND provider = ? AND resolution IS NULL
+      LIMIT 1;
+    ''', [entityId, provider]);
+    if (unresolved.isNotEmpty) {
+      return (await listConflicts())
+          .firstWhere((item) => item.id == unresolved.first['id']);
+    }
     final now = DateTime.now().toUtc();
     final id = 'conflict-${now.microsecondsSinceEpoch.toRadixString(36)}';
     db.database.execute('''
@@ -228,7 +309,9 @@ class LocalSyncStore {
     return (await listConflicts()).firstWhere((item) => item.id == id);
   }
 
-  Future<List<LocalSyncConflict>> listConflicts({bool unresolvedOnly = false}) async {
+  Future<List<LocalSyncConflict>> listConflicts({
+    bool unresolvedOnly = false,
+  }) async {
     final rows = db.database.select('''
       SELECT * FROM local_sync_conflicts
       ${unresolvedOnly ? 'WHERE resolution IS NULL' : ''}
@@ -237,15 +320,114 @@ class LocalSyncStore {
     return rows.map(_conflictFromRow).toList(growable: false);
   }
 
-  Future<void> resolveConflict(String id, ConflictResolution resolution) async {
+  Future<void> resolveConflict(
+    String id,
+    ConflictResolution resolution,
+  ) async {
     db.database.execute('''
       UPDATE local_sync_conflicts
-      SET resolution = ?, resolved_at = ? WHERE id = ?;
+      SET resolution = ?, resolved_at = ?
+      WHERE id = ?;
     ''', [
       resolution.name,
       DateTime.now().toUtc().toIso8601String(),
       id,
     ]);
+  }
+
+  Future<LocalSyncCheckpoint?> checkpoint(
+    String entityId,
+    String provider,
+  ) async {
+    final rows = db.database.select('''
+      SELECT * FROM local_sync_checkpoints
+      WHERE entity_id = ? AND provider = ? LIMIT 1;
+    ''', [entityId, provider]);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return LocalSyncCheckpoint(
+      entityId: row['entity_id'] as String,
+      provider: row['provider'] as String,
+      localVersion: row['local_version'] as int,
+      localChecksum: row['local_checksum'] as String?,
+      remoteVersion: row['remote_version'] as String?,
+      remoteChecksum: row['remote_checksum'] as String?,
+      syncedAt: DateTime.parse(row['synced_at'] as String),
+    );
+  }
+
+  Future<void> saveCheckpoint(LocalSyncCheckpoint value) async {
+    db.database.execute('''
+      INSERT INTO local_sync_checkpoints(
+        entity_id, provider, local_version, local_checksum,
+        remote_version, remote_checksum, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(entity_id, provider) DO UPDATE SET
+        local_version = excluded.local_version,
+        local_checksum = excluded.local_checksum,
+        remote_version = excluded.remote_version,
+        remote_checksum = excluded.remote_checksum,
+        synced_at = excluded.synced_at;
+    ''', [
+      value.entityId,
+      value.provider,
+      value.localVersion,
+      value.localChecksum,
+      value.remoteVersion,
+      value.remoteChecksum,
+      value.syncedAt.toUtc().toIso8601String(),
+    ]);
+  }
+
+  Future<void> bindAccount({
+    required String entityId,
+    required String provider,
+    required String accountId,
+  }) async {
+    db.database.execute('''
+      INSERT INTO local_sync_bindings(entity_id, provider, account_id, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(entity_id) DO UPDATE SET
+        provider = excluded.provider,
+        account_id = excluded.account_id,
+        updated_at = excluded.updated_at;
+    ''', [
+      entityId,
+      provider,
+      accountId,
+      DateTime.now().toUtc().toIso8601String(),
+    ]);
+  }
+
+  Future<LocalSyncBinding?> bindingFor(String entityId) async {
+    final rows = db.database.select('''
+      SELECT entity_id, provider, account_id
+      FROM local_sync_bindings
+      WHERE entity_id = ? LIMIT 1;
+    ''', [entityId]);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return LocalSyncBinding(
+      entityId: row['entity_id'] as String,
+      provider: row['provider'] as String,
+      accountId: row['account_id'] as String,
+    );
+  }
+
+  Future<List<LocalSyncBinding>> listBindings() async {
+    final rows = db.database.select('''
+      SELECT entity_id, provider, account_id
+      FROM local_sync_bindings ORDER BY updated_at DESC;
+    ''');
+    return rows
+        .map(
+          (row) => LocalSyncBinding(
+            entityId: row['entity_id'] as String,
+            provider: row['provider'] as String,
+            accountId: row['account_id'] as String,
+          ),
+        )
+        .toList(growable: false);
   }
 
   Future<void> _updateStatus(
@@ -255,8 +437,10 @@ class LocalSyncStore {
   }) async {
     db.database.execute('''
       UPDATE local_sync_queue
-      SET status = ?, next_retry_at = ${clearRetry ? 'NULL' : 'next_retry_at'},
-          last_error = ${clearRetry ? 'NULL' : 'last_error'}, updated_at = ?
+      SET status = ?,
+          next_retry_at = ${clearRetry ? 'NULL' : 'next_retry_at'},
+          last_error = ${clearRetry ? 'NULL' : 'last_error'},
+          updated_at = ?
       WHERE id = ?;
     ''', [status.name, DateTime.now().toUtc().toIso8601String(), id]);
   }

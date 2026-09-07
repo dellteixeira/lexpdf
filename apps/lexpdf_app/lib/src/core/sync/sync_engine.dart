@@ -18,37 +18,47 @@ class SyncEngine {
   final LocalSyncStore store;
   final Map<String, SyncExecutor> executors;
   final int maxAttempts;
+  bool _draining = false;
+
+  bool get isDraining => _draining;
 
   Future<int> drain({int limit = 25}) async {
-    final items = await store.ready(limit: limit);
-    var completed = 0;
-    for (final item in items) {
-      final executor = executors[item.provider];
-      if (executor == null) {
-        await store.markFailed(
-          item.id,
-          StateError('No sync executor for provider ${item.provider}'),
-          maxAttempts: 1,
-          retryAfter: Duration.zero,
-        );
-        continue;
+    if (_draining) return 0;
+    _draining = true;
+    try {
+      await store.recoverInterrupted();
+      final items = await store.ready(limit: limit);
+      var completed = 0;
+      for (final item in items) {
+        final executor = executors[item.provider];
+        if (executor == null) {
+          await store.markFailed(
+            item.id,
+            StateError('No sync executor for provider ${item.provider}'),
+            maxAttempts: 1,
+            retryAfter: Duration.zero,
+          );
+          continue;
+        }
+        await store.markRunning(item.id);
+        try {
+          await executor(item);
+          await store.markDone(item.id);
+          completed++;
+        } catch (error) {
+          final attempt = item.attempts + 1;
+          await store.markFailed(
+            item.id,
+            error,
+            maxAttempts: maxAttempts,
+            retryAfter: retryDelay(attempt),
+          );
+        }
       }
-      await store.markRunning(item.id);
-      try {
-        await executor(item);
-        await store.markDone(item.id);
-        completed++;
-      } catch (error) {
-        final attempt = item.attempts + 1;
-        await store.markFailed(
-          item.id,
-          error,
-          maxAttempts: maxAttempts,
-          retryAfter: retryDelay(attempt),
-        );
-      }
+      return completed;
+    } finally {
+      _draining = false;
     }
-    return completed;
   }
 
   static Duration retryDelay(int attempt) {
@@ -73,7 +83,9 @@ class SyncEngine {
     dynamic normalize(dynamic input) {
       if (input is Map) {
         final keys = input.keys.map((key) => key.toString()).toList()..sort();
-        return <String, dynamic>{for (final key in keys) key: normalize(input[key])};
+        return <String, dynamic>{
+          for (final key in keys) key: normalize(input[key]),
+        };
       }
       if (input is List) return input.map(normalize).toList(growable: false);
       return input;
