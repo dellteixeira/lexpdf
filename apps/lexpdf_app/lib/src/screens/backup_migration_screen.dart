@@ -31,7 +31,9 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
       return location.path;
     }
     final directory = await getApplicationDocumentsDirectory();
-    final folder = Directory('${directory.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}backups');
+    final folder = Directory(
+      '${directory.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}backups',
+    );
     await folder.create(recursive: true);
     final path = '${folder.path}${Platform.pathSeparator}$suggestedName';
     await File(path).writeAsBytes(bytes, flush: true);
@@ -56,6 +58,10 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
 
   Future<void> _createBackup() => _run(() async {
         final bytes = await _backup.createBackup();
+        final validation = await _backup.validate(bytes);
+        if (!validation.valid) {
+          throw StateError(validation.error ?? 'O backup criado não passou na validação.');
+        }
         final path = await _saveBytes(
           bytes,
           'lexpdf_${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}.lexbackup',
@@ -85,14 +91,22 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
               'Backup válido: ${validation.tableCount} tabelas e ${validation.fileCount} documentos. A restauração substituirá o estado local atual.',
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restaurar')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Restaurar'),
+              ),
             ],
           ),
         );
         if (confirmed != true) return;
         final documents = await getApplicationDocumentsDirectory();
-        final target = Directory('${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}restored-documents');
+        final target = Directory(
+          '${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}restored-documents',
+        );
         await _backup.restore(bytes, documentDirectory: target);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -122,10 +136,63 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         );
         if (notebookId == null) return;
         final bytes = _backup.exportNotebook(notebookId);
-        final path = await _saveBytes(bytes, 'caderno.lexnote');
+        final validation = _backup.validateNotebook(bytes);
+        if (!validation.valid) {
+          throw StateError(validation.error ?? 'O .lexnote criado não passou na validação.');
+        }
+        final safeTitle = (validation.title ?? 'caderno').replaceAll(
+          RegExp(r'[^A-Za-z0-9._-]+'),
+          '_',
+        );
+        final path = await _saveBytes(bytes, '$safeTitle.lexnote');
         if (mounted && path != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('.lexnote salvo em: $path')),
+            SnackBar(content: Text('.lexnote validado e salvo em: $path')),
+          );
+        }
+      });
+
+  Future<void> _importLexNote() => _run(() async {
+        const type = XTypeGroup(label: 'LexPDF notebook', extensions: ['lexnote']);
+        final file = await openFile(acceptedTypeGroups: const [type]);
+        if (file == null) return;
+        final bytes = await file.readAsBytes();
+        final validation = _backup.validateNotebook(bytes);
+        if (!validation.valid) {
+          throw FormatException(validation.error ?? '.lexnote inválido.');
+        }
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Importar caderno?'),
+            content: Text(
+              '${validation.title ?? 'Caderno'}: ${validation.pageCount} página(s), '
+              '${validation.strokeCount} traço(s), ${validation.objectCount} objeto(s) e '
+              '${validation.layerCount} camada(s). O original será preservado e uma nova cópia será criada.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Importar'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+        final result = _backup.importNotebook(bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${result.title} importado: ${result.pageCount} página(s), '
+                '${result.strokeCount} traço(s) e ${result.objectCount} objeto(s).',
+              ),
+            ),
           );
         }
       });
@@ -138,11 +205,17 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         final file = await openFile(acceptedTypeGroups: const [type]);
         if (file == null) return;
         final documents = await getApplicationDocumentsDirectory();
-        final destination = Directory('${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}imports');
+        final destination = Directory(
+          '${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}imports',
+        );
         final result = await _squid.importSafely(file.path, destination: destination);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${result.importedFiles.length} arquivo(s) importado(s). ${result.warnings.join(' ')}')),
+            SnackBar(
+              content: Text(
+                '${result.importedFiles.length} arquivo(s) importado(s). ${result.warnings.join(' ')}',
+              ),
+            ),
           );
         }
       });
@@ -156,7 +229,9 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
         children: [
           Text('Proteção dos dados', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
-          const Text('Backups são validados por checksum antes da restauração. O estado local continua sendo a fonte primária offline.'),
+          const Text(
+            'Backups e cadernos portáteis são validados por checksum antes de restauração/importação. O estado local continua sendo a fonte primária offline.',
+          ),
           const SizedBox(height: 24),
           _ActionTile(
             icon: Icons.backup_outlined,
@@ -173,8 +248,14 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
           _ActionTile(
             icon: Icons.note_outlined,
             title: 'Exportar caderno .lexnote',
-            subtitle: 'Formato editável portátil do LexPDF',
+            subtitle: 'Formato editável portátil do LexPDF, incluindo camadas',
             onTap: _busy ? null : _exportLexNote,
+          ),
+          _ActionTile(
+            icon: Icons.note_add_outlined,
+            title: 'Validar e importar .lexnote',
+            subtitle: 'Cria uma nova cópia sem sobrescrever o caderno original',
+            onTap: _busy ? null : _importLexNote,
           ),
           _ActionTile(
             icon: Icons.system_update_alt,
