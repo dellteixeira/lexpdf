@@ -60,7 +60,9 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
           gatewayBaseUrl: Uri.parse(widget.account.gatewayUrl),
           cacheDirectory: cache,
         ),
-      _ => throw StateError('Unsupported browsable provider: ${widget.account.provider}'),
+      _ => throw StateError(
+          'Unsupported browsable provider: ${widget.account.provider}',
+        ),
     };
     if (!mounted) return;
     setState(() {
@@ -102,10 +104,18 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
         localPath: path,
         remoteId: document.remoteId,
         remotePath: document.remotePath,
+        checksum: document.checksum,
+        remoteVersion: document.remoteVersion,
+        localVersion: document.localVersion,
         availableOffline: true,
         syncState: DocumentSyncState.synced,
       );
       await widget.catalog?.upsert(cached);
+      await widget.syncStore?.bindAccount(
+        entityId: cached.id,
+        provider: widget.account.provider,
+        accountId: widget.account.accountId,
+      );
       await _cacheStore?.upsert(
         documentId: document.id,
         provider: widget.account.provider,
@@ -161,6 +171,11 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
     try {
       final uploaded = await provider.upload(file.path);
       await widget.catalog?.upsert(uploaded);
+      await widget.syncStore?.bindAccount(
+        entityId: uploaded.id,
+        provider: widget.account.provider,
+        accountId: widget.account.accountId,
+      );
       if (job != null) await widget.syncStore!.markDone(job.id);
       await _refresh();
     } catch (error) {
@@ -212,7 +227,9 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text('Não foi possível listar a nuvem: ${snapshot.error}'),
+                      child: Text(
+                        'Não foi possível listar a nuvem: ${snapshot.error}',
+                      ),
                     ),
                   );
                 }
@@ -226,11 +243,16 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
                     final document = documents[index];
+                    final revision = document.remoteVersion;
                     return Card(
                       child: ListTile(
                         leading: const Icon(Icons.picture_as_pdf_outlined),
                         title: Text(document.name),
-                        subtitle: Text(document.remotePath ?? 'Arquivo remoto'),
+                        subtitle: Text(
+                          revision == null
+                              ? document.remotePath ?? 'Arquivo remoto'
+                              : 'Revisão remota: $revision',
+                        ),
                         trailing: IconButton(
                           tooltip: 'Disponibilizar offline',
                           onPressed: _busy ? null : () => _download(document),
