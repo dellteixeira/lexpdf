@@ -55,22 +55,24 @@ class LocalCloudAccountStore {
     ]);
   }
 
+  Future<LocalCloudAccount?> get(String provider, String accountId) async {
+    final rows = db.database.select(
+      '''
+      SELECT * FROM local_cloud_accounts
+      WHERE provider = ? AND account_id = ?
+      LIMIT 1;
+      ''',
+      [provider, accountId],
+    );
+    if (rows.isEmpty) return null;
+    return _fromRow(rows.first);
+  }
+
   Future<List<LocalCloudAccount>> list() async {
     final rows = db.database.select('''
       SELECT * FROM local_cloud_accounts ORDER BY provider, lower(display_name);
     ''');
-    return rows
-        .map(
-          (row) => LocalCloudAccount(
-            provider: row['provider'] as String,
-            accountId: row['account_id'] as String,
-            displayName: row['display_name'] as String,
-            gatewayUrl: row['gateway_url'] as String,
-            status: row['status'] as String,
-            updatedAt: DateTime.parse(row['updated_at'] as String),
-          ),
-        )
-        .toList(growable: false);
+    return rows.map(_fromRow).toList(growable: false);
   }
 
   Future<void> remove(String provider, String accountId) async {
@@ -79,4 +81,13 @@ class LocalCloudAccountStore {
       [provider, accountId],
     );
   }
+
+  LocalCloudAccount _fromRow(dynamic row) => LocalCloudAccount(
+        provider: row['provider'] as String,
+        accountId: row['account_id'] as String,
+        displayName: row['display_name'] as String,
+        gatewayUrl: row['gateway_url'] as String,
+        status: row['status'] as String,
+        updatedAt: DateTime.parse(row['updated_at'] as String),
+      );
 }
