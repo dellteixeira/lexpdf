@@ -25,16 +25,29 @@ jobs:
       - run: flutter test
       - name: Generate Android host project
         run: flutter create . --platforms=android --org com.lexpdf --project-name lexxpdf_app
-      - name: Add ML Kit text-recognition script dependencies
+      - name: Configure R8 for Latin-only ML Kit OCR
         shell: bash
         run: |
+          cat > android/app/proguard-rules.pro <<'EOF'
+          # LexPDF instantiates TextRecognizer only with TextRecognitionScript.latin.
+          # google_mlkit_text_recognition references optional script classes in its
+          # Android bridge; suppress those unavailable optional models for R8.
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
           cat >> android/app/build.gradle.kts <<'EOF'
 
-          dependencies {
-              implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-              implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
-              implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
-              implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+          android {
+              buildTypes {
+                  getByName("release") {
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
           }
           EOF
       - name: Build Android release APK
