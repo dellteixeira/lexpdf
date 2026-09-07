@@ -6,8 +6,6 @@ LexPDF keeps AI optional and preserves the offline-first architecture.
 
 PDF text selection exposes **Estudar** in the native selection context menu. The selected text is copied into the study screen without modifying the PDF and can be explained, summarized, converted into flashcards or turned into study questions.
 
-The study screen also accepts an initial action with autorun, so future context-menu shortcuts can invoke a specific action directly without changing the engine contract.
-
 ## Offline engine
 
 `LocalStudyEngine` is the default engine. It is deterministic, requires no network, and never sends document text off-device. It supports:
