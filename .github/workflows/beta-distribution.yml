@@ -89,6 +89,7 @@ jobs:
       - name: Build signed Android APK
         run: >-
           flutter build apk --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
@@ -96,6 +97,7 @@ jobs:
       - name: Build signed Android App Bundle
         run: >-
           flutter build appbundle --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
@@ -126,6 +128,7 @@ jobs:
       - name: Build Windows release
         run: >-
           flutter build windows --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
@@ -165,6 +168,7 @@ jobs:
       - name: Build macOS release
         run: >-
           flutter build macos --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
