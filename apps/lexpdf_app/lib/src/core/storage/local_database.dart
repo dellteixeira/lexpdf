@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
+import 'package:sqlite3/open.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 class LocalDatabase {
@@ -8,8 +12,33 @@ class LocalDatabase {
 
   final Database database;
 
+  static bool _cipherPlatformConfigured = false;
+
+  static void configureCipherPlatform() {
+    if (_cipherPlatformConfigured) return;
+    open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+    _cipherPlatformConfigured = true;
+  }
+
   factory LocalDatabase.open(String path) {
     return LocalDatabase._(sqlite3.open(path));
+  }
+
+  factory LocalDatabase.openEncrypted(String path, String keyHex) {
+    configureCipherPlatform();
+    _validateEncryptionKey(keyHex);
+    _migratePlaintextDatabaseIfNeeded(path, keyHex);
+
+    final db = sqlite3.open(path);
+    try {
+      _requireCipher(db);
+      _applyKey(db, keyHex);
+      db.select('SELECT count(*) FROM sqlite_master;');
+      return LocalDatabase._(db);
+    } catch (_) {
+      db.dispose();
+      rethrow;
+    }
   }
 
   factory LocalDatabase.inMemory() {
@@ -17,6 +46,121 @@ class LocalDatabase {
   }
 
   static const int schemaVersion = 8;
+  static const _sqliteHeader = <int>[
+    0x53,
+    0x51,
+    0x4c,
+    0x69,
+    0x74,
+    0x65,
+    0x20,
+    0x66,
+    0x6f,
+    0x72,
+    0x6d,
+    0x61,
+    0x74,
+    0x20,
+    0x33,
+    0x00,
+  ];
+
+  static void _validateEncryptionKey(String keyHex) {
+    if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(keyHex)) {
+      throw ArgumentError.value(
+        keyHex,
+        'keyHex',
+        'A chave SQLCipher deve conter exatamente 32 bytes em hexadecimal.',
+      );
+    }
+  }
+
+  static void _requireCipher(Database db) {
+    final rows = db.select('PRAGMA cipher_version;');
+    if (rows.isEmpty || rows.first.values.first?.toString().trim().isEmpty != false) {
+      throw StateError(
+        'SQLCipher não está disponível; o LexPDF se recusa a abrir o banco local sem criptografia.',
+      );
+    }
+  }
+
+  static void _applyKey(Database db, String keyHex) {
+    db.execute("PRAGMA key = \"x'$keyHex'\";");
+    db.execute('PRAGMA cipher_memory_security = ON;');
+  }
+
+  static bool _hasPlaintextHeader(String path) {
+    final file = File(path);
+    if (!file.existsSync() || file.lengthSync() < _sqliteHeader.length) return false;
+    final handle = file.openSync();
+    try {
+      final header = handle.readSync(_sqliteHeader.length);
+      if (header.length != _sqliteHeader.length) return false;
+      for (var index = 0; index < _sqliteHeader.length; index++) {
+        if (header[index] != _sqliteHeader[index]) return false;
+      }
+      return true;
+    } finally {
+      handle.closeSync();
+    }
+  }
+
+  static void _migratePlaintextDatabaseIfNeeded(String path, String keyHex) {
+    final sourceFile = File(path);
+    if (!sourceFile.existsSync() || sourceFile.lengthSync() == 0) return;
+    if (!_hasPlaintextHeader(path)) return;
+
+    final encryptedPath = '$path.sqlcipher-migration';
+    final backupPath = '$path.plaintext-backup';
+    final encryptedFile = File(encryptedPath);
+    final backupFile = File(backupPath);
+    if (encryptedFile.existsSync()) encryptedFile.deleteSync();
+    if (backupFile.existsSync()) backupFile.deleteSync();
+
+    final source = sqlite3.open(path);
+    try {
+      _requireCipher(source);
+      source.execute('PRAGMA wal_checkpoint(TRUNCATE);');
+      final escapedPath = encryptedPath.replaceAll("'", "''");
+      source.execute(
+        "ATTACH DATABASE '$escapedPath' AS encrypted KEY \"x'$keyHex'\";",
+      );
+      try {
+        source.select("SELECT sqlcipher_export('encrypted');");
+        source.execute('PRAGMA encrypted.user_version = ${source.userVersion};');
+      } finally {
+        source.execute('DETACH DATABASE encrypted;');
+      }
+    } catch (_) {
+      if (encryptedFile.existsSync()) encryptedFile.deleteSync();
+      rethrow;
+    } finally {
+      source.dispose();
+    }
+
+    final verification = sqlite3.open(encryptedPath);
+    try {
+      _requireCipher(verification);
+      _applyKey(verification, keyHex);
+      verification.select('SELECT count(*) FROM sqlite_master;');
+    } finally {
+      verification.dispose();
+    }
+
+    sourceFile.renameSync(backupPath);
+    try {
+      encryptedFile.renameSync(path);
+      backupFile.deleteSync();
+      final wal = File('$path-wal');
+      final shm = File('$path-shm');
+      if (wal.existsSync()) wal.deleteSync();
+      if (shm.existsSync()) shm.deleteSync();
+    } catch (_) {
+      if (File(path).existsSync()) File(path).deleteSync();
+      if (backupFile.existsSync()) backupFile.renameSync(path);
+      rethrow;
+    }
+  }
 
   void _configure() {
     database.execute('PRAGMA foreign_keys = ON;');
