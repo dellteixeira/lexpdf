@@ -124,6 +124,7 @@ class PdfPageManipulationService {
     }
   }
 
+  /// Legacy in-memory API. Prefer [splitEveryPageToDirectory] for large PDFs.
   Future<List<Uint8List>> splitEveryPage(String sourcePath) async {
     final source = await PdfDocument.openFile(sourcePath);
     try {
@@ -140,6 +141,46 @@ class PdfPageManipulationService {
         }
       }
       return outputs;
+    } finally {
+      await source.dispose();
+    }
+  }
+
+  /// Splits directly to disk, keeping only one encoded page in memory at a
+  /// time. This is the safe path for 2,000–5,000+ page documents.
+  Future<int> splitEveryPageToDirectory(
+    String sourcePath, {
+    required Directory outputDirectory,
+    bool Function()? isCancelled,
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    await outputDirectory.create(recursive: true);
+    final source = await PdfDocument.openFile(sourcePath);
+    try {
+      final total = source.pages.length;
+      for (var index = 0; index < total; index++) {
+        if (isCancelled?.call() == true) {
+          throw StateError('Divisão cancelada.');
+        }
+        final output = await PdfDocument.createNew(
+          sourceName: 'pagina_${index + 1}.pdf',
+        );
+        try {
+          output.pages = [source.pages[index]];
+          final bytes = await output.encodePdf();
+          final target = File(
+            '${outputDirectory.path}${Platform.pathSeparator}pagina_${index + 1}.pdf',
+          );
+          await target.writeAsBytes(bytes, flush: true);
+        } finally {
+          await output.dispose();
+        }
+        onProgress?.call(index + 1, total);
+        if ((index + 1) % 16 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      return total;
     } finally {
       await source.dispose();
     }
@@ -217,21 +258,23 @@ class PdfPageManipulationService {
     try {
       for (final page in source.pages) {
         final render = await page.render(
-          width: (page.width * renderScale).round().clamp(1, 10000),
-          height: (page.height * renderScale).round().clamp(1, 10000),
+          width: (page.width * renderScale).round().clamp(1, 4096),
+          height: (page.height * renderScale).round().clamp(1, 4096),
           backgroundColor: 0xFFFFFFFF,
           annotationRenderingMode: PdfAnnotationRenderingMode.annotationAndForms,
         );
         if (render == null) {
           throw StateError('Could not render page ${page.pageNumber}.');
         }
-        late final Uint8List pagePng;
+        late final Uint8List pageJpeg;
         try {
-          pagePng = Uint8List.fromList(img.encodePng(render.createImageNF()));
+          pageJpeg = Uint8List.fromList(
+            img.encodeJpg(render.createImageNF(), quality: 88),
+          );
         } finally {
           render.dispose();
         }
-        final base = pw.MemoryImage(pagePng);
+        final base = pw.MemoryImage(pageJpeg);
         final targetWidth = page.width * widthFraction;
         final targetHeight = targetWidth * decoded.height / decoded.width;
         output.addPage(
