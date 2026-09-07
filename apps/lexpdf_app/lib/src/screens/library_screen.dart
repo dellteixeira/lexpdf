@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/documents/document_picker_service.dart';
@@ -18,7 +20,7 @@ import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_navigation_screen.dart';
 import 'pdf_ocr_screen.dart';
 import 'pdf_page_tools_screen.dart';
-import 'pdf_reader_screen.dart';
+import 'pdf_workspace_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -84,7 +86,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             icon: const Icon(Icons.cloud_sync_outlined),
           ),
           IconButton(
-            tooltip: 'Abrir arquivo',
+            tooltip: 'Abrir PDF',
             onPressed: _openingDocument ? null : _openPdf,
             icon: _openingDocument
                 ? const SizedBox.square(
@@ -104,7 +106,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       drawer: compact
           ? Drawer(
-              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
             )
           : null,
       body: Row(
@@ -112,7 +117,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           if (!compact)
             SizedBox(
               width: 232,
-              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
             ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -123,7 +131,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 children: [
                   Text(
                     _destinations[_selectedIndex].$2,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -150,6 +161,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptySubtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
       );
     }
+
     if (_selectedIndex == 2) {
       return _buildDocumentList(
         future: widget.catalog.listFavorites(limit: 100),
@@ -158,6 +170,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptySubtitle: 'Toque na estrela de um documento para mantê-lo aqui.',
       );
     }
+
     if (_selectedIndex == 3) {
       return GridView.extent(
         maxCrossAxisExtent: 320,
@@ -179,6 +192,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       );
     }
+
     if (_selectedIndex == 4) {
       return _buildDocumentList(
         future: _offlineDocuments(),
@@ -187,6 +201,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         emptySubtitle: 'Downloads da nuvem aparecerão aqui automaticamente.',
       );
     }
+
     if (_selectedIndex == 5) {
       return GridView.extent(
         maxCrossAxisExtent: 340,
@@ -208,40 +223,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       );
     }
+
     return GridView.extent(
-      maxCrossAxisExtent: 280,
+      maxCrossAxisExtent: 360,
       mainAxisSpacing: 16,
       crossAxisSpacing: 16,
       children: [
-        _QuickAction(
-          icon: Icons.file_open_outlined,
-          title: 'Abrir PDF',
-          subtitle: 'Neste dispositivo',
+        _PdfWorkspaceAction(
+          loading: _openingDocument,
           onTap: _openingDocument ? null : _openPdf,
-        ),
-        _QuickAction(
-          icon: Icons.navigation_outlined,
-          title: 'Navegação avançada',
-          subtitle: 'Miniaturas, sumário, marcadores e modos de página',
-          onTap: _openingDocument ? null : _openNavigationPicker,
-        ),
-        _QuickAction(
-          icon: Icons.draw_outlined,
-          title: 'Anotar PDF',
-          subtitle: 'Notas, texto, formas, carimbos e assinatura',
-          onTap: _openingDocument ? null : _openAdvancedAnnotations,
-        ),
-        _QuickAction(
-          icon: Icons.edit_document,
-          title: 'Editar páginas',
-          subtitle: 'Adicionar, excluir, reordenar, girar, extrair, combinar e dividir',
-          onTap: _openingDocument ? null : _openPageToolsPicker,
-        ),
-        _QuickAction(
-          icon: Icons.document_scanner_outlined,
-          title: 'OCR offline',
-          subtitle: 'Reconhecer e indexar texto de PDFs digitalizados',
-          onTap: _openingDocument ? null : _openOcrPicker,
         ),
         _QuickAction(
           icon: Icons.manage_search_outlined,
@@ -279,7 +269,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<List<DocumentRef>> _offlineDocuments() async {
     final documents = await widget.catalog.list(limit: 500);
-    return documents.where((document) => document.availableOffline).toList(growable: false);
+    return documents
+        .where((document) => document.availableOffline)
+        .toList(growable: false);
   }
 
   Widget _buildDocumentList({
@@ -294,10 +286,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
         }
+
         final documents = snapshot.data ?? const <DocumentRef>[];
         if (documents.isEmpty) {
-          return _EmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
+          return _EmptyState(
+            icon: emptyIcon,
+            title: emptyTitle,
+            subtitle: emptySubtitle,
+          );
         }
+
         return ListView.separated(
           itemCount: documents.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -306,8 +304,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.picture_as_pdf_outlined),
-                title: Text(document.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(document.availableOffline ? 'Disponível offline' : 'Necessita download'),
+                title: Text(
+                  document.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  document.availableOffline
+                      ? 'Disponível offline'
+                      : 'Necessita download',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -340,14 +346,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           : null,
                     ),
                     IconButton(
-                      tooltip: document.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
-                      icon: Icon(document.favorite ? Icons.star : Icons.star_border),
+                      tooltip: document.favorite
+                          ? 'Remover dos favoritos'
+                          : 'Adicionar aos favoritos',
+                      icon: Icon(
+                        document.favorite ? Icons.star : Icons.star_border,
+                      ),
                       onPressed: () => _toggleFavorite(document),
                     ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
-                onTap: document.availableOffline ? () => _openDocument(document) : null,
+                onTap: document.availableOffline
+                    ? () => _openDocument(document)
+                    : null,
               ),
             );
           },
@@ -364,6 +376,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<DocumentRef?> _pickAndStorePdf() async {
     final document = await _picker.pickPdf();
     if (!mounted || document == null) return null;
+
+    final path = document.localPath;
+    if (path == null || path.isEmpty || !await File(path).exists()) {
+      throw StateError('O arquivo selecionado não está acessível neste dispositivo.');
+    }
+
     await widget.catalog.upsert(document);
     return await widget.catalog.getById(document.id) ?? document;
   }
@@ -371,9 +389,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _openPdf() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
+
     try {
       final stored = await _pickAndStorePdf();
-      if (stored != null) await _openDocument(stored);
+      if (stored != null) {
+        await _openDocument(stored);
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -384,76 +405,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  Future<void> _openNavigationPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openNavigationDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir a navegação avançada: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openAdvancedAnnotations() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openAdvancedDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o editor de anotações: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openPageToolsPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openPageToolsDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o editor de páginas: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openOcrPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openOcrDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o OCR: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
   Future<void> _openDocument(DocumentRef document) async {
     await widget.catalog.markOpened(document.id);
     if (!mounted) return;
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PdfReaderScreen(
+        builder: (_) => PdfWorkspaceScreen(
           document: document,
           readingProgress: widget.readingProgress,
           annotations: widget.annotations,
@@ -461,6 +419,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ),
     );
+
     if (mounted) setState(() {});
   }
 
@@ -578,7 +537,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
 }
 
 class _Navigation extends StatelessWidget {
-  const _Navigation({required this.selectedIndex, required this.onSelect});
+  const _Navigation({
+    required this.selectedIndex,
+    required this.onSelect,
+  });
+
   final int selectedIndex;
   final ValueChanged<int> onSelect;
 
@@ -594,15 +557,107 @@ class _Navigation extends StatelessWidget {
             child: Text('DOCUMENTOS'),
           ),
           for (final destination in _LibraryScreenState._destinations)
-            NavigationDrawerDestination(icon: Icon(destination.$1), label: Text(destination.$2)),
+            NavigationDrawerDestination(
+              icon: Icon(destination.$1),
+              label: Text(destination.$2),
+            ),
         ],
       ),
     );
   }
 }
 
+class _PdfWorkspaceAction extends StatelessWidget {
+  const _PdfWorkspaceAction({
+    required this.loading,
+    this.onTap,
+  });
+
+  final bool loading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  loading
+                      ? const SizedBox.square(
+                          dimension: 36,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        )
+                      : const Icon(Icons.picture_as_pdf_outlined, size: 42),
+                  const Spacer(),
+                  const Icon(Icons.arrow_forward),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                'Abrir e trabalhar com PDF',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Abra uma única vez e use a mesma guia para ler, navegar, anotar, editar páginas e executar OCR.',
+              ),
+              const SizedBox(height: 14),
+              const Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _FeatureChip(icon: Icons.menu_book_outlined, label: 'Ler'),
+                  _FeatureChip(icon: Icons.navigation_outlined, label: 'Navegar'),
+                  _FeatureChip(icon: Icons.draw_outlined, label: 'Anotar'),
+                  _FeatureChip(icon: Icons.edit_document, label: 'Páginas'),
+                  _FeatureChip(
+                    icon: Icons.document_scanner_outlined,
+                    label: 'OCR',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FeatureChip extends StatelessWidget {
+  const _FeatureChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+    );
+  }
+}
+
 class _QuickAction extends StatelessWidget {
-  const _QuickAction({required this.icon, required this.title, required this.subtitle, this.onTap});
+  const _QuickAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -622,7 +677,13 @@ class _QuickAction extends StatelessWidget {
             children: [
               Icon(icon, size: 42),
               const Spacer(),
-              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Text(subtitle),
             ],
@@ -634,7 +695,12 @@ class _QuickAction extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.title, required this.subtitle});
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -649,9 +715,17 @@ class _EmptyState extends StatelessWidget {
           children: [
             Icon(icon, size: 56),
             const SizedBox(height: 16),
-            Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(subtitle, style: Theme.of(context).textTheme.bodyLarge, textAlign: TextAlign.center),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodyLarge,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
