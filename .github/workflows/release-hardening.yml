@@ -19,6 +19,7 @@ jobs:
           test -d apps/lexpdf_app/windows
           test -d apps/lexpdf_app/macos
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
+          grep -q "defaultValue: 'development'" apps/lexpdf_app/lib/src/core/backend/backend_config.dart
           legacy='lex''xpdf_app'
           if grep -R "$legacy" -n apps/lexpdf_app .github/workflows; then
             echo 'Legacy package identity found.' >&2
@@ -53,6 +54,7 @@ jobs:
       - name: Build Android release APK
         run: >-
           flutter build apk --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
@@ -82,6 +84,7 @@ jobs:
       - name: Build Windows release
         run: >-
           flutter build windows --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
@@ -120,6 +123,7 @@ jobs:
       - name: Build macOS release
         run: >-
           flutter build macos --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
