@@ -61,6 +61,7 @@ class CloudSyncProviderFactory {
         .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_')
         .replaceAll(RegExp(r'^\.+'), '')
         .trim();
-    return safe.isEmpty ? 'default' : safe.substring(0, safe.length.clamp(0, 96));
+    if (safe.isEmpty) return 'default';
+    return safe.length <= 96 ? safe : safe.substring(0, 96);
   }
 }
