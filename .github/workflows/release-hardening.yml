@@ -25,6 +25,18 @@ jobs:
       - run: flutter test
       - name: Generate Android host project
         run: flutter create . --platforms=android --org com.lexpdf --project-name lexxpdf_app
+      - name: Add ML Kit text-recognition script dependencies
+        shell: bash
+        run: |
+          cat >> android/app/build.gradle.kts <<'EOF'
+
+          dependencies {
+              implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+              implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
+              implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+              implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+          }
+          EOF
       - name: Build Android release APK
         run: flutter build apk --release
       - uses: actions/upload-artifact@v4
