@@ -145,6 +145,73 @@ class LocalNotebookLayerStore {
     _assign(layerId, NotebookLayerItemType.object, objectId);
   }
 
+  Future<Map<String, String>> itemLayerMap(
+    String pageId,
+    NotebookLayerItemType type,
+  ) async {
+    final rows = db.database.select(
+      '''
+      SELECT i.item_id, i.layer_id
+      FROM notebook_layer_items i
+      JOIN notebook_layers l ON l.id = i.layer_id
+      WHERE l.page_id = ? AND i.item_type = ?;
+      ''',
+      [pageId, _typeToDb(type)],
+    );
+    return {
+      for (final row in rows)
+        row['item_id'] as String: row['layer_id'] as String,
+    };
+  }
+
+  Future<void> replaceAssignments({
+    required String pageId,
+    required Map<String, String> strokeLayerIds,
+    required Map<String, String> objectLayerIds,
+  }) async {
+    final layers = await listLayers(pageId);
+    if (layers.isEmpty) await ensureDefaultLayer(pageId);
+    final validLayers = (await listLayers(pageId)).map((e) => e.id).toSet();
+    final fallback = (await listLayers(pageId)).first.id;
+
+    db.database.execute('BEGIN IMMEDIATE;');
+    try {
+      db.database.execute(
+        '''DELETE FROM notebook_layer_items
+           WHERE layer_id IN (SELECT id FROM notebook_layers WHERE page_id = ?);''',
+        [pageId],
+      );
+      final strokeRows = db.database.select(
+        'SELECT id FROM ink_strokes WHERE page_id = ?;',
+        [pageId],
+      );
+      for (final row in strokeRows) {
+        final itemId = row['id'] as String;
+        final requested = strokeLayerIds[itemId];
+        final layerId = requested != null && validLayers.contains(requested)
+            ? requested
+            : fallback;
+        _insertAssignment(layerId, NotebookLayerItemType.stroke, itemId);
+      }
+      final objectRows = db.database.select(
+        'SELECT id FROM notebook_objects WHERE page_id = ?;',
+        [pageId],
+      );
+      for (final row in objectRows) {
+        final itemId = row['id'] as String;
+        final requested = objectLayerIds[itemId];
+        final layerId = requested != null && validLayers.contains(requested)
+            ? requested
+            : fallback;
+        _insertAssignment(layerId, NotebookLayerItemType.object, itemId);
+      }
+      db.database.execute('COMMIT;');
+    } catch (_) {
+      db.database.execute('ROLLBACK;');
+      rethrow;
+    }
+  }
+
   Future<String?> layerIdForItem(
     NotebookLayerItemType type,
     String itemId,
@@ -223,7 +290,14 @@ class LocalNotebookLayerStore {
     if (itemRows.single['page_id'] as String != pageId) {
       throw ArgumentError('O item e a camada precisam pertencer à mesma página.');
     }
+    _insertAssignment(layerId, type, itemId);
+  }
 
+  void _insertAssignment(
+    String layerId,
+    NotebookLayerItemType type,
+    String itemId,
+  ) {
     db.database.execute(
       '''
       INSERT INTO notebook_layer_items(layer_id, item_type, item_id, created_at)
