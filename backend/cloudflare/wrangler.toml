@@ -22,7 +22,7 @@ dead_letter_queue = "lexpdf-sync-dlq"
 retry_delay = 30
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 SUPABASE_URL = "https://ibffselezupggrovfruz.supabase.co"
 MAX_UPLOAD_BYTES = "262144000"
 
