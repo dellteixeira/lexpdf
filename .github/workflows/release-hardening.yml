@@ -108,6 +108,15 @@ jobs:
       - run: flutter pub get
       - name: Verify lockfile is stable
         run: git diff --exit-code -- pubspec.lock
+      - name: Verify macOS release entitlements
+        shell: bash
+        run: |
+          set -euo pipefail
+          entitlements='macos/Runner/Release.entitlements'
+          test -s "$entitlements"
+          grep -A1 -q 'com.apple.security.app-sandbox' "$entitlements"
+          grep -A1 -q 'com.apple.security.network.client' "$entitlements"
+          grep -A1 -q 'com.apple.security.files.user-selected.read-write' "$entitlements"
       - name: Build macOS release
         run: >-
           flutter build macos --release
