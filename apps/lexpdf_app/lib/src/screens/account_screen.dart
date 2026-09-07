@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/backend/backend_config.dart';
+import '../core/storage/local_cloud_account_store.dart';
+import '../core/storage/local_database.dart';
+
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key});
+  const AccountScreen({required this.database, super.key});
+
+  final LocalDatabase database;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -13,6 +19,7 @@ class _AccountScreenState extends State<AccountScreen> {
   final _password = TextEditingController();
   bool _busy = false;
   Object? _error;
+  String? _message;
 
   SupabaseClient get _client => Supabase.instance.client;
 
@@ -28,6 +35,7 @@ class _AccountScreenState extends State<AccountScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _message = null;
     });
     try {
       await action();
@@ -55,6 +63,32 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Future<void> _signOut() => _run(() => _client.auth.signOut());
 
+  Future<void> _activateLexPdfCloud() => _run(() async {
+        const config = BackendConfig.fromEnvironment;
+        if (!config.hasCloudGateway) {
+          throw StateError('LexPDF Cloud gateway is not configured.');
+        }
+        if (_client.auth.currentSession == null) {
+          throw StateError('Entre na sua conta antes de ativar o LexPDF Cloud.');
+        }
+        final store = LocalCloudAccountStore(widget.database);
+        await store.upsert(
+          LocalCloudAccount(
+            provider: 'r2',
+            accountId: 'default',
+            displayName: 'LexPDF Cloud',
+            gatewayUrl: config.cloudGatewayUrl,
+            status: 'connected',
+            updatedAt: DateTime.now().toUtc(),
+          ),
+        );
+        if (mounted) {
+          setState(() {
+            _message = 'LexPDF Cloud ativado. A sessão da sua conta será usada automaticamente.';
+          });
+        }
+      });
+
   @override
   Widget build(BuildContext context) {
     final user = _client.auth.currentUser;
@@ -74,10 +108,21 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              onPressed: _busy ? null : _signOut,
-              icon: const Icon(Icons.logout),
-              label: const Text('Sair'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _busy ? null : _activateLexPdfCloud,
+                  icon: const Icon(Icons.cloud_done_outlined),
+                  label: const Text('Ativar LexPDF Cloud'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _signOut,
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Sair'),
+                ),
+              ],
             ),
           ] else ...[
             TextField(
@@ -124,6 +169,10 @@ class _AccountScreenState extends State<AccountScreen> {
           if (_busy) ...[
             const SizedBox(height: 16),
             const LinearProgressIndicator(),
+          ],
+          if (_message != null) ...[
+            const SizedBox(height: 16),
+            Text(_message!),
           ],
           if (_error != null) ...[
             const SizedBox(height: 16),
