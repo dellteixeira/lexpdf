@@ -17,7 +17,8 @@ void main() {
     expect(manifest, isNot(contains('MANAGE_EXTERNAL_STORAGE')));
     expect(manifest, isNot(contains('READ_EXTERNAL_STORAGE')));
     expect(manifest, isNot(contains('WRITE_EXTERNAL_STORAGE')));
-    expect(activity, contains('File(cacheDir, "native_open")'));
+    expect(activity, contains('File(filesDir, "native_open")'));
+    expect(activity, isNot(contains('File(cacheDir, "native_open")')));
     expect(activity, contains('contentResolver.openInputStream(uri)'));
     expect(activity, contains('invokeMethod("openPdfPath", path)'));
   });
