@@ -11,6 +11,13 @@ class HugePdfPolicy {
   static const int overlayPagesBefore = 2;
   static const int overlayPagesAfter = 3;
 
+  /// Delay the initial overlay hydration until the first viewer frame settles.
+  static const Duration initialOverlayLoadDelay = Duration(milliseconds: 160);
+
+  /// Coalesce fast page changes so scrolling through thousands of pages does
+  /// not trigger storage/text work for every intermediate page.
+  static const Duration overlayPageChangeDebounce = Duration(milliseconds: 90);
+
   /// Keep the rendered image cache bounded even for 2,000–5,000+ page files.
   static const int viewerImageCacheBytes = 64 * 1024 * 1024;
 
