@@ -44,15 +44,21 @@ class LocalReadingProgressStore {
   Future<void> save({
     required String documentId,
     required int pageNumber,
-    double zoom = 1,
-    double scrollOffset = 0,
-    String viewMode = 'continuous',
+    double? zoom,
+    double? scrollOffset,
+    String? viewMode,
   }) async {
     if (pageNumber < 1) {
       throw ArgumentError.value(pageNumber, 'pageNumber', 'Must be >= 1');
     }
-    if (zoom <= 0) {
-      throw ArgumentError.value(zoom, 'zoom', 'Must be > 0');
+
+    final current = await get(documentId);
+    final resolvedZoom = zoom ?? current?.zoom ?? 1;
+    final resolvedScrollOffset = scrollOffset ?? current?.scrollOffset ?? 0;
+    final resolvedViewMode = viewMode ?? current?.viewMode ?? 'continuous';
+
+    if (resolvedZoom <= 0) {
+      throw ArgumentError.value(resolvedZoom, 'zoom', 'Must be > 0');
     }
 
     final now = DateTime.now().toUtc().toIso8601String();
@@ -69,9 +75,9 @@ class LocalReadingProgressStore {
     ''', [
       documentId,
       pageNumber,
-      zoom,
-      scrollOffset,
-      viewMode,
+      resolvedZoom,
+      resolvedScrollOffset,
+      resolvedViewMode,
       now,
     ]);
   }
