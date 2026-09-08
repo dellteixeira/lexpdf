@@ -33,6 +33,13 @@ void main() {
         updatedAt: DateTime.utc(2026, 9, 6),
       );
 
+  NotebookPageSnapshot snapshot(int index) => NotebookPageSnapshot.capture(
+        strokes: [stroke('s-$index')],
+        objects: [object('o-$index')],
+        strokeLayerIds: {'s-$index': 'layer-${index % 12}'},
+        objectLayerIds: {'o-$index': 'layer-${(index + 5) % 12}'},
+      );
+
   test('undo and redo restore composite page snapshots', () {
     final history = NotebookHistoryController();
     final empty = NotebookPageSnapshot.capture(strokes: const [], objects: const []);
@@ -61,5 +68,74 @@ void main() {
     expect(history.canRedo, isTrue);
     history.record(first);
     expect(history.canRedo, isFalse);
+  });
+
+  test('long undo/redo cycle stays bounded and preserves layer assignments', () {
+    const limit = 80;
+    final history = NotebookHistoryController(limit: limit);
+
+    for (var index = 0; index < 100; index++) {
+      history.record(snapshot(index));
+    }
+
+    var current = snapshot(100);
+    final undone = <int>[];
+    while (history.canUndo) {
+      final previous = history.undo(current);
+      expect(previous, isNotNull);
+      current = previous!;
+      final index = int.parse(current.objects.single.id.substring(2));
+      undone.add(index);
+      expect(current.strokeLayerIds[current.strokes.single.id], 'layer-${index % 12}');
+      expect(current.objectLayerIds[current.objects.single.id], 'layer-${(index + 5) % 12}');
+    }
+
+    expect(undone, hasLength(limit));
+    expect(undone.first, 99);
+    expect(undone.last, 20);
+    expect(history.undo(current), isNull);
+    expect(history.canRedo, isTrue);
+
+    final redone = <int>[];
+    while (history.canRedo) {
+      final next = history.redo(current);
+      expect(next, isNotNull);
+      current = next!;
+      final index = int.parse(current.objects.single.id.substring(2));
+      redone.add(index);
+      expect(current.strokeLayerIds[current.strokes.single.id], 'layer-${index % 12}');
+      expect(current.objectLayerIds[current.objects.single.id], 'layer-${(index + 5) % 12}');
+    }
+
+    expect(redone, hasLength(limit));
+    expect(redone.first, 21);
+    expect(redone.last, 100);
+    expect(history.canUndo, isTrue);
+    expect(history.redo(current), isNull);
+  });
+
+  test('captured snapshots do not change when source collections mutate', () {
+    final strokes = <InkStroke>[stroke('stable-stroke')];
+    final objects = <NotebookObject>[object('stable-object')];
+    final strokeLayers = <String, String>{'stable-stroke': 'layer-a'};
+    final objectLayers = <String, String>{'stable-object': 'layer-b'};
+
+    final captured = NotebookPageSnapshot.capture(
+      strokes: strokes,
+      objects: objects,
+      strokeLayerIds: strokeLayers,
+      objectLayerIds: objectLayers,
+    );
+
+    strokes.clear();
+    objects.clear();
+    strokeLayers['stable-stroke'] = 'layer-c';
+    objectLayers.clear();
+
+    expect(captured.strokes.single.id, 'stable-stroke');
+    expect(captured.objects.single.id, 'stable-object');
+    expect(captured.strokeLayerIds['stable-stroke'], 'layer-a');
+    expect(captured.objectLayerIds['stable-object'], 'layer-b');
+    expect(() => captured.strokeLayerIds['x'] = 'layer-x', throwsUnsupportedError);
   });
 }

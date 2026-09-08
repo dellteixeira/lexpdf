@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lexpdf_app/src/core/ink/ink_models.dart';
 import 'package:lexpdf_app/src/core/storage/local_database.dart';
@@ -117,4 +119,91 @@ void main() {
     );
     expect(database.database.select('PRAGMA foreign_key_check;'), isEmpty);
   });
+
+  test('many layers and assignments survive reorder and database reopen', () async {
+    const layerCount = 40;
+    const strokeCount = 120;
+    final directory = Directory.systemTemp.createTempSync('lexpdf-layer-stress-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final path = '${directory.path}${Platform.pathSeparator}layers.db';
+
+    final database = LocalDatabase.open(path);
+    final inkStore = LocalInkStore(database);
+    final notebook = await inkStore.createNotebook('Stress de camadas');
+    final page = (await inkStore.listPages(notebook.id)).single;
+    final layers = LocalNotebookLayerStore(database);
+    final created = <NotebookLayer>[await layers.ensureDefaultLayer(page.id)];
+
+    for (var index = 1; index < layerCount; index++) {
+      created.add(await layers.createLayer(page.id, name: 'Camada ${index + 1}'));
+    }
+    expect(created, hasLength(layerCount));
+
+    for (var index = 0; index < strokeCount; index++) {
+      final strokeId = 'stress-stroke-$index';
+      await inkStore.addStroke(
+        InkStroke(
+          id: strokeId,
+          pageId: page.id,
+          tool: index.isEven ? InkTool.pen : InkTool.pencil,
+          colorValue: 0xFF246BFD,
+          opacity: 1,
+          width: 2,
+          points: [
+            InkPoint(
+              x: index.toDouble(),
+              y: index.toDouble(),
+              pressure: 0.5,
+              tilt: 0,
+              timestampMicros: index * 2,
+            ),
+            InkPoint(
+              x: index + 1.0,
+              y: index + 1.0,
+              pressure: 0.7,
+              tilt: 0,
+              timestampMicros: index * 2 + 1,
+            ),
+          ],
+          createdAt: DateTime.utc(2026, 9, 8).add(Duration(seconds: index)),
+        ),
+      );
+      await layers.assignStroke(created[index % layerCount].id, strokeId);
+    }
+
+    await layers.setVisibility(created[7].id, false);
+    await layers.setLocked(created[13].id, true);
+    final reversedIds = created.reversed.map((layer) => layer.id).toList();
+    await layers.reorderLayers(page.id, reversedIds);
+
+    final beforeClose = await layers.listLayers(page.id);
+    expect(beforeClose.map((layer) => layer.id), reversedIds);
+    expect(beforeClose.map((layer) => layer.sortOrder), List<int>.generate(layerCount, (i) => i));
+    expect(
+      await layers.itemLayerMap(page.id, NotebookLayerItemType.stroke),
+      hasLength(strokeCount),
+    );
+    expect(database.database.select('PRAGMA foreign_key_check;'), isEmpty);
+    database.close();
+
+    final reopened = LocalDatabase.open(path);
+    addTearDown(reopened.close);
+    final reopenedLayers = LocalNotebookLayerStore(reopened);
+    final restored = await reopenedLayers.listLayers(page.id);
+    final assignments = await reopenedLayers.itemLayerMap(
+      page.id,
+      NotebookLayerItemType.stroke,
+    );
+
+    expect(restored, hasLength(layerCount));
+    expect(restored.map((layer) => layer.id), reversedIds);
+    expect(restored.map((layer) => layer.sortOrder), List<int>.generate(layerCount, (i) => i));
+    expect(restored.singleWhere((layer) => layer.id == created[7].id).isVisible, isFalse);
+    expect(restored.singleWhere((layer) => layer.id == created[13].id).isLocked, isTrue);
+    expect(assignments, hasLength(strokeCount));
+    for (var index = 0; index < strokeCount; index++) {
+      expect(assignments['stress-stroke-$index'], created[index % layerCount].id);
+    }
+    expect(reopened.database.select('PRAGMA foreign_key_check;'), isEmpty);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
