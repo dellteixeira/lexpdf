@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
@@ -12,6 +13,7 @@ import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../widgets/pdf_ink_page_overlay.dart';
+import '../widgets/pdf_reader_controls.dart';
 import 'ai_study_screen.dart';
 
 class PdfReaderScreen extends StatefulWidget {
@@ -76,6 +78,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _loadingAnnotations = false;
   bool _inkMode = false;
   bool _inkEraserMode = false;
+
+  bool get _mobileTouchNavigationEnabled =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void initState() {
@@ -182,7 +188,38 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-        actions: _searchMode ? _buildSearchActions() : _buildReaderActions(),
+        actions: [
+          if (_searchMode)
+            PdfSearchAppBarActions(
+              isSearching: _textSearcher.isSearching,
+              currentIndex: _textSearcher.currentIndex,
+              matchCount: _textSearcher.matches.length,
+              onPrevious: _textSearcher.matches.isEmpty
+                  ? null
+                  : () => unawaited(_textSearcher.goToPrevMatch()),
+              onNext: _textSearcher.matches.isEmpty
+                  ? null
+                  : () => unawaited(_textSearcher.goToNextMatch()),
+              onClose: _closeSearch,
+            )
+          else
+            PdfReaderAppBarActions(
+              currentPage: _currentPage,
+              inkMode: _inkMode,
+              inkEraserMode: _inkEraserMode,
+              annotationCount: _annotationCount,
+              inkCount: _inkCount,
+              onToggleInkMode: _toggleInkMode,
+              onToggleEraser: _toggleInkEraser,
+              onConfigureInk: _inkEraserMode ? null : _showInkSettings,
+              onUndoInk: () => unawaited(_undoPdfInk()),
+              onOpenStudy: () => unawaited(_openDocumentStudy()),
+              onOpenSearch: () => setState(() => _searchMode = true),
+              onOpenAnnotationPalette: () => unawaited(_showColorPalette()),
+              onOpenAnnotations: () => unawaited(_showAnnotationsPanel()),
+              onOpenInkSummary: () => unawaited(_showInkSummary()),
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -206,8 +243,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   pageImageCachingDelay: Duration(milliseconds: 40),
                   partialImageLoadingDelay: Duration(milliseconds: 60),
                 ),
-                panEnabled: !_inkMode,
-                scaleEnabled: !_inkMode,
+                // On phones/tablets, touch remains dedicated to navigation even
+                // while the ink overlay is active. The overlay accepts stylus,
+                // inverted stylus and mouse input, so a two-finger pinch can
+                // zoom the page without leaving writing mode.
+                panEnabled: !_inkMode || _mobileTouchNavigationEnabled,
+                scaleEnabled: !_inkMode || _mobileTouchNavigationEnabled,
                 textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),
                 customizeContextMenuItems:
                     _inkMode ? null : _customizeContextMenuItems,
@@ -289,34 +330,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
             Positioned(
               left: 16,
               bottom: 16,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _inkEraserMode ? Icons.auto_fix_off : Icons.edit,
-                        color: _inkEraserMode ? null : Color(_inkColor),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _inkEraserMode
-                            ? 'Borracha parcial'
-                            : '${_inkToolLabel(_inkTool)} · ${_inkWidth.toStringAsFixed(1)}',
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton.icon(
-                        onPressed: _inkEraserMode ? null : _showInkSettings,
-                        icon: const Icon(Icons.tune),
-                        label: const Text('Ajustar'),
-                      ),
-                    ],
-                  ),
-                ),
+              child: PdfInkStatusCard(
+                eraserMode: _inkEraserMode,
+                colorValue: _inkColor,
+                toolLabel: _inkToolLabel(_inkTool),
+                width: _inkWidth,
+                onConfigure: _inkEraserMode ? null : _showInkSettings,
               ),
             ),
           if (_loadingAnnotations)
@@ -354,122 +373,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         InkTool.highlighter => _inkWidth * 5,
       };
 
-  List<Widget> _buildReaderActions() {
-    return [
-      if (_currentPage != null)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Center(child: Text('Pág. $_currentPage')),
-        ),
-      IconButton(
-        tooltip: _inkMode ? 'Sair do modo escrita' : 'Escrever no PDF',
-        onPressed: _toggleInkMode,
-        icon: Icon(_inkMode ? Icons.edit_off_outlined : Icons.edit_outlined),
-        color: _inkMode ? Theme.of(context).colorScheme.primary : null,
-      ),
-      if (_inkMode) ...[
-        IconButton(
-          tooltip: _inkEraserMode ? 'Voltar para caneta' : 'Borracha parcial',
-          onPressed: () {
-            setState(() => _inkEraserMode = !_inkEraserMode);
-            _viewerController.invalidate();
-          },
-          icon: Icon(
-            _inkEraserMode ? Icons.edit_outlined : Icons.auto_fix_off,
-          ),
-          color: _inkEraserMode ? Theme.of(context).colorScheme.primary : null,
-        ),
-        IconButton(
-          tooltip: 'Configurar caneta',
-          onPressed: _inkEraserMode ? null : _showInkSettings,
-          icon: const Icon(Icons.tune),
-        ),
-        IconButton(
-          tooltip: 'Desfazer último traço desta página',
-          onPressed: _undoPdfInk,
-          icon: const Icon(Icons.undo),
-        ),
-      ] else ...[
-        IconButton(
-          tooltip: 'Estudar documento',
-          onPressed: _openDocumentStudy,
-          icon: const Icon(Icons.auto_awesome_outlined),
-        ),
-        IconButton(
-          tooltip: 'Pesquisar no PDF',
-          onPressed: () => setState(() => _searchMode = true),
-          icon: const Icon(Icons.search),
-        ),
-        IconButton(
-          tooltip: 'Cor das novas marcações',
-          onPressed: _showColorPalette,
-          icon: const Icon(Icons.palette_outlined),
-        ),
-        Badge(
-          isLabelVisible: _annotationCount > 0,
-          label: Text('$_annotationCount'),
-          child: IconButton(
-            tooltip: 'Anotações textuais',
-            onPressed: _showAnnotationsPanel,
-            icon: const Icon(Icons.draw_outlined),
-          ),
-        ),
-      ],
-      Badge(
-        isLabelVisible: _inkCount > 0,
-        label: Text('$_inkCount'),
-        child: IconButton(
-          tooltip: 'Traços manuscritos',
-          onPressed: _showInkSummary,
-          icon: const Icon(Icons.gesture_outlined),
-        ),
-      ),
-      IconButton(
-        tooltip: 'Imprimir',
-        onPressed: null,
-        icon: const Icon(Icons.print_outlined),
-      ),
-    ];
-  }
-
-  List<Widget> _buildSearchActions() {
-    final currentIndex = _textSearcher.currentIndex;
-    final matchCount = _textSearcher.matches.length;
-    return [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Center(
-          child: Text(
-            _textSearcher.isSearching
-                ? 'Buscando…'
-                : matchCount == 0
-                    ? '0 resultados'
-                    : '${(currentIndex ?? 0) + 1}/$matchCount',
-          ),
-        ),
-      ),
-      IconButton(
-        tooltip: 'Resultado anterior',
-        onPressed: matchCount == 0
-            ? null
-            : () => unawaited(_textSearcher.goToPrevMatch()),
-        icon: const Icon(Icons.keyboard_arrow_up),
-      ),
-      IconButton(
-        tooltip: 'Próximo resultado',
-        onPressed: matchCount == 0
-            ? null
-            : () => unawaited(_textSearcher.goToNextMatch()),
-        icon: const Icon(Icons.keyboard_arrow_down),
-      ),
-      IconButton(
-        tooltip: 'Fechar pesquisa',
-        onPressed: _closeSearch,
-        icon: const Icon(Icons.close),
-      ),
-    ];
-  }
-
   void _toggleInkMode() {
     _textSearcher.resetTextSearch();
     _searchMode = false;
@@ -477,6 +380,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       _inkMode = !_inkMode;
       if (!_inkMode) _inkEraserMode = false;
     });
+    _viewerController.invalidate();
+  }
+
+  void _toggleInkEraser() {
+    setState(() => _inkEraserMode = !_inkEraserMode);
     _viewerController.invalidate();
   }
 
