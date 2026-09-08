@@ -1,0 +1,40 @@
+name: Phase 3 Exit Gate
+
+on:
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  phase3-acceptance:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
+      - name: Run 1600-page physical PDF acceptance
+        run: flutter test test/very_large_pdf_acceptance_test.dart
+      - name: Run huge-PDF persistence acceptance
+        run: flutter test test/huge_pdf_persistence_test.dart
+      - name: Run cross-platform feature parity contracts
+        run: flutter test test/platform_feature_parity_contract_test.dart
+      - name: Run native reopen lifecycle contracts
+        run: flutter test test/native_pdf_reopen_lifecycle_contract_test.dart
+      - name: Run reading-session preservation acceptance
+        run: flutter test test/reading_progress_session_preservation_test.dart
+
+  phase3-exit:
+    needs: phase3-acceptance
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm Phase 3 CI acceptance gate
+        run: echo 'Phase 3 acceptance suite completed successfully. Native device/runtime validation remains a separate RC requirement.'
