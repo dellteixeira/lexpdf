@@ -63,7 +63,7 @@ abstract final class LexPdfTheme {
         letterSpacing: -0.4,
       ),
       titleLarge: base.textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w650,
+        fontWeight: FontWeight.w600,
         letterSpacing: -0.2,
       ),
       titleMedium: base.textTheme.titleMedium?.copyWith(
