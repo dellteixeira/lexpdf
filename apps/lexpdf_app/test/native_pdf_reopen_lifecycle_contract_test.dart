@@ -21,6 +21,23 @@ void main() {
     expect(source, isNot(contains('File(cacheDir, "native_open")')));
   });
 
+  test('Android materializes native PDFs atomically before publishing path', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('File.createTempFile('));
+    expect(source, contains('input.copyTo(output)'));
+    expect(source, contains('output.flush()'));
+    expect(source, contains('temporary.length() <= 0L'));
+    expect(source, contains('temporary.renameTo(target)'));
+    expect(source, contains('temporary.delete()'));
+    expect(
+      source,
+      contains('if (target.isFile && target.length() > 0L) return target.absolutePath'),
+    );
+  });
+
   test('Android still handles new intents while Flutter is already running', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',

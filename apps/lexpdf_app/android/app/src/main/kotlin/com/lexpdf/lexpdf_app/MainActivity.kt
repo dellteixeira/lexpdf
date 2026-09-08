@@ -70,13 +70,32 @@ class MainActivity : FlutterActivity() {
         val targetDir = File(filesDir, "native_open").apply { mkdirs() }
         val target = File(targetDir, "${uriKey}_$safeName")
 
+        if (target.isFile && target.length() > 0L) return target.absolutePath
+
+        val temporary = File.createTempFile("${uriKey}_", ".part", targetDir)
         return try {
             contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            } ?: return null
+                temporary.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            } ?: run {
+                temporary.delete()
+                return null
+            }
+
+            if (temporary.length() <= 0L) {
+                temporary.delete()
+                return null
+            }
+
+            if (!temporary.renameTo(target)) {
+                temporary.delete()
+                return null
+            }
             target.absolutePath
         } catch (_: Exception) {
-            target.delete()
+            temporary.delete()
             null
         }
     }
