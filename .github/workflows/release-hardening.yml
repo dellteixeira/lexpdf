@@ -75,6 +75,16 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Smoke-check Android release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          test -s "$apk"
+          unzip -l "$apk" | grep -q 'AndroidManifest.xml'
+          unzip -l "$apk" | grep -q 'classes.dex'
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libapp.so'
+          sha256sum "$apk"
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-android-release
@@ -106,6 +116,18 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Smoke-check Windows release artifact
+        shell: pwsh
+        run: |
+          $release = 'build/windows/x64/runner/Release'
+          $exe = Join-Path $release 'lexpdf_app.exe'
+          $flutterDll = Join-Path $release 'flutter_windows.dll'
+          $assets = Join-Path $release 'data/flutter_assets'
+          if (-not (Test-Path $exe -PathType Leaf)) { throw 'Missing LexPDF executable.' }
+          if ((Get-Item $exe).Length -le 0) { throw 'LexPDF executable is empty.' }
+          if (-not (Test-Path $flutterDll -PathType Leaf)) { throw 'Missing flutter_windows.dll.' }
+          if (-not (Test-Path $assets -PathType Container)) { throw 'Missing Flutter assets directory.' }
+          Get-FileHash $exe -Algorithm SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-windows-release
@@ -146,6 +168,18 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Smoke-check macOS release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='build/macos/Build/Products/Release/LexPDF.app'
+          executable="$app/Contents/MacOS/LexPDF"
+          plist="$app/Contents/Info.plist"
+          test -d "$app"
+          test -x "$executable"
+          test -s "$plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx 'com.lexpdf.lexpdfApp'
+          shasum -a 256 "$executable"
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-macos-release
