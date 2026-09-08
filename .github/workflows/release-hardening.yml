@@ -22,19 +22,26 @@ jobs:
           grep -q "defaultValue: 'development'" apps/lexpdf_app/lib/src/core/backend/backend_config.dart
           grep -q "flutter-version: '3.47.2'" .github/workflows/flutter-foundation.yml
           grep -q "flutter-version: '3.47.2'" .github/workflows/release-hardening.yml
+
           beta='.github/workflows/beta-distribution.yml'
+          grep -q 'LEXPDF_ANDROID_KEYSTORE_BASE64' "$beta"
+          grep -q 'apksigner_path' "$beta"
+          grep -q 'SHA256SUMS-Android.txt' "$beta"
           grep -q 'LEXPDF_WINDOWS_CERTIFICATE_BASE64' "$beta"
           grep -q 'LEXPDF_WINDOWS_CERTIFICATE_PASSWORD' "$beta"
-          grep -q 'signtool' "$beta"
+          grep -q 'WINDOWS_SIGNING_ENABLED' "$beta"
           grep -q 'Get-AuthenticodeSignature' "$beta"
-          grep -q 'LEXPDF_MACOS_CERTIFICATE_BASE64' "$beta"
-          grep -q 'LEXPDF_MACOS_CERTIFICATE_PASSWORD' "$beta"
-          grep -q 'LEXPDF_APPLE_ID' "$beta"
-          grep -q 'LEXPDF_APPLE_APP_PASSWORD' "$beta"
-          grep -q 'LEXPDF_APPLE_TEAM_ID' "$beta"
-          grep -q 'notarytool' "$beta"
-          grep -q 'stapler' "$beta"
-          grep -q 'SHA256SUMS' "$beta"
+          grep -q 'WINDOWS_SIGNING_STATUS.txt' "$beta"
+          grep -q 'SHA256SUMS-Windows.txt' "$beta"
+          if grep -q '^  macos-dmg:' "$beta"; then
+            echo 'macOS must not be part of RC1 distribution scope.' >&2
+            exit 1
+          fi
+          if grep -Eq 'LEXPDF_MACOS_|LEXPDF_APPLE_|notarytool|stapler' "$beta"; then
+            echo 'Apple signing/notarization requirements must not block the Android + Windows RC.' >&2
+            exit 1
+          fi
+
           legacy='lex''xpdf_app'
           if grep -R "$legacy" -n apps/lexpdf_app .github/workflows; then
             echo 'Legacy package identity found.' >&2
