@@ -110,7 +110,19 @@ jobs:
           aab='build/app/outputs/bundle/release/app-release.aab'
           test -s "$apk"
           test -s "$aab"
-          apksigner verify --verbose --print-certs "$apk"
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$sdk_root" ] || [ ! -d "$sdk_root/build-tools" ]; then
+            echo 'Android SDK build-tools directory was not found.' >&2
+            exit 1
+          fi
+          apksigner_path=$(find "$sdk_root/build-tools" -maxdepth 2 -type f -name apksigner -print | sort -V | tail -n 1)
+          if [ -z "$apksigner_path" ] || [ ! -x "$apksigner_path" ]; then
+            echo 'apksigner was not found in Android SDK build-tools.' >&2
+            exit 1
+          fi
+
+          "$apksigner_path" verify --verbose --print-certs "$apk"
           sha256sum "$apk" "$aab" > SHA256SUMS-Android.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -230,11 +242,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.LEXPDF_APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          test -n "$CERT_B64"
-          test -n "$CERT_PASSWORD"
-          test -n "$APPLE_ID"
-          test -n "$APPLE_PASSWORD"
-          test -n "$APPLE_TEAM_ID"
+          [ -n "$CERT_B64" ] || { echo 'LEXPDF_MACOS_CERTIFICATE_BASE64 is required.' >&2; exit 1; }
+          [ -n "$CERT_PASSWORD" ] || { echo 'LEXPDF_MACOS_CERTIFICATE_PASSWORD is required.' >&2; exit 1; }
+          [ -n "$APPLE_ID" ] || { echo 'LEXPDF_APPLE_ID is required.' >&2; exit 1; }
+          [ -n "$APPLE_PASSWORD" ] || { echo 'LEXPDF_APPLE_APP_PASSWORD is required.' >&2; exit 1; }
+          [ -n "$APPLE_TEAM_ID" ] || { echo 'LEXPDF_APPLE_TEAM_ID is required.' >&2; exit 1; }
           cert="$RUNNER_TEMP/lexpdf-developer-id.p12"
           printf '%s' "$CERT_B64" | tr -d '\r\n ' | base64 --decode > "$cert"
           test -s "$cert"
