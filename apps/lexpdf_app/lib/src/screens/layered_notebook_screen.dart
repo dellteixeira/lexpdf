@@ -15,6 +15,7 @@ import '../core/storage/local_notebook_layer_store.dart';
 import '../core/storage/local_notebook_object_store.dart';
 import '../widgets/ink_canvas.dart';
 import '../widgets/notebook_editor_chrome.dart';
+import '../widgets/notebook_editor_toolbar.dart';
 import '../widgets/notebook_layer_ink_view.dart';
 import '../widgets/notebook_object_layer.dart';
 import '../widgets/notebook_page_background.dart';
@@ -580,347 +581,91 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   Widget _buildToolbar() {
     final selectedObject = _selectedObject;
-    final editable = _canEditActiveLayer;
-    final scheme = Theme.of(context).colorScheme;
-
-    Widget group(List<Widget> children) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: children),
-    );
-
-    return Material(
-      color: scheme.surface,
-      child: SizedBox(
-        height: 62,
-        child: Scrollbar(
-          controller: _toolbarScrollController,
-          thumbVisibility: true,
-          trackVisibility: true,
-          scrollbarOrientation: ScrollbarOrientation.bottom,
-          child: SingleChildScrollView(
-            controller: _toolbarScrollController,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 7, 12, 13),
-            child: Row(
-              children: [
-                group([
-                  FilterChip(
-                    selected: _pointerMode,
-                    avatar: const Icon(Icons.near_me_outlined, size: 18),
-                    label: const Text('Selecionar'),
-                    onSelected: editable
-                        ? (value) => setState(() {
-                            _pointerMode = value;
-                            if (value) {
-                              _eraserMode = false;
-                              _lassoMode = false;
-                              _selectionCount = 0;
-                            } else {
-                              _selectedObjectId = null;
-                            }
-                          })
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  SegmentedButton<InkTool>(
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: InkTool.pen,
-                        icon: Icon(Icons.edit_outlined),
-                        label: Text('Caneta'),
-                      ),
-                      ButtonSegment(
-                        value: InkTool.pencil,
-                        icon: Icon(Icons.draw_outlined),
-                        label: Text('Lápis'),
-                      ),
-                      ButtonSegment(
-                        value: InkTool.highlighter,
-                        icon: Icon(Icons.border_color_outlined),
-                        label: Text('Marca-texto'),
-                      ),
-                    ],
-                    selected: {_tool},
-                    onSelectionChanged: editable
-                        ? (selection) => setState(() {
-                            _tool = selection.first;
-                            _eraserMode = false;
-                            _lassoMode = false;
-                            _pointerMode = false;
-                            _selectedObjectId = null;
-                            _selectionCount = 0;
-                          })
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  FilterChip(
-                    selected: _eraserMode,
-                    avatar: const Icon(
-                      Icons.auto_fix_normal_outlined,
-                      size: 18,
-                    ),
-                    label: const Text('Borracha'),
-                    onSelected: editable
-                        ? (value) => setState(() {
-                            _eraserMode = value;
-                            if (value) {
-                              _lassoMode = false;
-                              _pointerMode = false;
-                              _selectedObjectId = null;
-                            }
-                          })
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  FilterChip(
-                    selected: _lassoMode,
-                    avatar: const Icon(Icons.gesture, size: 18),
-                    label: Text(
-                      _selectionCount > 0 ? 'Laço ($_selectionCount)' : 'Laço',
-                    ),
-                    onSelected: editable
-                        ? (value) => setState(() {
-                            _lassoMode = value;
-                            _eraserMode = false;
-                            _pointerMode = false;
-                            _selectedObjectId = null;
-                            if (!value) _selectionCount = 0;
-                          })
-                        : null,
-                  ),
-                ]),
-                if (_lassoMode && _selectionCount > 0) ...[
-                  const SizedBox(width: 8),
-                  group(_buildLassoTools()),
-                ],
-                if (_lassoMode && _clipboardAvailable)
-                  IconButton(
-                    tooltip: 'Colar',
-                    onPressed: editable ? _pasteClipboard : null,
-                    icon: const Icon(Icons.content_paste),
-                  ),
-                const SizedBox(width: 8),
-                group([
-                  FilledButton.tonalIcon(
-                    onPressed: editable ? _addText : null,
-                    icon: const Icon(Icons.text_fields),
-                    label: const Text('Texto'),
-                  ),
-                  const SizedBox(width: 4),
-                  PopupMenuButton<NotebookObjectType>(
-                    tooltip: 'Inserir forma',
-                    icon: const Icon(Icons.add_box_outlined),
-                    onSelected: _addShape,
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: NotebookObjectType.line,
-                        child: Text('Linha'),
-                      ),
-                      PopupMenuItem(
-                        value: NotebookObjectType.arrow,
-                        child: Text('Seta'),
-                      ),
-                      PopupMenuItem(
-                        value: NotebookObjectType.rectangle,
-                        child: Text('Retângulo'),
-                      ),
-                      PopupMenuItem(
-                        value: NotebookObjectType.ellipse,
-                        child: Text('Elipse'),
-                      ),
-                      PopupMenuItem(
-                        value: NotebookObjectType.triangle,
-                        child: Text('Triângulo'),
-                      ),
-                    ],
-                  ),
-                  IconButton(
-                    tooltip: 'Inserir imagem',
-                    onPressed: editable ? _addImage : null,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                  ),
-                  if (selectedObject != null) ...[
-                    IconButton(
-                      tooltip: 'Girar à esquerda',
-                      onPressed: () => _rotateSelectedObject(-_rotationStep),
-                      icon: const Icon(Icons.rotate_left),
-                    ),
-                    IconButton(
-                      tooltip: 'Girar à direita',
-                      onPressed: () => _rotateSelectedObject(_rotationStep),
-                      icon: const Icon(Icons.rotate_right),
-                    ),
-                    if (selectedObject.type == NotebookObjectType.text)
-                      IconButton(
-                        tooltip: 'Editar texto',
-                        onPressed: () => _editTextObject(selectedObject),
-                        icon: const Icon(Icons.edit_note),
-                      ),
-                    IconButton(
-                      tooltip: 'Excluir objeto',
-                      onPressed: _deleteSelectedObject,
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ]),
-                const SizedBox(width: 8),
-                group([
-                  FilterChip(
-                    selected: _rulerMode,
-                    avatar: const Icon(Icons.straighten, size: 18),
-                    label: const Text('Régua'),
-                    onSelected: (value) => setState(() => _rulerMode = value),
-                  ),
-                  const SizedBox(width: 8),
-                  for (final value in _palette)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap:
-                            !editable ||
-                                _eraserMode ||
-                                (_lassoMode && _selectionCount == 0)
-                            ? null
-                            : () {
-                                if (_lassoMode) {
-                                  _setSelectionColor(value);
-                                } else if (_pointerMode &&
-                                    _selectedObjectId != null) {
-                                  _setSelectedObjectColor(value);
-                                } else {
-                                  setState(() => _colorValue = value);
-                                }
-                              },
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: Color(value),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _colorValue == value
-                                  ? scheme.primary
-                                  : scheme.outlineVariant,
-                              width: _colorValue == value ? 3 : 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ]),
-                const SizedBox(width: 8),
-                group([
-                  const Text('Espessura'),
-                  SizedBox(
-                    width: 120,
-                    child: Slider(
-                      min: 1,
-                      max: 10,
-                      value: _width,
-                      onChanged:
-                          editable &&
-                              !_eraserMode &&
-                              !_lassoMode &&
-                              !_pointerMode
-                          ? (value) => setState(() => _width = value)
-                          : null,
-                    ),
-                  ),
-                  FilterChip(
-                    selected: _stylusOnly,
-                    avatar: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('Somente caneta'),
-                    onSelected: editable
-                        ? (value) => setState(() => _stylusOnly = value)
-                        : null,
-                  ),
-                  IconButton(
-                    tooltip: 'Limpar camada ativa',
-                    onPressed: editable ? _clearActiveLayer : null,
-                    icon: const Icon(Icons.delete_sweep_outlined),
-                  ),
-                ]),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return NotebookEditorToolbar(
+      controller: _toolbarScrollController,
+      editable: _canEditActiveLayer,
+      pointerMode: _pointerMode,
+      tool: _tool,
+      eraserMode: _eraserMode,
+      lassoMode: _lassoMode,
+      clipboardAvailable: _clipboardAvailable,
+      selectionCount: _selectionCount,
+      rulerMode: _rulerMode,
+      palette: _palette,
+      colorValue: _colorValue,
+      width: _width,
+      stylusOnly: _stylusOnly,
+      selectedObject: selectedObject,
+      onPointerModeChanged: (value) => setState(() {
+        _pointerMode = value;
+        if (value) {
+          _eraserMode = false;
+          _lassoMode = false;
+          _selectionCount = 0;
+        } else {
+          _selectedObjectId = null;
+        }
+      }),
+      onToolChanged: (value) => setState(() {
+        _tool = value;
+        _eraserMode = false;
+        _lassoMode = false;
+        _pointerMode = false;
+        _selectedObjectId = null;
+        _selectionCount = 0;
+      }),
+      onEraserModeChanged: (value) => setState(() {
+        _eraserMode = value;
+        if (value) {
+          _lassoMode = false;
+          _pointerMode = false;
+          _selectedObjectId = null;
+        }
+      }),
+      onLassoModeChanged: (value) => setState(() {
+        _lassoMode = value;
+        _eraserMode = false;
+        _pointerMode = false;
+        _selectedObjectId = null;
+        if (!value) _selectionCount = 0;
+      }),
+      onMoveSelectionLeft: () => _moveSelection(-_moveStep, 0),
+      onMoveSelectionRight: () => _moveSelection(_moveStep, 0),
+      onScaleSelectionDown: () => _scaleSelection(_scaleDown),
+      onScaleSelectionUp: () => _scaleSelection(_scaleUp),
+      onRotateSelectionLeft: () => _rotateSelection(-_rotationStep),
+      onRotateSelectionRight: () => _rotateSelection(_rotationStep),
+      onDecreaseSelectionWidth: () => _adjustSelectionWidth(_widthDown),
+      onIncreaseSelectionWidth: () => _adjustSelectionWidth(_widthUp),
+      onCopySelection: _copySelection,
+      onDuplicateSelection: _duplicateSelection,
+      onCutSelection: _cutSelection,
+      onRecognizeSelectedInk: () => unawaited(_recognizeSelectedInk()),
+      onPasteClipboard: _pasteClipboard,
+      onAddText: () => unawaited(_addText()),
+      onAddShape: (type) => unawaited(_addShape(type)),
+      onAddImage: () => unawaited(_addImage()),
+      onRotateObjectLeft: () => _rotateSelectedObject(-_rotationStep),
+      onRotateObjectRight: () => _rotateSelectedObject(_rotationStep),
+      onEditTextObject: () {
+        if (selectedObject != null) unawaited(_editTextObject(selectedObject));
+      },
+      onDeleteSelectedObject: () => unawaited(_deleteSelectedObject()),
+      onRulerModeChanged: (value) => setState(() => _rulerMode = value),
+      onColorSelected: (value) {
+        if (_lassoMode) {
+          _setSelectionColor(value);
+        } else if (_pointerMode && _selectedObjectId != null) {
+          _setSelectedObjectColor(value);
+        } else {
+          setState(() => _colorValue = value);
+        }
+      },
+      onWidthChanged: (value) => setState(() => _width = value),
+      onStylusOnlyChanged: (value) => setState(() => _stylusOnly = value),
+      onClearActiveLayer: () => unawaited(_clearActiveLayer()),
     );
   }
-
-  List<Widget> _buildLassoTools() => [
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _moveSelection(-_moveStep, 0)
-          : null,
-      icon: const Icon(Icons.arrow_left),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _moveSelection(_moveStep, 0)
-          : null,
-      icon: const Icon(Icons.arrow_right),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer ? () => _scaleSelection(_scaleDown) : null,
-      icon: const Icon(Icons.zoom_in_map),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer ? () => _scaleSelection(_scaleUp) : null,
-      icon: const Icon(Icons.zoom_out_map),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _rotateSelection(-_rotationStep)
-          : null,
-      icon: const Icon(Icons.rotate_left),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _rotateSelection(_rotationStep)
-          : null,
-      icon: const Icon(Icons.rotate_right),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _adjustSelectionWidth(_widthDown)
-          : null,
-      icon: const Icon(Icons.remove),
-    ),
-    IconButton(
-      onPressed: _canEditActiveLayer
-          ? () => _adjustSelectionWidth(_widthUp)
-          : null,
-      icon: const Icon(Icons.add),
-    ),
-    IconButton(
-      tooltip: 'Copiar',
-      onPressed: _copySelection,
-      icon: const Icon(Icons.content_copy),
-    ),
-    IconButton(
-      tooltip: 'Duplicar',
-      onPressed: _canEditActiveLayer ? _duplicateSelection : null,
-      icon: const Icon(Icons.copy_all_outlined),
-    ),
-    IconButton(
-      tooltip: 'Recortar',
-      onPressed: _canEditActiveLayer ? _cutSelection : null,
-      icon: const Icon(Icons.content_cut),
-    ),
-    IconButton(
-      tooltip: 'Reconhecer forma',
-      onPressed: _canEditActiveLayer ? _recognizeSelectedInk : null,
-      icon: const Icon(Icons.auto_awesome_outlined),
-    ),
-  ];
 
   Future<void> _onStrokeCompleted(InkStroke stroke) async {
     final layer = _activeLayer;
