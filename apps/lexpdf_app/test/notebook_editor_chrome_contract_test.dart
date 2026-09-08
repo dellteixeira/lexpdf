@@ -31,6 +31,9 @@ void main() {
     expect(chrome, contains("tooltip: 'Diminuir zoom'"));
     expect(chrome, contains("tooltip: 'Aumentar zoom'"));
     expect(chrome, contains("tooltip: 'Ajustar página'"));
-    expect(chrome, contains("Text('Camada ativa: \${layer.name}')"));
+    expect(chrome, contains('layer.name'));
+    expect(chrome, contains('Icons.visibility_off_outlined'));
+    expect(chrome, contains('Icons.lock_outline'));
+    expect(chrome, contains("Text(\n                '\$layerCount'"));
   });
 }
