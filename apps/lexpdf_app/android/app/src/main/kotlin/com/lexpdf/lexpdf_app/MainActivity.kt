@@ -66,8 +66,9 @@ class MainActivity : FlutterActivity() {
         if (!displayName.lowercase().endsWith(".pdf")) return null
 
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val targetDir = File(cacheDir, "native_open").apply { mkdirs() }
-        val target = File(targetDir, "${System.currentTimeMillis()}_$safeName")
+        val uriKey = uri.toString().hashCode().toUInt().toString(16)
+        val targetDir = File(filesDir, "native_open").apply { mkdirs() }
+        val target = File(targetDir, "${uriKey}_$safeName")
 
         return try {
             contentResolver.openInputStream(uri)?.use { input ->

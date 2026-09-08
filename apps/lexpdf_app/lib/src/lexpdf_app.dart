@@ -87,18 +87,22 @@ class _LexPdfAppState extends State<LexPdfApp> {
       final navigator = _navigatorKey.currentState;
       if (!mounted || navigator == null) return;
 
-      await navigator.push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfReaderScreen(
-            document: stored,
-            readingProgress: _readingProgress,
-            annotations: _annotations,
-            pdfInkStore: _pdfInkStore,
+      try {
+        await navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => PdfReaderScreen(
+              document: stored,
+              readingProgress: _readingProgress,
+              annotations: _annotations,
+              pdfInkStore: _pdfInkStore,
+            ),
           ),
-        ),
-      );
+        );
+      } finally {
+        if (_lastNativePath == path) _lastNativePath = null;
+      }
     } catch (error) {
-      _lastNativePath = null;
+      if (_lastNativePath == path) _lastNativePath = null;
       final context = _navigatorKey.currentContext;
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
