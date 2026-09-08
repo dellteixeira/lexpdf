@@ -1,0 +1,94 @@
+name: Stable Promotion Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      accepted_rc_sha:
+        description: Exact accepted RC source commit SHA recorded in docs/RC1_ACCEPTANCE.md
+        required: true
+        type: string
+      release_tag:
+        description: Stable release tag to promote
+        required: true
+        default: v1.0.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promotion-guard:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify stable version and accepted RC evidence
+        shell: bash
+        working-directory: .
+        env:
+          ACCEPTED_RC_SHA: ${{ inputs.accepted_rc_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          raw=$(grep '^version:' apps/lexpdf_app/pubspec.yaml | awk '{print $2}')
+          if [[ ! "$raw" =~ ^1\.0\.0\+[1-9][0-9]*$ ]]; then
+            echo "Stable promotion requires version 1.0.0+<positive build>; found: $raw" >&2
+            exit 1
+          fi
+          if [[ "$raw" == *-rc* ]]; then
+            echo 'RC prerelease suffix is not allowed for stable promotion.' >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG" != 'v1.0.0' ]]; then
+            echo "Stable promotion tag must be v1.0.0; found: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ ! "$ACCEPTED_RC_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'accepted_rc_sha must be an exact 40-character lowercase commit SHA.' >&2
+            exit 1
+          fi
+
+          manifest='docs/RC1_ACCEPTANCE.md'
+          test -s "$manifest"
+          if grep -q '^- \[ \]' "$manifest"; then
+            echo 'RC1 acceptance manifest still contains unchecked requirements.' >&2
+            exit 1
+          fi
+          if ! grep -Fq "$ACCEPTED_RC_SHA" "$manifest"; then
+            echo 'Accepted RC SHA is not recorded in the RC1 acceptance manifest.' >&2
+            exit 1
+          fi
+          git cat-file -e "${ACCEPTED_RC_SHA}^{commit}"
+          git merge-base --is-ancestor "$ACCEPTED_RC_SHA" HEAD
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
+      - run: flutter analyze
+      - name: Run stable promotion regression suite
+        run: >-
+          flutter test
+          test/very_large_pdf_acceptance_test.dart
+          test/huge_pdf_persistence_test.dart
+          test/platform_feature_parity_contract_test.dart
+          test/native_pdf_reopen_lifecycle_contract_test.dart
+          test/reading_progress_session_preservation_test.dart
+          test/rc1_acceptance_manifest_contract_test.dart
+
+      - name: Stable promotion gate passed
+        shell: bash
+        working-directory: .
+        run: |
+          echo "Stable promotion prerequisites satisfied for ${{ inputs.release_tag }}."
+          echo 'This gate does not create the GitHub Release or regenerate signed artifacts.'
