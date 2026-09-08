@@ -14,6 +14,7 @@ import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_notebook_layer_store.dart';
 import '../core/storage/local_notebook_object_store.dart';
 import '../widgets/ink_canvas.dart';
+import '../widgets/notebook_editor_chrome.dart';
 import '../widgets/notebook_layer_ink_view.dart';
 import '../widgets/notebook_object_layer.dart';
 import '../widgets/notebook_page_background.dart';
@@ -489,34 +490,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
           Positioned(
             right: 16,
             bottom: 16,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(14),
-              color: Theme.of(context).colorScheme.surfaceContainerHigh,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Diminuir zoom',
-                      onPressed: () => _zoomBy(0.85),
-                      icon: const Icon(Icons.remove),
-                    ),
-                    Text('${(_zoom * 100).round()}%'),
-                    IconButton(
-                      tooltip: 'Aumentar zoom',
-                      onPressed: () => _zoomBy(1.15),
-                      icon: const Icon(Icons.add),
-                    ),
-                    IconButton(
-                      tooltip: 'Ajustar página',
-                      onPressed: _resetZoom,
-                      icon: const Icon(Icons.fit_screen_outlined),
-                    ),
-                  ],
-                ),
-              ),
+            child: NotebookZoomControls(
+              zoom: _zoom,
+              onZoomOut: () => _zoomBy(0.85),
+              onZoomIn: () => _zoomBy(1.15),
+              onReset: _resetZoom,
             ),
           ),
         ],
@@ -543,115 +521,43 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Widget _buildLayerStatus() {
     final layer = _activeLayer;
     if (layer == null) return const SizedBox.shrink();
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: InkWell(
-        onTap: _showLayers,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            children: [
-              const Icon(Icons.layers_outlined, size: 18),
-              const SizedBox(width: 8),
-              Text('Camada ativa: ${layer.name}'),
-              const SizedBox(width: 8),
-              if (!layer.isVisible) const Chip(label: Text('Oculta')),
-              if (layer.isLocked) const Chip(label: Text('Bloqueada')),
-              const Spacer(),
-              Text('${_layers.length} camada(s)'),
-            ],
-          ),
-        ),
-      ),
+    return NotebookLayerStatus(
+      layer: layer,
+      layerCount: _layers.length,
+      onTap: _showLayers,
     );
   }
 
   Widget _buildNotebookNavigation() {
-    final notebook = _currentNotebook;
-    final page = _currentPage;
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Row(
-          children: [
-            DropdownButton<String>(
-              value: notebook?.id,
-              items: _notebooks
-                  .map(
-                    (item) => DropdownMenuItem(
-                      value: item.id,
-                      child: Text(item.title),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (id) {
-                if (id != null) unawaited(_switchNotebook(id));
-              },
-            ),
-            const SizedBox(width: 16),
-            IconButton(
-              tooltip: 'Página anterior',
-              onPressed: _pageIndex > 0
-                  ? () => _openPageAt(_pageIndex - 1)
-                  : null,
-              icon: const Icon(Icons.chevron_left),
-            ),
-            Text('Página ${page?.pageNumber ?? 0} de ${_pages.length}'),
-            IconButton(
-              tooltip: 'Próxima página',
-              onPressed: _pageIndex >= 0 && _pageIndex < _pages.length - 1
-                  ? () => _openPageAt(_pageIndex + 1)
-                  : null,
-              icon: const Icon(Icons.chevron_right),
-            ),
-            IconButton(
-              tooltip: 'Adicionar página',
-              onPressed: _addPage,
-              icon: const Icon(Icons.note_add_outlined),
-            ),
-            IconButton(
-              tooltip: 'Duplicar página',
-              onPressed: page == null ? null : _duplicatePage,
-              icon: const Icon(Icons.copy_all_outlined),
-            ),
-            IconButton(
-              tooltip: 'Mover página para a esquerda',
-              onPressed: _pageIndex > 0 ? () => _movePage(-1) : null,
-              icon: const Icon(Icons.keyboard_double_arrow_left),
-            ),
-            IconButton(
-              tooltip: 'Mover página para a direita',
-              onPressed: _pageIndex >= 0 && _pageIndex < _pages.length - 1
-                  ? () => _movePage(1)
-                  : null,
-              icon: const Icon(Icons.keyboard_double_arrow_right),
-            ),
-            IconButton(
-              tooltip: 'Excluir página',
-              onPressed: _pages.length > 1 ? _deletePage : null,
-              icon: const Icon(Icons.delete_outline),
-            ),
-            const SizedBox(width: 12),
-            DropdownButton<InkPageBackground>(
-              value: page?.background,
-              hint: const Text('Template'),
-              items: InkPageBackground.values
-                  .map(
-                    (value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(_backgroundLabel(value)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) unawaited(_setBackground(value));
-              },
-            ),
-          ],
-        ),
-      ),
+    final pageIndex = _pageIndex;
+    return NotebookNavigationBar(
+      notebooks: _notebooks,
+      currentNotebook: _currentNotebook,
+      currentPage: _currentPage,
+      pageIndex: pageIndex,
+      pageCount: _pages.length,
+      backgroundLabel: _backgroundLabel,
+      onNotebookChanged: (id) => unawaited(_switchNotebook(id)),
+      onPreviousPage: pageIndex > 0
+          ? () => unawaited(_openPageAt(pageIndex - 1))
+          : null,
+      onNextPage: pageIndex >= 0 && pageIndex < _pages.length - 1
+          ? () => unawaited(_openPageAt(pageIndex + 1))
+          : null,
+      onAddPage: () => unawaited(_addPage()),
+      onDuplicatePage: _currentPage == null
+          ? null
+          : () => unawaited(_duplicatePage()),
+      onMovePageLeft: pageIndex > 0
+          ? () => unawaited(_movePage(-1))
+          : null,
+      onMovePageRight: pageIndex >= 0 && pageIndex < _pages.length - 1
+          ? () => unawaited(_movePage(1))
+          : null,
+      onDeletePage: _pages.length > 1
+          ? () => unawaited(_deletePage())
+          : null,
+      onBackgroundChanged: (value) => unawaited(_setBackground(value)),
     );
   }
 
