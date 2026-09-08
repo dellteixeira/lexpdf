@@ -14,8 +14,13 @@ void main() {
     expect(workflow, contains('release_tag:'));
     expect(workflow, contains('fetch-depth: 0'));
     expect(workflow, contains('docs/RC1_ACCEPTANCE.md'));
+    expect(workflow, contains('docs/RC1_EVIDENCE.md'));
     expect(workflow, contains("grep -q '^- \\[ \\]' \"\$manifest\""));
-    expect(workflow, contains('Accepted RC SHA is not recorded'));
+    expect(workflow, contains("grep -Fq 'PENDING' \"\$evidence\""));
+    expect(workflow, contains('RC1 evidence record still contains PENDING fields'));
+    expect(workflow, contains('RC1 evidence record contains an explicit FAIL result'));
+    expect(workflow, contains('Accepted RC SHA is not recorded in the RC1 acceptance manifest'));
+    expect(workflow, contains('Accepted RC SHA is not recorded in the RC1 evidence record'));
     expect(workflow, contains('git merge-base --is-ancestor'));
   });
 
@@ -41,7 +46,8 @@ void main() {
       'platform_feature_parity_contract_test.dart',
       'native_pdf_reopen_lifecycle_contract_test.dart',
       'reading_progress_session_preservation_test.dart',
-      'rc1_acceptance_manifest_contract_test.dart',
+      'rc_acceptance_manifest_contract_test.dart',
+      'rc1_evidence_record_contract_test.dart',
     ]) {
       expect(workflow, contains(testFile));
     }
