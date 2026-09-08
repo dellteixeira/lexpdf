@@ -9,6 +9,7 @@ import '../core/ink/ink_models.dart';
 import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
 import '../core/pdf/huge_pdf_policy.dart';
+import '../core/pdf/pdf_file_preflight.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
@@ -57,6 +58,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   final TextEditingController _searchController = TextEditingController();
   late final PdfTextSearcher _textSearcher =
       PdfTextSearcher(_viewerController)..addListener(_onSearchChanged);
+  late final PdfFilePreflightResult? _filePreflight;
+  final Stopwatch _readerReadyStopwatch = Stopwatch();
 
   final Map<int, List<_RenderedAnnotation>> _renderedAnnotations = {};
   final Map<int, List<PdfInkStroke>> _pdfInkByPage = {};
@@ -86,12 +89,18 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   @override
   void initState() {
     super.initState();
+    final path = widget.document.localPath;
+    _filePreflight = path == null || path.isEmpty
+        ? null
+        : PdfFilePreflight.inspectSync(path);
+    _readerReadyStopwatch.start();
     unawaited(_restoreReadingProgress());
     unawaited(_loadCounts());
   }
 
   @override
   void dispose() {
+    _readerReadyStopwatch.stop();
     _progressSaveTimer?.cancel();
     _deferredOverlayLoadTimer?.cancel();
     _overlayLoadGeneration++;
@@ -166,6 +175,34 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
         appBar: AppBar(title: Text(widget.document.name)),
         body: const Center(
           child: Text('Este documento ainda não está disponível offline.'),
+        ),
+      );
+    }
+
+    final preflight = _filePreflight;
+    if (preflight != null && !preflight.canOpen) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.document.name)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.picture_as_pdf_outlined, size: 42),
+                const SizedBox(height: 12),
+                const Text(
+                  'Não foi possível abrir este PDF.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                SelectableText(
+                  preflight.errorMessage ?? 'Falha ao validar o arquivo local.',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -254,29 +291,35 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                     _inkMode ? null : _customizeContextMenuItems,
                 loadingBannerBuilder: (context, bytesDownloaded, totalBytes) =>
                     const Center(child: CircularProgressIndicator()),
-                errorBannerBuilder: (context, error, stackTrace, documentRef) =>
-                    Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.picture_as_pdf_outlined, size: 42),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Não foi possível renderizar este PDF.',
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        SelectableText(
-                          '$error',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                errorBannerBuilder: (context, error, stackTrace, documentRef) {
+                  debugPrint(
+                    '[LexPDF][reader] render-error page=$_currentPage '
+                    'readyMs=${_readerReadyStopwatch.elapsedMilliseconds} '
+                    'error=$error',
+                  );
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.picture_as_pdf_outlined, size: 42),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Não foi possível renderizar este PDF.',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            '$error',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
                 pagePaintCallbacks: [
                   _paintTextAnnotations,
                   _textSearcher.pageTextMatchPaintCallback,
@@ -304,13 +347,24 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 onViewerReady: (document, controller) {
                   _viewerReady = true;
                   _activeDocument = document;
+                  if (_readerReadyStopwatch.isRunning) {
+                    _readerReadyStopwatch.stop();
+                  }
+                  debugPrint(
+                    '[LexPDF][reader] viewer-ready '
+                    'ms=${_readerReadyStopwatch.elapsedMilliseconds} '
+                    'pages=${document.pages.length} '
+                    'bytes=${_filePreflight?.lengthBytes ?? 0}',
+                  );
                   unawaited(_goToRestoredPage());
                   _deferredOverlayLoadTimer?.cancel();
-                  _deferredOverlayLoadTimer =
-                      Timer(const Duration(milliseconds: 160), () {
-                    if (!mounted || !_viewerController.isReady) return;
-                    unawaited(_loadOverlayWindow(document, _restoredPage));
-                  });
+                  _deferredOverlayLoadTimer = Timer(
+                    HugePdfPolicy.initialOverlayLoadDelay,
+                    () {
+                      if (!mounted || !_viewerController.isReady) return;
+                      unawaited(_loadOverlayWindow(document, _restoredPage));
+                    },
+                  );
                 },
                 onPageChanged: (pageNumber) {
                   if (pageNumber == null) return;
@@ -320,7 +374,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                   _scheduleProgressSave(pageNumber);
                   final document = _activeDocument;
                   if (document != null) {
-                    unawaited(_loadOverlayWindow(document, pageNumber));
+                    _deferredOverlayLoadTimer?.cancel();
+                    _deferredOverlayLoadTimer = Timer(
+                      HugePdfPolicy.overlayPageChangeDebounce,
+                      () {
+                        if (!mounted || !_viewerController.isReady) return;
+                        unawaited(_loadOverlayWindow(document, pageNumber));
+                      },
+                    );
                   }
                 },
               ),

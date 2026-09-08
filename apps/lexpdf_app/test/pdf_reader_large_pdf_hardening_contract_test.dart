@@ -30,7 +30,8 @@ void main() {
 
     expect(reader, contains('errorBannerBuilder:'));
     expect(reader, contains('Não foi possível renderizar este PDF.'));
-    expect(reader, contains("SelectableText(\n                          '\$error'"));
+    expect(reader, contains('SelectableText('));
+    expect(reader, contains("'\$error'"));
   });
 
   test('reader hydrates overlays in a bounded page window', () {
