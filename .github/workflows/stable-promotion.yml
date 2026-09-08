@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       accepted_rc_sha:
-        description: Exact accepted RC source commit SHA recorded in docs/RC1_ACCEPTANCE.md
+        description: Exact accepted RC source commit SHA recorded in RC1 acceptance and evidence records
         required: true
         type: string
       release_tag:
@@ -54,7 +54,10 @@ jobs:
           fi
 
           manifest='docs/RC1_ACCEPTANCE.md'
+          evidence='docs/RC1_EVIDENCE.md'
           test -s "$manifest"
+          test -s "$evidence"
+
           if grep -q '^- \[ \]' "$manifest"; then
             echo 'RC1 acceptance manifest still contains unchecked requirements.' >&2
             exit 1
@@ -63,6 +66,20 @@ jobs:
             echo 'Accepted RC SHA is not recorded in the RC1 acceptance manifest.' >&2
             exit 1
           fi
+
+          if grep -Fq 'PENDING' "$evidence"; then
+            echo 'RC1 evidence record still contains PENDING fields.' >&2
+            exit 1
+          fi
+          if grep -Eq '(^|[|:`[:space:]])FAIL([`|[:space:]]|$)' "$evidence"; then
+            echo 'RC1 evidence record contains an explicit FAIL result.' >&2
+            exit 1
+          fi
+          if ! grep -Fq "$ACCEPTED_RC_SHA" "$evidence"; then
+            echo 'Accepted RC SHA is not recorded in the RC1 evidence record.' >&2
+            exit 1
+          fi
+
           git cat-file -e "${ACCEPTED_RC_SHA}^{commit}"
           git merge-base --is-ancestor "$ACCEPTED_RC_SHA" HEAD
 
@@ -84,7 +101,8 @@ jobs:
           test/platform_feature_parity_contract_test.dart
           test/native_pdf_reopen_lifecycle_contract_test.dart
           test/reading_progress_session_preservation_test.dart
-          test/rc1_acceptance_manifest_contract_test.dart
+          test/rc_acceptance_manifest_contract_test.dart
+          test/rc1_evidence_record_contract_test.dart
 
       - name: Stable promotion gate passed
         shell: bash
