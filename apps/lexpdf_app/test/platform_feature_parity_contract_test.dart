@@ -73,7 +73,8 @@ void main() {
     expect(library, contains('NotebookScreen'));
     expect(library, contains('_ShellSection.notebooks'));
     expect(library, contains('_ShellSection.offline'));
-    expect(catalog, contains('listOffline'));
+    expect(catalog, contains('is_available_offline'));
+    expect(catalog, contains('availableOffline:'));
     expect(catalog, contains('markOpened'));
   });
 
@@ -88,5 +89,23 @@ void main() {
     expect(progress, isNot(contains('Platform.isAndroid')));
     expect(progress, isNot(contains('Platform.isWindows')));
     expect(progress, isNot(contains('Platform.isMacOS')));
+  });
+
+  test('desktop release jobs execute the shared parity suite before build', () {
+    final workflow = File('../../.github/workflows/release-hardening.yml')
+        .readAsStringSync();
+    const step = 'Run platform feature parity contracts';
+    const command = 'flutter test test/platform_feature_parity_contract_test.dart';
+
+    expect(step.allMatches(workflow).length, 2);
+    expect(command.allMatches(workflow).length, 2);
+    expect(
+      workflow.indexOf(command),
+      lessThan(workflow.indexOf('Build Windows release')),
+    );
+    expect(
+      workflow.lastIndexOf(command),
+      lessThan(workflow.indexOf('Build macOS release')),
+    );
   });
 }
