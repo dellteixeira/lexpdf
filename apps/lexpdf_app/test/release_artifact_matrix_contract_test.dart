@@ -12,7 +12,7 @@ void main() {
     expect(workflow, contains("grep -q 'AndroidManifest.xml'"));
     expect(workflow, contains("grep -q 'classes.dex'"));
     expect(workflow, contains("grep -q 'lib/arm64-v8a/libapp.so'"));
-    expect(workflow, contains('sha256sum "$apk"'));
+    expect(workflow, contains(r'sha256sum "$apk"'));
   });
 
   test('release hardening smoke-checks Windows release bundle', () {
@@ -23,7 +23,7 @@ void main() {
     expect(workflow, contains("'lexpdf_app.exe'"));
     expect(workflow, contains("'flutter_windows.dll'"));
     expect(workflow, contains("'data/flutter_assets'"));
-    expect(workflow, contains('Get-FileHash $exe -Algorithm SHA256'));
+    expect(workflow, contains(r'Get-FileHash $exe -Algorithm SHA256'));
   });
 
   test('release hardening smoke-checks macOS app identity', () {
@@ -35,6 +35,6 @@ void main() {
     expect(workflow, contains('Contents/MacOS/LexPDF'));
     expect(workflow, contains('Contents/Info.plist'));
     expect(workflow, contains("grep -qx 'com.lexpdf.lexpdfApp'"));
-    expect(workflow, contains('shasum -a 256 "$executable"'));
+    expect(workflow, contains(r'shasum -a 256 "$executable"'));
   });
 }
