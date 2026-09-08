@@ -1,4 +1,4 @@
-name: Beta Distribution
+name: Release Candidate Distribution
 
 on:
   workflow_dispatch:
@@ -17,8 +17,8 @@ jobs:
           raw=$(grep '^version:' apps/lexpdf_app/pubspec.yaml | awk '{print $2}')
           version=${raw%%+*}
           test -n "$version"
+          printf '%s\n' "$raw" | grep -Eq '^1\.0\.0-rc\.[1-9][0-9]*\+[1-9][0-9]*$'
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          grep -q '^version: 0.1.0-beta.1+1$' apps/lexpdf_app/pubspec.yaml
           grep -q "flutter-version: '3.47.2'" .github/workflows/beta-distribution.yml
 
   android-signed:
