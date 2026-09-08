@@ -10,7 +10,7 @@ import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
-import 'screens/library_screen.dart';
+import 'screens/minimal_library_screen.dart';
 import 'screens/pdf_print_screen.dart';
 
 class LexPdfApp extends StatefulWidget {
@@ -85,50 +85,14 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => Stack(
-          children: [
-            LibraryScreen(
-              catalog: _catalog,
-              readingProgress: _readingProgress,
-              annotations: _annotations,
-              inkStore: _inkStore,
-              pdfInkStore: _pdfInkStore,
-            ),
-            Positioned(
-              right: 20,
-              bottom: 86,
-              child: SafeArea(
-                child: Tooltip(
-                  message: 'Conta LexPDF',
-                  child: FloatingActionButton.small(
-                    heroTag: 'lexpdf-account',
-                    onPressed: () => _openAccount(context),
-                    child: const Icon(Icons.person_outline),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 20,
-              bottom: 20,
-              child: SafeArea(
-                child: Tooltip(
-                  message: 'Imprimir PDF',
-                  child: FloatingActionButton.extended(
-                    heroTag: 'lexpdf-print',
-                    onPressed: _openingPrint ? null : () => _openPrint(context),
-                    icon: _openingPrint
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.print_outlined),
-                    label: const Text('Imprimir PDF'),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        builder: (context) => MinimalLibraryScreen(
+          catalog: _catalog,
+          readingProgress: _readingProgress,
+          annotations: _annotations,
+          inkStore: _inkStore,
+          pdfInkStore: _pdfInkStore,
+          onOpenAccount: () => _openAccount(context),
+          onOpenPrint: () => _openPrint(context),
         ),
       ),
     );
