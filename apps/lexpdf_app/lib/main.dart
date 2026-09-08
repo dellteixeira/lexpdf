@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/core/backend/backend_config.dart';
 import 'src/core/storage/local_database.dart';
+import 'src/core/storage/local_database_key_manager.dart';
 import 'src/lexpdf_app.dart';
 
 Future<void> main() async {
@@ -25,7 +26,8 @@ Future<void> main() async {
   await supportDirectory.create(recursive: true);
   final databasePath =
       '${supportDirectory.path}${Platform.pathSeparator}lexpdf.sqlite3';
-  final database = LocalDatabase.open(databasePath);
+  final key = await const LocalDatabaseKeyManager().loadOrCreate(databasePath);
+  final database = LocalDatabase.openEncrypted(databasePath, key);
 
   runApp(LexPdfApp(database: database));
 }
