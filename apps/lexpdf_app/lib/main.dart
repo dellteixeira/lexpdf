@@ -6,11 +6,12 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/core/backend/backend_config.dart';
+import 'src/core/documents/native_pdf_open_service.dart';
 import 'src/core/storage/local_database.dart';
 import 'src/core/storage/local_database_key_manager.dart';
 import 'src/lexpdf_app.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   pdfrxFlutterInitialize();
 
@@ -28,6 +29,12 @@ Future<void> main() async {
       '${supportDirectory.path}${Platform.pathSeparator}lexpdf.sqlite3';
   final key = await const LocalDatabaseKeyManager().loadOrCreate(databasePath);
   final database = LocalDatabase.openEncrypted(databasePath, key);
+  final initialPdfPath = NativePdfOpenService.pdfPathFromArgs(args);
 
-  runApp(LexPdfApp(database: database));
+  runApp(
+    LexPdfApp(
+      database: database,
+      initialPdfPath: initialPdfPath,
+    ),
+  );
 }
