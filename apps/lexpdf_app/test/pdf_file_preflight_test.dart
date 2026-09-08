@@ -60,4 +60,63 @@ void main() {
     expect(result.lengthBytes, 4096);
     expect(result.errorMessage, contains('cabeçalho PDF válido'));
   });
+
+  test('detects a catalogued PDF that was moved away from its original path', () {
+    final original = File('${tempDir.path}/original.pdf')
+      ..writeAsBytesSync('%PDF-1.7\nbody'.codeUnits);
+    final moved = original.renameSync('${tempDir.path}/moved.pdf');
+
+    final originalResult = PdfFilePreflight.inspectSync(original.path);
+    final movedResult = PdfFilePreflight.inspectSync(moved.path);
+
+    expect(originalResult.canOpen, isFalse);
+    expect(originalResult.errorMessage, contains('não foi encontrado'));
+    expect(movedResult.canOpen, isTrue);
+  });
+
+  test('detects corruption that happens after a PDF was previously valid', () {
+    final file = File('${tempDir.path}/changed.pdf')
+      ..writeAsBytesSync('%PDF-1.7\nbody'.codeUnits);
+
+    expect(PdfFilePreflight.inspectSync(file.path).canOpen, isTrue);
+
+    file.writeAsBytesSync(List<int>.filled(4096, 0x58), flush: true);
+    final changed = PdfFilePreflight.inspectSync(file.path);
+
+    expect(changed.canOpen, isFalse);
+    expect(changed.lengthBytes, 4096);
+    expect(changed.errorMessage, contains('cabeçalho PDF válido'));
+  });
+
+  test('keeps a read-only PDF readable', () {
+    if (Platform.isWindows) return;
+
+    final file = File('${tempDir.path}/read-only.pdf')
+      ..writeAsBytesSync('%PDF-1.7\nbody'.codeUnits);
+    final chmod = Process.runSync('chmod', ['444', file.path]);
+    expect(chmod.exitCode, 0);
+    addTearDown(() {
+      if (file.existsSync()) {
+        Process.runSync('chmod', ['644', file.path]);
+      }
+    });
+
+    final result = PdfFilePreflight.inspectSync(file.path);
+
+    expect(result.canOpen, isTrue);
+    expect(result.errorMessage, isNull);
+  });
+
+  test('detects deletion after a PDF was previously valid', () {
+    final file = File('${tempDir.path}/deleted.pdf')
+      ..writeAsBytesSync('%PDF-1.7\nbody'.codeUnits);
+
+    expect(PdfFilePreflight.inspectSync(file.path).canOpen, isTrue);
+    file.deleteSync();
+
+    final deleted = PdfFilePreflight.inspectSync(file.path);
+
+    expect(deleted.canOpen, isFalse);
+    expect(deleted.errorMessage, contains('não foi encontrado'));
+  });
 }
