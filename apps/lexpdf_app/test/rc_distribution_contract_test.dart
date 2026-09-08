@@ -8,7 +8,7 @@ void main() {
     expect(pubspec, contains('version: 1.0.0-rc.1+1'));
   });
 
-  test('release candidate distribution validates RC semver and signing gates', () {
+  test('release candidate distribution validates Android and Windows policy', () {
     final workflow = File(
       '../../.github/workflows/beta-distribution.yml',
     ).readAsStringSync();
@@ -21,19 +21,21 @@ void main() {
 
     for (final requiredContract in <String>[
       'LEXPDF_ANDROID_KEYSTORE_BASE64',
-      'apksigner verify',
+      'apksigner_path',
       'flutter build appbundle --release',
       'LEXPDF_WINDOWS_CERTIFICATE_BASE64',
+      'WINDOWS_SIGNING_ENABLED',
       'Get-AuthenticodeSignature',
       'Inno Setup',
-      'LEXPDF_MACOS_CERTIFICATE_BASE64',
-      'notarytool submit',
-      'stapler validate',
+      'WINDOWS_SIGNING_STATUS.txt',
       'SHA256SUMS-Android.txt',
       'SHA256SUMS-Windows.txt',
-      'SHA256SUMS-macOS.txt',
     ]) {
       expect(workflow, contains(requiredContract));
     }
+
+    expect(workflow, isNot(contains('macos-dmg:')));
+    expect(workflow, isNot(contains('LEXPDF_MACOS_CERTIFICATE_BASE64')));
+    expect(workflow, isNot(contains('notarytool submit')));
   });
 }
