@@ -63,6 +63,16 @@ class LocalDocumentCatalog {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  Future<List<DocumentRef>> listRecent({int limit = 200}) async {
+    final rows = db.database.select('''
+      SELECT * FROM documents
+      WHERE last_opened_at IS NOT NULL
+      ORDER BY last_opened_at DESC
+      LIMIT ?;
+    ''', [limit]);
+    return rows.map(_fromRow).toList(growable: false);
+  }
+
   Future<List<DocumentRef>> listFavorites({int limit = 200}) async {
     final rows = db.database.select('''
       SELECT * FROM documents WHERE is_favorite = 1
