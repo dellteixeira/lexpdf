@@ -8,17 +8,23 @@ void main() {
         .readAsStringSync();
     final chrome = File('lib/src/widgets/notebook_editor_chrome.dart')
         .readAsStringSync();
+    final toolbar = File('lib/src/widgets/notebook_editor_toolbar.dart')
+        .readAsStringSync();
 
     expect(screen, contains('TransformationController'));
     expect(screen, contains('NotebookZoomControls('));
+    expect(screen, contains('NotebookEditorToolbar('));
     expect(chrome, contains("tooltip: 'Aumentar zoom'"));
     expect(chrome, contains("tooltip: 'Diminuir zoom'"));
     expect(chrome, contains("tooltip: 'Ajustar página'"));
-    expect(screen, contains("label: const Text('Selecionar')"));
-    expect(screen, contains("label: const Text('Texto')"));
-    expect(screen, contains('thumbVisibility: true'));
-    expect(screen, contains('trackVisibility: true'));
-    expect(screen, contains('scrollbarOrientation: ScrollbarOrientation.bottom'));
+    expect(toolbar, contains("label: const Text('Selecionar')"));
+    expect(toolbar, contains("label: const Text('Texto')"));
+    expect(toolbar, contains('thumbVisibility: true'));
+    expect(toolbar, contains('trackVisibility: true'));
+    expect(
+      toolbar,
+      contains('scrollbarOrientation: ScrollbarOrientation.bottom'),
+    );
     expect(screen, contains('enabled: _pointerMode && _canEditActiveLayer'));
     expect(screen, contains('ignoring: !_canEditActiveLayer || _pointerMode'));
   });
