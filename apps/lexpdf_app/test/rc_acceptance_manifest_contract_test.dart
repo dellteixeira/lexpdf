@@ -3,17 +3,19 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('RC1 acceptance manifest keeps signed artifact requirements', () {
+  test('RC1 acceptance manifest keeps Android signing and Windows mode requirements', () {
     final manifest = File('../../docs/RC1_ACCEPTANCE.md').readAsStringSync();
 
     expect(manifest, contains('1.0.0-rc.1+1'));
     expect(manifest, contains('Signed release APK produced.'));
     expect(manifest, contains('Signed release AAB produced.'));
-    expect(manifest, contains('Authenticode signature for executable is `Valid`.'));
-    expect(manifest, contains('Authenticode signature for installer is `Valid`.'));
-    expect(manifest, contains('Apple notarization succeeds.'));
-    expect(manifest, contains('Stapler validation succeeds.'));
+    expect(manifest, contains('Windows signing mode is recorded as `signed` or `unsigned`'));
+    expect(manifest, contains('If Windows signing mode is `signed`, Authenticode signature for executable is `Valid`.'));
+    expect(manifest, contains('If Windows signing mode is `signed`, Authenticode signature for installer is `Valid`.'));
     expect(manifest, contains('SHA-256'));
+    expect(manifest, contains('Android + Windows'));
+    expect(manifest, isNot(contains('Apple notarization succeeds.')));
+    expect(manifest, isNot(contains('Stapler validation succeeds.')));
   });
 
   test('RC1 acceptance manifest requires real native runtime evidence', () {
