@@ -103,107 +103,104 @@ class NotebookEditorToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    Widget group(Widget child) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: child,
-    );
+    Widget group(Widget child) => DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: child,
+          ),
+        );
 
     return Material(
       color: scheme.surface,
       child: SizedBox(
-        height: 62,
-        child: Scrollbar(
+        height: 54,
+        child: SingleChildScrollView(
           controller: controller,
-          thumbVisibility: true,
-          trackVisibility: true,
-          scrollbarOrientation: ScrollbarOrientation.bottom,
-          child: SingleChildScrollView(
-            controller: controller,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 7, 12, 13),
-            child: Row(
-              children: [
-                group(
-                  NotebookInkControls(
-                    editable: editable,
-                    pointerMode: pointerMode,
-                    tool: tool,
-                    eraserMode: eraserMode,
-                    lassoMode: lassoMode,
-                    selectionCount: selectionCount,
-                    onPointerModeChanged: onPointerModeChanged,
-                    onToolChanged: onToolChanged,
-                    onEraserModeChanged: onEraserModeChanged,
-                    onLassoModeChanged: onLassoModeChanged,
-                  ),
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            children: [
+              group(
+                NotebookInkControls(
+                  editable: editable,
+                  pointerMode: pointerMode,
+                  tool: tool,
+                  eraserMode: eraserMode,
+                  lassoMode: lassoMode,
+                  selectionCount: selectionCount,
+                  onPointerModeChanged: onPointerModeChanged,
+                  onToolChanged: onToolChanged,
+                  onEraserModeChanged: onEraserModeChanged,
+                  onLassoModeChanged: onLassoModeChanged,
                 ),
-                if (lassoMode && selectionCount > 0) ...[
-                  const SizedBox(width: 8),
-                  group(
-                    NotebookLassoTools(
-                      editable: editable,
-                      onMoveLeft: onMoveSelectionLeft,
-                      onMoveRight: onMoveSelectionRight,
-                      onScaleDown: onScaleSelectionDown,
-                      onScaleUp: onScaleSelectionUp,
-                      onRotateLeft: onRotateSelectionLeft,
-                      onRotateRight: onRotateSelectionRight,
-                      onDecreaseWidth: onDecreaseSelectionWidth,
-                      onIncreaseWidth: onIncreaseSelectionWidth,
-                      onCopy: onCopySelection,
-                      onDuplicate: onDuplicateSelection,
-                      onCut: onCutSelection,
-                      onRecognize: onRecognizeSelectedInk,
-                    ),
-                  ),
-                ],
-                if (lassoMode && clipboardAvailable)
-                  IconButton(
-                    tooltip: 'Colar',
-                    onPressed: editable ? onPasteClipboard : null,
-                    icon: const Icon(Icons.content_paste),
-                  ),
-                const SizedBox(width: 8),
+              ),
+              if (lassoMode && selectionCount > 0) ...[
+                const SizedBox(width: 6),
                 group(
-                  NotebookObjectControls(
+                  NotebookLassoTools(
                     editable: editable,
-                    selectedObject: selectedObject,
-                    onAddText: onAddText,
-                    onAddShape: onAddShape,
-                    onAddImage: onAddImage,
-                    onRotateLeft: onRotateObjectLeft,
-                    onRotateRight: onRotateObjectRight,
-                    onEditText: onEditTextObject,
-                    onDelete: onDeleteSelectedObject,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                group(
-                  NotebookStyleControls(
-                    editable: editable,
-                    pointerMode: pointerMode,
-                    eraserMode: eraserMode,
-                    lassoMode: lassoMode,
-                    selectionCount: selectionCount,
-                    rulerMode: rulerMode,
-                    palette: palette,
-                    colorValue: colorValue,
-                    width: width,
-                    stylusOnly: stylusOnly,
-                    onRulerModeChanged: onRulerModeChanged,
-                    onColorSelected: onColorSelected,
-                    onWidthChanged: onWidthChanged,
-                    onStylusOnlyChanged: onStylusOnlyChanged,
-                    onClearActiveLayer: onClearActiveLayer,
+                    onMoveLeft: onMoveSelectionLeft,
+                    onMoveRight: onMoveSelectionRight,
+                    onScaleDown: onScaleSelectionDown,
+                    onScaleUp: onScaleSelectionUp,
+                    onRotateLeft: onRotateSelectionLeft,
+                    onRotateRight: onRotateSelectionRight,
+                    onDecreaseWidth: onDecreaseSelectionWidth,
+                    onIncreaseWidth: onIncreaseSelectionWidth,
+                    onCopy: onCopySelection,
+                    onDuplicate: onDuplicateSelection,
+                    onCut: onCutSelection,
+                    onRecognize: onRecognizeSelectedInk,
                   ),
                 ),
               ],
-            ),
+              if (lassoMode && clipboardAvailable) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Colar',
+                  onPressed: editable ? onPasteClipboard : null,
+                  icon: const Icon(Icons.content_paste),
+                ),
+              ],
+              const SizedBox(width: 6),
+              group(
+                NotebookObjectControls(
+                  editable: editable,
+                  selectedObject: selectedObject,
+                  onAddText: onAddText,
+                  onAddShape: onAddShape,
+                  onAddImage: onAddImage,
+                  onRotateLeft: onRotateObjectLeft,
+                  onRotateRight: onRotateObjectRight,
+                  onEditText: onEditTextObject,
+                  onDelete: onDeleteSelectedObject,
+                ),
+              ),
+              const SizedBox(width: 6),
+              group(
+                NotebookStyleControls(
+                  editable: editable,
+                  pointerMode: pointerMode,
+                  eraserMode: eraserMode,
+                  lassoMode: lassoMode,
+                  selectionCount: selectionCount,
+                  rulerMode: rulerMode,
+                  palette: palette,
+                  colorValue: colorValue,
+                  width: width,
+                  stylusOnly: stylusOnly,
+                  onRulerModeChanged: onRulerModeChanged,
+                  onColorSelected: onColorSelected,
+                  onWidthChanged: onWidthChanged,
+                  onStylusOnlyChanged: onStylusOnlyChanged,
+                  onClearActiveLayer: onClearActiveLayer,
+                ),
+              ),
+            ],
           ),
         ),
       ),

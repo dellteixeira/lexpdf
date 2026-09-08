@@ -25,12 +25,11 @@ void main() {
     expect(inkControls, contains("label: const Text('Selecionar')"));
     expect(toolbar, contains('NotebookObjectControls('));
     expect(objectControls, contains("label: const Text('Texto')"));
-    expect(toolbar, contains('thumbVisibility: true'));
-    expect(toolbar, contains('trackVisibility: true'));
-    expect(
-      toolbar,
-      contains('scrollbarOrientation: ScrollbarOrientation.bottom'),
-    );
+    expect(toolbar, contains('height: 54'));
+    expect(toolbar, contains('SingleChildScrollView('));
+    expect(toolbar, contains('scrollDirection: Axis.horizontal'));
+    expect(toolbar, isNot(contains('thumbVisibility: true')));
+    expect(toolbar, isNot(contains('trackVisibility: true')));
     expect(screen, contains('enabled: _pointerMode && _canEditActiveLayer'));
     expect(screen, contains('ignoring: !_canEditActiveLayer || _pointerMode'));
   });
