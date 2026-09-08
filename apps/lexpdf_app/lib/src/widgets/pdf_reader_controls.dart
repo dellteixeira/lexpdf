@@ -6,7 +6,6 @@ enum _ReaderAction {
   annotations,
   inkSummary,
   configureInk,
-  print,
 }
 
 class PdfReaderAppBarActions extends StatelessWidget {
@@ -215,16 +214,19 @@ class PdfReaderAppBarActions extends StatelessWidget {
     switch (action) {
       case _ReaderAction.study:
         onOpenStudy();
+        return;
       case _ReaderAction.annotationPalette:
         onOpenAnnotationPalette();
+        return;
       case _ReaderAction.annotations:
         onOpenAnnotations();
+        return;
       case _ReaderAction.inkSummary:
         onOpenInkSummary();
+        return;
       case _ReaderAction.configureInk:
         onConfigureInk?.call();
-      case _ReaderAction.print:
-        break;
+        return;
     }
   }
 }
