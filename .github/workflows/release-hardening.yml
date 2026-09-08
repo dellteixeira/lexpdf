@@ -108,6 +108,8 @@ jobs:
       - run: flutter pub get
       - name: Verify lockfile is stable
         run: git diff --exit-code -- pubspec.lock
+      - name: Run platform feature parity contracts
+        run: flutter test test/platform_feature_parity_contract_test.dart
       - name: Build Windows release
         run: >-
           flutter build windows --release
@@ -151,6 +153,8 @@ jobs:
       - run: flutter pub get
       - name: Verify lockfile is stable
         run: git diff --exit-code -- pubspec.lock
+      - name: Run platform feature parity contracts
+        run: flutter test test/platform_feature_parity_contract_test.dart
       - name: Verify macOS release entitlements
         shell: bash
         run: |
