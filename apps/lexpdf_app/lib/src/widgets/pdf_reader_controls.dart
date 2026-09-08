@@ -1,5 +1,13 @@
 import 'package:flutter/material.dart';
 
+enum _ReaderAction {
+  study,
+  annotationPalette,
+  annotations,
+  inkSummary,
+  configureInk,
+}
+
 class PdfReaderAppBarActions extends StatelessWidget {
   const PdfReaderAppBarActions({
     required this.currentPage,
@@ -36,82 +44,190 @@ class PdfReaderAppBarActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 720;
     final primary = Theme.of(context).colorScheme.primary;
+
+    if (compact) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (currentPage != null) _PagePill(page: currentPage!),
+          _ReaderIconButton(
+            tooltip: inkMode ? 'Sair do modo escrita' : 'Escrever no PDF',
+            onPressed: onToggleInkMode,
+            icon: inkMode ? Icons.edit_off_outlined : Icons.edit_outlined,
+            selected: inkMode,
+          ),
+          if (inkMode) ...[
+            _ReaderIconButton(
+              tooltip: inkEraserMode ? 'Voltar para caneta' : 'Borracha parcial',
+              onPressed: onToggleEraser,
+              icon: inkEraserMode ? Icons.edit_outlined : Icons.auto_fix_off,
+              selected: inkEraserMode,
+            ),
+            _ReaderIconButton(
+              tooltip: 'Desfazer último traço desta página',
+              onPressed: onUndoInk,
+              icon: Icons.undo,
+            ),
+          ] else
+            _ReaderIconButton(
+              tooltip: 'Pesquisar no PDF',
+              onPressed: onOpenSearch,
+              icon: Icons.search,
+            ),
+          PopupMenuButton<_ReaderAction>(
+            tooltip: 'Mais opções',
+            icon: const Icon(Icons.more_vert),
+            onSelected: _handleAction,
+            itemBuilder: (context) => inkMode
+                ? [
+                    PopupMenuItem(
+                      value: _ReaderAction.configureInk,
+                      enabled: onConfigureInk != null,
+                      child: const _MenuLabel(
+                        icon: Icons.tune,
+                        label: 'Ajustar escrita',
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _ReaderAction.inkSummary,
+                      child: _MenuLabel(
+                        icon: Icons.gesture_outlined,
+                        label: inkCount > 0
+                            ? 'Traços manuscritos · $inkCount'
+                            : 'Traços manuscritos',
+                      ),
+                    ),
+                  ]
+                : [
+                    const PopupMenuItem(
+                      value: _ReaderAction.study,
+                      child: _MenuLabel(
+                        icon: Icons.auto_awesome_outlined,
+                        label: 'Estudar documento',
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _ReaderAction.annotationPalette,
+                      child: _MenuLabel(
+                        icon: Icons.palette_outlined,
+                        label: 'Cor das marcações',
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _ReaderAction.annotations,
+                      child: _MenuLabel(
+                        icon: Icons.draw_outlined,
+                        label: annotationCount > 0
+                            ? 'Anotações textuais · $annotationCount'
+                            : 'Anotações textuais',
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _ReaderAction.inkSummary,
+                      child: _MenuLabel(
+                        icon: Icons.gesture_outlined,
+                        label: inkCount > 0
+                            ? 'Traços manuscritos · $inkCount'
+                            : 'Traços manuscritos',
+                      ),
+                    ),
+                  ],
+          ),
+        ],
+      );
+    }
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (currentPage != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(child: Text('Pág. $currentPage')),
-          ),
-        IconButton(
+        if (currentPage != null) _PagePill(page: currentPage!),
+        _ReaderIconButton(
           tooltip: inkMode ? 'Sair do modo escrita' : 'Escrever no PDF',
           onPressed: onToggleInkMode,
-          icon: Icon(inkMode ? Icons.edit_off_outlined : Icons.edit_outlined),
-          color: inkMode ? primary : null,
+          icon: inkMode ? Icons.edit_off_outlined : Icons.edit_outlined,
+          selected: inkMode,
         ),
         if (inkMode) ...[
-          IconButton(
+          _ReaderIconButton(
             tooltip: inkEraserMode ? 'Voltar para caneta' : 'Borracha parcial',
             onPressed: onToggleEraser,
-            icon: Icon(
-              inkEraserMode ? Icons.edit_outlined : Icons.auto_fix_off,
-            ),
-            color: inkEraserMode ? primary : null,
+            icon: inkEraserMode ? Icons.edit_outlined : Icons.auto_fix_off,
+            selected: inkEraserMode,
           ),
-          IconButton(
+          _ReaderIconButton(
             tooltip: 'Configurar caneta',
             onPressed: onConfigureInk,
-            icon: const Icon(Icons.tune),
+            icon: Icons.tune,
           ),
-          IconButton(
+          _ReaderIconButton(
             tooltip: 'Desfazer último traço desta página',
             onPressed: onUndoInk,
-            icon: const Icon(Icons.undo),
+            icon: Icons.undo,
           ),
         ] else ...[
-          IconButton(
+          _ReaderIconButton(
             tooltip: 'Estudar documento',
             onPressed: onOpenStudy,
-            icon: const Icon(Icons.auto_awesome_outlined),
+            icon: Icons.auto_awesome_outlined,
           ),
-          IconButton(
+          _ReaderIconButton(
             tooltip: 'Pesquisar no PDF',
             onPressed: onOpenSearch,
-            icon: const Icon(Icons.search),
+            icon: Icons.search,
           ),
-          IconButton(
+          _ReaderIconButton(
             tooltip: 'Cor das novas marcações',
             onPressed: onOpenAnnotationPalette,
-            icon: const Icon(Icons.palette_outlined),
+            icon: Icons.palette_outlined,
           ),
           Badge(
             isLabelVisible: annotationCount > 0,
             label: Text('$annotationCount'),
-            child: IconButton(
+            child: _ReaderIconButton(
               tooltip: 'Anotações textuais',
               onPressed: onOpenAnnotations,
-              icon: const Icon(Icons.draw_outlined),
+              icon: Icons.draw_outlined,
             ),
           ),
         ],
         Badge(
           isLabelVisible: inkCount > 0,
           label: Text('$inkCount'),
-          child: IconButton(
+          child: _ReaderIconButton(
             tooltip: 'Traços manuscritos',
             onPressed: onOpenInkSummary,
-            icon: const Icon(Icons.gesture_outlined),
+            icon: Icons.gesture_outlined,
           ),
         ),
-        const IconButton(
+        IconButton(
           tooltip: 'Imprimir',
           onPressed: null,
-          icon: Icon(Icons.print_outlined),
+          icon: Icon(Icons.print_outlined, color: primary.withValues(alpha: 0.42)),
         ),
       ],
     );
+  }
+
+  void _handleAction(_ReaderAction action) {
+    switch (action) {
+      case _ReaderAction.study:
+        onOpenStudy();
+        return;
+      case _ReaderAction.annotationPalette:
+        onOpenAnnotationPalette();
+        return;
+      case _ReaderAction.annotations:
+        onOpenAnnotations();
+        return;
+      case _ReaderAction.inkSummary:
+        onOpenInkSummary();
+        return;
+      case _ReaderAction.configureInk:
+        onConfigureInk?.call();
+        return;
+    }
   }
 }
 
@@ -139,31 +255,32 @@ class PdfSearchAppBarActions extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Center(
             child: Text(
               isSearching
                   ? 'Buscando…'
                   : matchCount == 0
-                      ? '0 resultados'
+                      ? '0'
                       : '${(currentIndex ?? 0) + 1}/$matchCount',
+              style: Theme.of(context).textTheme.labelMedium,
             ),
           ),
         ),
-        IconButton(
+        _ReaderIconButton(
           tooltip: 'Resultado anterior',
           onPressed: onPrevious,
-          icon: const Icon(Icons.keyboard_arrow_up),
+          icon: Icons.keyboard_arrow_up,
         ),
-        IconButton(
+        _ReaderIconButton(
           tooltip: 'Próximo resultado',
           onPressed: onNext,
-          icon: const Icon(Icons.keyboard_arrow_down),
+          icon: Icons.keyboard_arrow_down,
         ),
-        IconButton(
+        _ReaderIconButton(
           tooltip: 'Fechar pesquisa',
           onPressed: onClose,
-          icon: const Icon(Icons.close),
+          icon: Icons.close,
         ),
       ],
     );
@@ -188,31 +305,113 @@ class PdfInkStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface.withValues(alpha: 0.94),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(10, 7, 7, 7),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              eraserMode ? Icons.auto_fix_off : Icons.edit,
-              color: eraserMode ? null : Color(colorValue),
+              eraserMode ? Icons.auto_fix_off : Icons.edit_outlined,
+              size: 18,
+              color: eraserMode ? scheme.onSurfaceVariant : Color(colorValue),
             ),
             const SizedBox(width: 8),
             Text(
               eraserMode
-                  ? 'Borracha parcial'
+                  ? 'Borracha'
                   : '$toolLabel · ${width.toStringAsFixed(1)}',
+              style: Theme.of(context).textTheme.labelMedium,
             ),
-            const SizedBox(width: 8),
-            TextButton.icon(
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Ajustar escrita',
               onPressed: onConfigure,
-              icon: const Icon(Icons.tune),
-              label: const Text('Ajustar'),
+              icon: const Icon(Icons.tune, size: 18),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PagePill extends StatelessWidget {
+  const _PagePill({required this.page});
+
+  final int page;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$page',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+class _ReaderIconButton extends StatelessWidget {
+  const _ReaderIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+    this.selected = false,
+  });
+
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: selected
+          ? IconButton.styleFrom(
+              foregroundColor: scheme.primary,
+              backgroundColor: scheme.primaryContainer.withValues(alpha: 0.65),
+            )
+          : null,
+      icon: Icon(icon),
+    );
+  }
+}
+
+class _MenuLabel extends StatelessWidget {
+  const _MenuLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 19),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label)),
+      ],
     );
   }
 }

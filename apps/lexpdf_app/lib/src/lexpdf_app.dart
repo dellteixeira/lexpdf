@@ -8,6 +8,7 @@ import 'core/storage/local_pdf_ink_store.dart';
 import 'core/storage/local_pdf_navigation_store.dart';
 import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
+import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/pdf_print_screen.dart';
@@ -81,16 +82,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LexPDF',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF246BFD),
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF6EA0FF),
-        brightness: Brightness.dark,
-      ),
+      theme: LexPdfTheme.light,
+      darkTheme: LexPdfTheme.dark,
       home: Builder(
         builder: (context) => Stack(
           children: [
