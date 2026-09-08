@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/ink/ink_models.dart';
 import '../core/notebook/notebook_object_models.dart';
 import 'notebook_editor_toolbar_groups.dart';
+import 'notebook_object_controls.dart';
 
 class NotebookEditorToolbar extends StatelessWidget {
   const NotebookEditorToolbar({
@@ -211,71 +212,16 @@ class NotebookEditorToolbar extends StatelessWidget {
                   ),
                 const SizedBox(width: 8),
                 group(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: editable ? onAddText : null,
-                        icon: const Icon(Icons.text_fields),
-                        label: const Text('Texto'),
-                      ),
-                      const SizedBox(width: 4),
-                      PopupMenuButton<NotebookObjectType>(
-                        tooltip: 'Inserir forma',
-                        icon: const Icon(Icons.add_box_outlined),
-                        onSelected: onAddShape,
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: NotebookObjectType.line,
-                            child: Text('Linha'),
-                          ),
-                          PopupMenuItem(
-                            value: NotebookObjectType.arrow,
-                            child: Text('Seta'),
-                          ),
-                          PopupMenuItem(
-                            value: NotebookObjectType.rectangle,
-                            child: Text('Retângulo'),
-                          ),
-                          PopupMenuItem(
-                            value: NotebookObjectType.ellipse,
-                            child: Text('Elipse'),
-                          ),
-                          PopupMenuItem(
-                            value: NotebookObjectType.triangle,
-                            child: Text('Triângulo'),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        tooltip: 'Inserir imagem',
-                        onPressed: editable ? onAddImage : null,
-                        icon: const Icon(Icons.add_photo_alternate_outlined),
-                      ),
-                      if (selectedObject != null) ...[
-                        IconButton(
-                          tooltip: 'Girar à esquerda',
-                          onPressed: onRotateObjectLeft,
-                          icon: const Icon(Icons.rotate_left),
-                        ),
-                        IconButton(
-                          tooltip: 'Girar à direita',
-                          onPressed: onRotateObjectRight,
-                          icon: const Icon(Icons.rotate_right),
-                        ),
-                        if (selectedObject!.type == NotebookObjectType.text)
-                          IconButton(
-                            tooltip: 'Editar texto',
-                            onPressed: onEditTextObject,
-                            icon: const Icon(Icons.edit_note),
-                          ),
-                        IconButton(
-                          tooltip: 'Excluir objeto',
-                          onPressed: onDeleteSelectedObject,
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      ],
-                    ],
+                  NotebookObjectControls(
+                    editable: editable,
+                    selectedObject: selectedObject,
+                    onAddText: onAddText,
+                    onAddShape: onAddShape,
+                    onAddImage: onAddImage,
+                    onRotateLeft: onRotateObjectLeft,
+                    onRotateRight: onRotateObjectRight,
+                    onEditText: onEditTextObject,
+                    onDelete: onDeleteSelectedObject,
                   ),
                 ),
                 const SizedBox(width: 8),

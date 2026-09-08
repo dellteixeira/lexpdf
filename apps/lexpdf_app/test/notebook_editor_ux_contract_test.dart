@@ -10,6 +10,8 @@ void main() {
         .readAsStringSync();
     final toolbar = File('lib/src/widgets/notebook_editor_toolbar.dart')
         .readAsStringSync();
+    final objectControls = File('lib/src/widgets/notebook_object_controls.dart')
+        .readAsStringSync();
 
     expect(screen, contains('TransformationController'));
     expect(screen, contains('NotebookZoomControls('));
@@ -18,7 +20,8 @@ void main() {
     expect(chrome, contains("tooltip: 'Diminuir zoom'"));
     expect(chrome, contains("tooltip: 'Ajustar página'"));
     expect(toolbar, contains("label: const Text('Selecionar')"));
-    expect(toolbar, contains("label: const Text('Texto')"));
+    expect(toolbar, contains('NotebookObjectControls('));
+    expect(objectControls, contains("label: const Text('Texto')"));
     expect(toolbar, contains('thumbVisibility: true'));
     expect(toolbar, contains('trackVisibility: true'));
     expect(
