@@ -10,7 +10,7 @@ import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
-import 'screens/minimal_library_screen.dart';
+import 'screens/minimal_library_sections_screen.dart';
 import 'screens/pdf_print_screen.dart';
 
 class LexPdfApp extends StatefulWidget {
@@ -85,7 +85,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => MinimalLibraryScreen(
+        builder: (context) => MinimalLibrarySectionsScreen(
           catalog: _catalog,
           readingProgress: _readingProgress,
           annotations: _annotations,
