@@ -1,0 +1,178 @@
+name: RC1 Automated Evidence Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      distribution_run_id:
+        description: Successful Release Candidate Distribution run ID
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact 40-character RC source commit SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  collect-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          RUN_ID: ${{ inputs.distribution_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Verify distribution run identity
+        id: run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.distribution_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > "$RUNNER_TEMP/run.json"
+          actual_sha=$(jq -r '.head_sha' "$RUNNER_TEMP/run.json")
+          conclusion=$(jq -r '.conclusion' "$RUNNER_TEMP/run.json")
+          workflow_name=$(jq -r '.name' "$RUNNER_TEMP/run.json")
+          run_url=$(jq -r '.html_url' "$RUNNER_TEMP/run.json")
+          run_attempt=$(jq -r '.run_attempt' "$RUNNER_TEMP/run.json")
+          test "$actual_sha" = "$CANDIDATE_SHA"
+          test "$conclusion" = 'success'
+          test "$workflow_name" = 'Release Candidate Distribution'
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 1
+
+      - name: Resolve candidate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw=$(grep '^version:' apps/lexpdf_app/pubspec.yaml | awk '{print $2}')
+          printf '%s\n' "$raw" | grep -Eq '^1\.0\.0-rc\.[1-9][0-9]*\+[1-9][0-9]*$'
+          version=${raw%%+*}
+          echo "raw=$raw" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download RC distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.distribution_run_id }}
+          pattern: LexPDF-${{ steps.version.outputs.version }}-*
+          path: rc-artifacts
+          merge-multiple: true
+
+      - name: Verify artifact checksums
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          for sums in \
+            rc-artifacts/SHA256SUMS-Android.txt \
+            rc-artifacts/SHA256SUMS-Windows.txt \
+            rc-artifacts/SHA256SUMS-macOS.txt; do
+            test -s "$sums"
+          done
+
+          verify_named_hash() {
+            local sums_file="$1"
+            local filename="$2"
+            local artifact
+            artifact=$(find rc-artifacts -type f -name "$filename" -print -quit)
+            test -n "$artifact"
+            local expected
+            expected=$(awk -v n="$filename" '$2 ~ n"$" {print $1; exit}' "$sums_file")
+            test -n "$expected"
+            local actual
+            actual=$(sha256sum "$artifact" | awk '{print $1}')
+            test "$actual" = "$expected"
+            printf '%s' "$actual"
+          }
+
+          apk_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.apk)
+          aab_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.aab)
+          installer=$(find rc-artifacts -type f -iname '*.exe' -print -quit)
+          test -n "$installer"
+          installer_name=$(basename "$installer")
+          windows_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Windows.txt "$installer_name")
+          dmg=$(find rc-artifacts -type f -name '*.dmg' -print -quit)
+          test -n "$dmg"
+          dmg_name=$(basename "$dmg")
+          macos_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-macOS.txt "$dmg_name")
+
+          echo "apk_sha=$apk_sha" >> "$GITHUB_OUTPUT"
+          echo "aab_sha=$aab_sha" >> "$GITHUB_OUTPUT"
+          echo "installer_name=$installer_name" >> "$GITHUB_OUTPUT"
+          echo "windows_sha=$windows_sha" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
+          echo "macos_sha=$macos_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Generate automated evidence record
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RUN_ID: ${{ inputs.distribution_run_id }}
+          RUN_URL: ${{ steps.run.outputs.run_url }}
+          RUN_ATTEMPT: ${{ steps.run.outputs.run_attempt }}
+          RAW_VERSION: ${{ steps.version.outputs.raw }}
+          APK_SHA: ${{ steps.verify.outputs.apk_sha }}
+          AAB_SHA: ${{ steps.verify.outputs.aab_sha }}
+          WINDOWS_NAME: ${{ steps.verify.outputs.installer_name }}
+          WINDOWS_SHA: ${{ steps.verify.outputs.windows_sha }}
+          DMG_NAME: ${{ steps.verify.outputs.dmg_name }}
+          MACOS_SHA: ${{ steps.verify.outputs.macos_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p rc-evidence
+          cat > rc-evidence/RC1_AUTOMATED_EVIDENCE.md <<EOF
+          # LexPDF RC1 — Automated Evidence
+
+          Generated from a successful `Release Candidate Distribution` run.
+
+          - Candidate version: `$RAW_VERSION`
+          - Candidate source SHA: `$CANDIDATE_SHA`
+          - Distribution run ID: `$RUN_ID`
+          - Distribution run attempt: `$RUN_ATTEMPT`
+          - Distribution run URL: $RUN_URL
+          - Distribution conclusion: `success`
+
+          ## Artifact SHA-256 verification
+
+          - Android APK `app-release.apk`: `$APK_SHA`
+          - Android AAB `app-release.aab`: `$AAB_SHA`
+          - Windows installer `$WINDOWS_NAME`: `$WINDOWS_SHA`
+          - macOS DMG `$DMG_NAME`: `$MACOS_SHA`
+          - Recomputed hashes match the checksum files shipped by the distribution workflow: `PASS`
+
+          ## Scope
+
+          This automated record proves distribution-run identity and artifact checksum integrity only.
+          It does **not** replace certificate identity capture, notarization submission evidence,
+          installation tests, real-device/runtime validation, large-PDF rendering observations,
+          first usable rendered-page timing, or memory measurements. Those remain manual evidence
+          in `docs/RC1_EVIDENCE.md` until actually executed.
+          EOF
+
+          cp rc-artifacts/SHA256SUMS-Android.txt rc-evidence/
+          cp rc-artifacts/SHA256SUMS-Windows.txt rc-evidence/
+          cp rc-artifacts/SHA256SUMS-macOS.txt rc-evidence/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LexPDF-${{ steps.version.outputs.version }}-Automated-Evidence
+          path: rc-evidence
+          if-no-files-found: error
