@@ -19,19 +19,23 @@ void main() {
       'lib/src/core/pdf/pdf_file_preflight.dart',
     ).readAsStringSync();
 
-    expect(preflight, contains('if (Platform.isWindows)'));
-    expect(
-      preflight,
-      contains('PdfFilePreflightResult.ready(lengthBytes: 0)'),
+    final windowsGuard = preflight.indexOf('if (Platform.isWindows)');
+    final windowsReady = preflight.indexOf(
+      'PdfFilePreflightResult.ready(lengthBytes: 0)',
     );
-    expect(
-      preflight.indexOf('if (Platform.isWindows)'),
-      lessThan(preflight.indexOf('file.existsSync()')),
-    );
-    expect(
-      preflight,
-      contains('delegates file availability and format failures to the viewer'),
-    );
+
+    expect(windowsGuard, greaterThanOrEqualTo(0));
+    expect(windowsReady, greaterThan(windowsGuard));
+
+    for (final syncCall in [
+      'file.existsSync()',
+      'file.lengthSync()',
+      'file.openSync()',
+      'handle.readSync(',
+    ]) {
+      final index = preflight.indexOf(syncCall);
+      expect(index, greaterThan(windowsReady), reason: syncCall);
+    }
   });
 
   test('fast page changes debounce overlay hydration', () {
