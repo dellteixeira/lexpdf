@@ -98,6 +98,7 @@ class NotebookStyleControls extends StatelessWidget {
   const NotebookStyleControls({
     required this.editable,
     required this.pointerMode,
+    required this.objectSelected,
     required this.eraserMode,
     required this.lassoMode,
     required this.selectionCount,
@@ -116,6 +117,7 @@ class NotebookStyleControls extends StatelessWidget {
 
   final bool editable;
   final bool pointerMode;
+  final bool objectSelected;
   final bool eraserMode;
   final bool lassoMode;
   final int selectionCount;
@@ -133,6 +135,11 @@ class NotebookStyleControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final canStyle = editable &&
+        !eraserMode &&
+        (!lassoMode || selectionCount > 0) &&
+        (!pointerMode || objectSelected);
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -148,9 +155,7 @@ class NotebookStyleControls extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: InkWell(
               borderRadius: BorderRadius.circular(18),
-              onTap: !editable || eraserMode || (lassoMode && selectionCount == 0)
-                  ? null
-                  : () => onColorSelected(value),
+              onTap: canStyle ? () => onColorSelected(value) : null,
               child: Container(
                 width: 26,
                 height: 26,
@@ -158,7 +163,9 @@ class NotebookStyleControls extends StatelessWidget {
                   color: Color(value),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: colorValue == value ? scheme.primary : scheme.outlineVariant,
+                    color: colorValue == value
+                        ? scheme.primary
+                        : scheme.outlineVariant,
                     width: colorValue == value ? 3 : 1,
                   ),
                 ),
@@ -166,16 +173,14 @@ class NotebookStyleControls extends StatelessWidget {
             ),
           ),
         const SizedBox(width: 8),
-        const Text('Espessura'),
+        Text(objectSelected ? 'Espessura do objeto' : 'Espessura'),
         SizedBox(
           width: 120,
           child: Slider(
             min: 1,
             max: 10,
-            value: width,
-            onChanged: editable && !eraserMode && !lassoMode && !pointerMode
-                ? onWidthChanged
-                : null,
+            value: width.clamp(1, 10),
+            onChanged: canStyle && !lassoMode ? onWidthChanged : null,
           ),
         ),
         FilterChip(
