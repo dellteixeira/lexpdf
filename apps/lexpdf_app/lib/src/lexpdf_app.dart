@@ -8,15 +8,13 @@ import 'core/documents/native_pdf_open_service.dart';
 import 'core/storage/local_database.dart';
 import 'core/storage/local_document_catalog.dart';
 import 'core/storage/local_ink_store.dart';
-import 'core/storage/local_pdf_ink_store.dart';
 import 'core/storage/local_pdf_navigation_store.dart';
-import 'core/storage/local_reading_progress_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
-import 'screens/minimal_library_sections_screen.dart';
+import 'screens/library_workspace_home_screen.dart';
 import 'screens/pdf_print_screen.dart';
-import 'screens/pdf_reader_screen.dart';
+import 'screens/pdf_workspace_screen.dart';
 
 class LexPdfApp extends StatefulWidget {
   const LexPdfApp({
@@ -34,12 +32,9 @@ class LexPdfApp extends StatefulWidget {
 
 class _LexPdfAppState extends State<LexPdfApp> {
   late final LocalDocumentCatalog _catalog = LocalDocumentCatalog(widget.database);
-  late final LocalReadingProgressStore _readingProgress =
-      LocalReadingProgressStore(widget.database);
   late final LocalTextAnnotationStore _annotations =
       LocalTextAnnotationStore(widget.database);
   late final LocalInkStore _inkStore = LocalInkStore(widget.database);
-  late final LocalPdfInkStore _pdfInkStore = LocalPdfInkStore(widget.database);
   late final LocalPdfNavigationStore _navigationStore =
       LocalPdfNavigationStore(widget.database);
   final DocumentPickerService _picker = const DocumentPickerService();
@@ -82,19 +77,19 @@ class _LexPdfAppState extends State<LexPdfApp> {
         syncState: DocumentSyncState.localOnly,
       );
       await _catalog.upsert(document);
-      await _catalog.markOpened(document.id);
-      final stored = await _catalog.getById(document.id) ?? document;
       final navigator = _navigatorKey.currentState;
       if (!mounted || navigator == null) return;
 
+      // Native/Open-with paths converge on the same workspace used by Biblioteca.
+      // The catalog timestamp must not delay the first workspace frame.
+      _catalog.markOpened(document.id);
       try {
         await navigator.push(
           MaterialPageRoute<void>(
-            builder: (_) => PdfReaderScreen(
-              document: stored,
-              readingProgress: _readingProgress,
+            builder: (_) => PdfWorkspaceScreen(
+              document: document,
+              store: _navigationStore,
               annotations: _annotations,
-              pdfInkStore: _pdfInkStore,
             ),
           ),
         );
@@ -161,12 +156,10 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => MinimalLibrarySectionsScreen(
+        builder: (context) => LibraryWorkspaceHomeScreen(
           catalog: _catalog,
-          readingProgress: _readingProgress,
           annotations: _annotations,
           inkStore: _inkStore,
-          pdfInkStore: _pdfInkStore,
           onOpenAccount: () => _openAccount(context),
           onOpenPrint: () => _openPrint(context),
         ),
