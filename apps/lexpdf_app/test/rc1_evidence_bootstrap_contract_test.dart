@@ -42,6 +42,8 @@ void main() {
     expect(workflow, contains('SHA256SUMS-Windows.txt'));
     expect(workflow, contains('WINDOWS_SIGNING_STATUS.txt'));
     expect(workflow, contains('verify_named_hash'));
+    expect(workflow, contains('normalize_value'));
+    expect(workflow, contains("tr -d '\\r'"));
     expect(workflow, contains('app-release.apk'));
     expect(workflow, contains('app-release.aab'));
     expect(workflow, contains("find rc-artifacts -type f -iname '*.exe'"));
