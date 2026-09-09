@@ -179,7 +179,7 @@ class NotebookStyleControls extends StatelessWidget {
           child: Slider(
             min: 1,
             max: 10,
-            value: width.clamp(1, 10),
+            value: width.clamp(1.0, 10.0).toDouble(),
             onChanged: canStyle && !lassoMode ? onWidthChanged : null,
           ),
         ),
