@@ -154,23 +154,11 @@ jobs:
           $secure = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
           $cert = Get-PfxCertificate -FilePath $path -Password $secure
           if ($null -eq $cert -or -not $cert.HasPrivateKey) { throw 'Windows signing certificate is invalid or has no private key.' }
-
-          # Avoid Import-Certificate for trust bootstrap because importing a self-signed
-          # certificate into Root can block on an interactive confirmation dialog in a
-          # headless GitHub-hosted runner. Use X509Store directly instead.
-          foreach ($storeName in @('Root', 'TrustedPublisher')) {
-            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-              $storeName,
-              [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-            )
-            try {
-              $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-              $store.Add($cert)
-            } finally {
-              $store.Close()
-            }
-          }
+          $thumbprint = ($cert.Thumbprint -replace '\s','').ToUpperInvariant()
+          if ([string]::IsNullOrWhiteSpace($thumbprint)) { throw 'Windows signing certificate thumbprint is unavailable.' }
           'WINDOWS_SIGNING_ENABLED=true' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EXPECTED_WINDOWS_SIGNER_THUMBPRINT=$thumbprint" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'Windows signing configured. Self-signed trust is not added to the runner trust store.'
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - run: git diff --exit-code -- pubspec.lock
@@ -195,7 +183,11 @@ jobs:
           & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:CERT_PASSWORD $exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $signature = Get-AuthenticodeSignature $exe
-          if ($signature.Status -ne 'Valid') { throw "Invalid executable signature: $($signature.Status)" }
+          if ($null -eq $signature.SignerCertificate) { throw 'Executable has no Authenticode signer certificate.' }
+          $actualThumbprint = ($signature.SignerCertificate.Thumbprint -replace '\s','').ToUpperInvariant()
+          if ($actualThumbprint -ne $env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT) { throw 'Executable signer certificate does not match the configured PFX.' }
+          if ($signature.Status -eq 'NotSigned' -or $signature.Status -eq 'HashMismatch') { throw "Executable signature is not cryptographically acceptable: $($signature.Status)" }
+          Write-Host "Executable signature present; signer matches configured certificate; trust status=$($signature.Status)."
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -221,7 +213,11 @@ jobs:
           & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:CERT_PASSWORD $installer.FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $signature = Get-AuthenticodeSignature $installer.FullName
-          if ($signature.Status -ne 'Valid') { throw "Invalid installer signature: $($signature.Status)" }
+          if ($null -eq $signature.SignerCertificate) { throw 'Installer has no Authenticode signer certificate.' }
+          $actualThumbprint = ($signature.SignerCertificate.Thumbprint -replace '\s','').ToUpperInvariant()
+          if ($actualThumbprint -ne $env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT) { throw 'Installer signer certificate does not match the configured PFX.' }
+          if ($signature.Status -eq 'NotSigned' -or $signature.Status -eq 'HashMismatch') { throw "Installer signature is not cryptographically acceptable: $($signature.Status)" }
+          Write-Host "Installer signature present; signer matches configured certificate; trust status=$($signature.Status)."
       - name: Record Windows checksum and signing mode
         shell: pwsh
         run: |
@@ -230,21 +226,31 @@ jobs:
           $hash = Get-FileHash $installer.FullName -Algorithm SHA256
           "$($hash.Hash.ToLower())  $($installer.Name)" | Set-Content -Encoding ascii 'SHA256SUMS-Windows.txt'
           $exe = 'build\windows\x64\runner\Release\lexpdf_app.exe'
-          $exeStatus = (Get-AuthenticodeSignature $exe).Status
-          $installerStatus = (Get-AuthenticodeSignature $installer.FullName).Status
+          $exeSignature = Get-AuthenticodeSignature $exe
+          $installerSignature = Get-AuthenticodeSignature $installer.FullName
+          $exeStatus = $exeSignature.Status
+          $installerStatus = $installerSignature.Status
           if ($env:WINDOWS_SIGNING_ENABLED -eq 'true') {
-            if ($exeStatus -ne 'Valid' -or $installerStatus -ne 'Valid') { throw 'Expected valid Authenticode signatures.' }
+            $exeSignerMatch = $null -ne $exeSignature.SignerCertificate -and (($exeSignature.SignerCertificate.Thumbprint -replace '\s','').ToUpperInvariant() -eq $env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT)
+            $installerSignerMatch = $null -ne $installerSignature.SignerCertificate -and (($installerSignature.SignerCertificate.Thumbprint -replace '\s','').ToUpperInvariant() -eq $env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT)
+            if (-not $exeSignerMatch -or -not $installerSignerMatch) { throw 'Expected Windows signer identity match.' }
+            if ($exeStatus -eq 'NotSigned' -or $exeStatus -eq 'HashMismatch' -or $installerStatus -eq 'NotSigned' -or $installerStatus -eq 'HashMismatch') { throw 'Expected present, intact Windows Authenticode signatures.' }
             @(
-              'mode=signed',
+              'mode=signed-self-signed',
               "executable_authenticode=$exeStatus",
-              "installer_authenticode=$installerStatus"
+              "installer_authenticode=$installerStatus",
+              'executable_signer_match=true',
+              'installer_signer_match=true',
+              'public_trust=false'
             ) | Set-Content -Encoding ascii 'WINDOWS_SIGNING_STATUS.txt'
           } else {
-            if ($exeStatus -eq 'Valid' -or $installerStatus -eq 'Valid') { throw 'Unsigned RC unexpectedly reports a valid Authenticode signature.' }
             @(
               'mode=unsigned',
               "executable_authenticode=$exeStatus",
-              "installer_authenticode=$installerStatus"
+              "installer_authenticode=$installerStatus",
+              'executable_signer_match=false',
+              'installer_signer_match=false',
+              'public_trust=false'
             ) | Set-Content -Encoding ascii 'WINDOWS_SIGNING_STATUS.txt'
           }
       - uses: actions/upload-artifact@v4
