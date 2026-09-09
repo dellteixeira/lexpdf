@@ -47,15 +47,8 @@ jobs:
           test -n "$KEY_ALIAS"
           test -n "$KEY_PASSWORD"
           test -n "$STORE_PASSWORD"
-
           python3 - <<'PY'
-          import base64
-          import binascii
-          import os
-          import pathlib
-          import re
-          import sys
-
+          import base64, binascii, os, pathlib, re, sys
           raw = os.environ['KEYSTORE_B64'].lstrip('\ufeff').strip()
           if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
               raw = raw[1:-1]
@@ -70,12 +63,7 @@ jobs:
               sys.exit(1)
           pathlib.Path('android/app/lexpdf-release.jks').write_bytes(data)
           PY
-
-          keytool -list \
-            -keystore android/app/lexpdf-release.jks \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" >/dev/null
-
+          keytool -list -keystore android/app/lexpdf-release.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           cat > android/key.properties <<EOF
           storePassword=$STORE_PASSWORD
           keyPassword=$KEY_PASSWORD
@@ -110,7 +98,6 @@ jobs:
           aab='build/app/outputs/bundle/release/app-release.aab'
           test -s "$apk"
           test -s "$aab"
-
           sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           if [ -z "$sdk_root" ] || [ ! -d "$sdk_root/build-tools" ]; then
             echo 'Android SDK build-tools directory was not found.' >&2
@@ -121,7 +108,6 @@ jobs:
             echo 'apksigner was not found in Android SDK build-tools.' >&2
             exit 1
           fi
-
           "$apksigner_path" verify --verbose --print-certs "$apk"
           sha256sum "$apk" "$aab" > SHA256SUMS-Android.txt
       - uses: actions/upload-artifact@v4
@@ -168,6 +154,10 @@ jobs:
           $secure = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
           $cert = Get-PfxCertificate -FilePath $path -Password $secure
           if ($null -eq $cert -or -not $cert.HasPrivateKey) { throw 'Windows signing certificate is invalid or has no private key.' }
+          $cerPath = Join-Path $env:RUNNER_TEMP 'lexpdf-code-signing.cer'
+          [IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
           'WINDOWS_SIGNING_ENABLED=true' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
