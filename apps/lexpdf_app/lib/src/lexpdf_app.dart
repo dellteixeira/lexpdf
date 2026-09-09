@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -82,7 +83,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
 
       // Native/Open-with paths converge on the same workspace used by Biblioteca.
       // The catalog timestamp must not delay the first workspace frame.
-      _catalog.markOpened(document.id);
+      unawaited(_catalog.markOpened(document.id));
       try {
         await navigator.push(
           MaterialPageRoute<void>(
