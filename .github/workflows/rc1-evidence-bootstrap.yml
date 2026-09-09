@@ -108,25 +108,43 @@ jobs:
             printf '%s' "$1" | tr -d '\r'
           }
 
+          read_status() {
+            normalize_value "$(awk -F= -v key="$1" '$1 == key {print $2; exit}' rc-artifacts/WINDOWS_SIGNING_STATUS.txt)"
+          }
+
           apk_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.apk)
           aab_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.aab)
           installer=$(find rc-artifacts -type f -iname '*.exe' -print -quit)
           test -n "$installer"
           installer_name=$(basename "$installer")
           windows_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Windows.txt "$installer_name")
-          signing_mode=$(normalize_value "$(awk -F= '$1 == \"mode\" {print $2; exit}' rc-artifacts/WINDOWS_SIGNING_STATUS.txt)")
-          case "$signing_mode" in
-            signed|unsigned) ;;
-            *) echo "Invalid Windows signing mode: $signing_mode" >&2; exit 1 ;;
-          esac
-          exe_auth=$(normalize_value "$(awk -F= '$1 == \"executable_authenticode\" {print $2; exit}' rc-artifacts/WINDOWS_SIGNING_STATUS.txt)")
-          installer_auth=$(normalize_value "$(awk -F= '$1 == \"installer_authenticode\" {print $2; exit}' rc-artifacts/WINDOWS_SIGNING_STATUS.txt)")
+
+          signing_mode=$(read_status mode)
+          exe_auth=$(read_status executable_authenticode)
+          installer_auth=$(read_status installer_authenticode)
+          exe_signer_match=$(read_status executable_signer_match)
+          installer_signer_match=$(read_status installer_signer_match)
+          public_trust=$(read_status public_trust)
+
           test -n "$exe_auth"
           test -n "$installer_auth"
-          if [ "$signing_mode" = signed ]; then
-            test "$exe_auth" = Valid
-            test "$installer_auth" = Valid
-          fi
+          test "$public_trust" = false
+
+          case "$signing_mode" in
+            signed-self-signed)
+              test "$exe_signer_match" = true
+              test "$installer_signer_match" = true
+              test "$exe_auth" != NotSigned
+              test "$exe_auth" != HashMismatch
+              test "$installer_auth" != NotSigned
+              test "$installer_auth" != HashMismatch
+              ;;
+            unsigned)
+              test "$exe_signer_match" = false
+              test "$installer_signer_match" = false
+              ;;
+            *) echo "Invalid Windows signing mode: $signing_mode" >&2; exit 1 ;;
+          esac
 
           echo "apk_sha=$apk_sha" >> "$GITHUB_OUTPUT"
           echo "aab_sha=$aab_sha" >> "$GITHUB_OUTPUT"
@@ -135,6 +153,9 @@ jobs:
           echo "windows_signing_mode=$signing_mode" >> "$GITHUB_OUTPUT"
           echo "windows_exe_auth=$exe_auth" >> "$GITHUB_OUTPUT"
           echo "windows_installer_auth=$installer_auth" >> "$GITHUB_OUTPUT"
+          echo "windows_exe_signer_match=$exe_signer_match" >> "$GITHUB_OUTPUT"
+          echo "windows_installer_signer_match=$installer_signer_match" >> "$GITHUB_OUTPUT"
+          echo "windows_public_trust=$public_trust" >> "$GITHUB_OUTPUT"
 
       - name: Generate automated evidence record
         shell: bash
@@ -149,6 +170,9 @@ jobs:
           WINDOWS_SIGNING_MODE: ${{ steps.verify.outputs.windows_signing_mode }}
           WINDOWS_EXE_AUTH: ${{ steps.verify.outputs.windows_exe_auth }}
           WINDOWS_INSTALLER_AUTH: ${{ steps.verify.outputs.windows_installer_auth }}
+          WINDOWS_EXE_SIGNER_MATCH: ${{ steps.verify.outputs.windows_exe_signer_match }}
+          WINDOWS_INSTALLER_SIGNER_MATCH: ${{ steps.verify.outputs.windows_installer_signer_match }}
+          WINDOWS_PUBLIC_TRUST: ${{ steps.verify.outputs.windows_public_trust }}
         run: |
           set -euo pipefail
           mkdir -p rc-evidence
@@ -172,19 +196,23 @@ jobs:
           - Windows installer `$WINDOWS_NAME`: `$WINDOWS_SHA`
           - Recomputed hashes match the checksum files shipped by the distribution workflow: `PASS`
 
-          ## Windows signing mode
+          ## Windows signing evidence
 
           - Mode: `$WINDOWS_SIGNING_MODE`
-          - Executable Authenticode status: `$WINDOWS_EXE_AUTH`
-          - Installer Authenticode status: `$WINDOWS_INSTALLER_AUTH`
+          - Executable Authenticode trust status: `$WINDOWS_EXE_AUTH`
+          - Installer Authenticode trust status: `$WINDOWS_INSTALLER_AUTH`
+          - Executable signer matches configured certificate: `$WINDOWS_EXE_SIGNER_MATCH`
+          - Installer signer matches configured certificate: `$WINDOWS_INSTALLER_SIGNER_MATCH`
+          - Public trust: `$WINDOWS_PUBLIC_TRUST`
 
-          Windows Authenticode is optional for this release scope. When signing credentials are absent,
-          the distribution workflow is allowed to publish an explicitly recorded unsigned installer.
+          A `signed-self-signed` result proves that SignTool produced Authenticode signatures and that the
+          embedded signer identity matches the configured PFX. It deliberately does not claim public trust.
+          A clean end-user Windows machine may still show publisher or SmartScreen warnings.
 
           ## Scope
 
           This automated record proves distribution-run identity, artifact checksum integrity, and the
-          recorded Windows signing mode only. It does **not** replace Android certificate identity capture,
+          recorded Windows signing evidence only. It does **not** replace Android certificate identity capture,
           installation tests, real-device/runtime validation, large-PDF rendering observations,
           first usable rendered-page timing, or memory measurements. Those remain manual evidence
           in `docs/RC1_EVIDENCE.md` until actually executed.
