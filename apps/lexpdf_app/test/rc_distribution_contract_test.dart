@@ -26,9 +26,10 @@ void main() {
       'LEXPDF_WINDOWS_CERTIFICATE_BASE64',
       'WINDOWS_SIGNING_ENABLED',
       'Get-AuthenticodeSignature',
-      'Import-Certificate',
-      "Cert:\\CurrentUser\\Root",
-      "Cert:\\CurrentUser\\TrustedPublisher",
+      'X509Store',
+      "'Root'",
+      "'TrustedPublisher'",
+      'StoreLocation]::CurrentUser',
       'Inno Setup',
       'WINDOWS_SIGNING_STATUS.txt',
       'SHA256SUMS-Android.txt',
@@ -37,6 +38,7 @@ void main() {
       expect(workflow, contains(requiredContract));
     }
 
+    expect(workflow, isNot(contains('Import-Certificate')));
     expect(workflow, isNot(contains('macos-dmg:')));
     expect(workflow, isNot(contains('LEXPDF_MACOS_CERTIFICATE_BASE64')));
     expect(workflow, isNot(contains('notarytool submit')));
