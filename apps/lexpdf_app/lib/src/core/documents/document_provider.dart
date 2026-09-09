@@ -32,7 +32,7 @@ class DocumentRef {
     this.favorite = false,
     this.syncState = DocumentSyncState.localOnly,
   }) : localPath = localPath ??
-            (provider == DocumentProviderKind.local && id.isNotEmpty ? id : null);
+            (provider == DocumentProviderKind.local ? id : null);
 
   final String id;
   final String name;
