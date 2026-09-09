@@ -1,6 +1,15 @@
 # LexPDF distribution signing
 
-Official beta artifacts are built only by `.github/workflows/beta-distribution.yml`.
+Official RC artifacts are built only by `.github/workflows/beta-distribution.yml`.
+
+## Release distribution scope
+
+The `1.0.0-rc.1` / `v1.0.0` distribution scope is:
+
+- Android
+- Windows
+
+macOS source and CI compatibility remain in the repository, but macOS is not a distribution target for this release and therefore does not participate in RC acceptance or stable-promotion evidence.
 
 ## Reproducible inputs
 
@@ -9,35 +18,44 @@ Official beta artifacts are built only by `.github/workflows/beta-distribution.y
 - Android uses the persistent release keystore supplied through GitHub Actions secrets.
 - Official builds set `LEXPDF_ENVIRONMENT=production` explicitly.
 - Every distribution job emits a SHA-256 checksum manifest for its final artifact(s).
-
-Cryptographic signatures use trusted timestamp/notarization services, so signed binary bytes are intentionally not expected to be bit-for-bit identical across separate release runs. Reproducibility here means pinned source/tool/dependency inputs plus independently verifiable artifact signatures and checksums.
+- Windows emits `WINDOWS_SIGNING_STATUS.txt` so the accepted candidate records whether Authenticode was enabled.
 
 ## Required GitHub Actions secrets
 
-### Android
+### Android — required
 
 - `LEXPDF_ANDROID_KEYSTORE_BASE64`
 - `LEXPDF_ANDROID_KEY_ALIAS`
 - `LEXPDF_ANDROID_KEY_PASSWORD`
 - `LEXPDF_ANDROID_STORE_PASSWORD`
 
-### Windows Authenticode
+The Android APK and AAB must be signed with the project release keystore. The workflow verifies the APK signature with `apksigner` and publishes SHA-256 checksums.
 
-- `LEXPDF_WINDOWS_CERTIFICATE_BASE64`: base64 encoded PFX containing an Authenticode code-signing certificate and private key.
+### Windows Authenticode — optional
+
+The following secrets are optional, but they must be supplied together when Windows Authenticode signing is desired:
+
+- `LEXPDF_WINDOWS_CERTIFICATE_BASE64`: base64 encoded PFX containing a code-signing certificate and private key.
 - `LEXPDF_WINDOWS_CERTIFICATE_PASSWORD`: PFX password.
 
-The workflow signs both `lexpdf_app.exe` and the final Inno Setup installer using SHA-256 plus RFC3161 timestamping, then requires `Get-AuthenticodeSignature` to report `Valid`.
+When both secrets are present, the workflow signs `lexpdf_app.exe` and the final Inno Setup installer and requires `Get-AuthenticodeSignature` to report `Valid`.
 
-### macOS Developer ID + notarization
+When both secrets are absent, the workflow deliberately produces an unsigned Windows installer. This is permitted for the current controlled/personal distribution scope, but Windows may show an unknown-publisher or SmartScreen warning during installation. The unsigned state must be recorded in `WINDOWS_SIGNING_STATUS.txt`; it must never be presented as a signed artifact.
 
-- `LEXPDF_MACOS_CERTIFICATE_BASE64`: base64 encoded Developer ID Application `.p12`.
-- `LEXPDF_MACOS_CERTIFICATE_PASSWORD`: certificate password.
-- `LEXPDF_APPLE_ID`: Apple account used by notarytool.
-- `LEXPDF_APPLE_APP_PASSWORD`: app-specific Apple password.
-- `LEXPDF_APPLE_TEAM_ID`: Apple Developer Team ID.
+A partial Windows signing configuration is invalid: supplying only one of the two secrets fails the workflow.
 
-The workflow imports the Developer ID certificate into a temporary keychain, signs the `.app` with hardened runtime and the release entitlements, signs the DMG, submits it to Apple Notary Service, staples the ticket and validates Gatekeeper/notarization before publishing the artifact.
+## macOS
+
+No macOS signing, notarization, DMG generation, or Apple Developer credentials are required for the current RC/stable distribution scope. macOS compatibility CI may still build the app from source, but that build is not an official distributed artifact for `v1.0.0`.
 
 ## Release rule
 
-Do not distribute an unsigned Windows installer or an unnotarized macOS DMG as an official LexPDF beta/release. The release workflow fails closed when required signing material is absent.
+An official LexPDF RC/stable candidate must:
+
+1. come from one exact accepted source SHA;
+2. contain signed Android APK/AAB artifacts with verified SHA-256 checksums;
+3. contain a Windows installer with verified SHA-256 checksum;
+4. explicitly record Windows signing mode as `signed` or `unsigned`;
+5. pass real installation/runtime validation on Android and Windows before stable promotion.
+
+Unsigned Windows artifacts are acceptable only under the explicit policy above. Android signing remains mandatory.

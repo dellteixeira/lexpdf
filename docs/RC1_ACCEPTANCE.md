@@ -2,7 +2,9 @@
 
 This manifest is the release-candidate gate for `1.0.0-rc.1+1`.
 
-CI and signed-artifact generation are necessary but are not substitutes for real-device/runtime validation. The stable `v1.0.0` must not be promoted until every required item below has recorded evidence.
+The distribution scope for this release is **Android + Windows**. macOS remains a source/CI compatibility target, but it is not an official RC1 or `v1.0.0` distribution target and does not block acceptance.
+
+CI and artifact generation are necessary but are not substitutes for real-device/runtime validation. The stable `v1.0.0` must not be promoted until every required item below has recorded evidence.
 
 ## Build identity
 
@@ -13,7 +15,7 @@ CI and signed-artifact generation are necessary but are not substitutes for real
 - [ ] Release Hardening green on the candidate source.
 - [ ] Phase 3 Exit Gate green on the candidate source.
 
-## Signed distribution artifacts
+## Distribution artifacts
 
 ### Android
 
@@ -27,25 +29,16 @@ CI and signed-artifact generation are necessary but are not substitutes for real
 
 - [ ] Release executable produced.
 - [ ] Windows installer produced.
-- [ ] Authenticode signature for executable is `Valid`.
-- [ ] Authenticode signature for installer is `Valid`.
+- [ ] Windows signing mode is recorded as `signed` or `unsigned` in `WINDOWS_SIGNING_STATUS.txt`.
+- [ ] If Windows signing mode is `signed`, Authenticode signature for executable is `Valid`.
+- [ ] If Windows signing mode is `signed`, Authenticode signature for installer is `Valid`.
+- [ ] If Windows signing mode is `unsigned`, the unsigned status is explicit and any unknown-publisher/SmartScreen warning is treated as expected behavior for this controlled distribution.
 - [ ] SHA-256 checksum recorded for installer.
 - [ ] Installer installs, launches and uninstalls cleanly on a supported Windows host.
 
-### macOS
-
-- [ ] Signed `.app` produced.
-- [ ] Signed DMG produced.
-- [ ] Developer ID signature verification succeeds.
-- [ ] Apple notarization succeeds.
-- [ ] Stapler validation succeeds.
-- [ ] Gatekeeper assessment succeeds.
-- [ ] SHA-256 checksum recorded for DMG.
-- [ ] DMG installs and launches on a supported macOS host.
-
 ## Functional parity — real runtime
 
-Each platform must validate the same user-visible path where applicable:
+Android and Windows must validate the same user-visible path where applicable:
 
 - [ ] Open local PDF.
 - [ ] Open PDF from native OS entry point / Open With.
@@ -62,7 +55,7 @@ Each platform must validate the same user-visible path where applicable:
 
 ## Large-PDF runtime validation
 
-The existing CI test physically creates and parses a 1600-page PDF. RC acceptance additionally requires native viewer validation:
+The existing CI test physically creates and parses a 1600-page PDF. RC acceptance additionally requires native viewer validation on Android and Windows:
 
 - [ ] 1600+ page PDF opens in the actual pdfrx viewer.
 - [ ] First usable page appears without gray-screen deadlock.
@@ -76,7 +69,7 @@ The existing CI test physically creates and parses a 1600-page PDF. RC acceptanc
 
 ## Performance evidence
 
-For each native platform, record:
+For each release platform, record:
 
 - candidate commit;
 - OS/device model;
@@ -93,5 +86,5 @@ For each native platform, record:
 1. every required checkbox above is satisfied or explicitly documented as not applicable;
 2. no open blocker or critical defect remains;
 3. all release artifacts come from the same accepted candidate source;
-4. checksums and signing/notarization evidence are retained;
+4. Android signature evidence, Windows signing-mode evidence and SHA-256 checksums are retained;
 5. final regression passes after any RC fix.
