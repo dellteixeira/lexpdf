@@ -36,12 +36,15 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   static const _service = PdfPageManipulationService();
   static const _largeService = LargePdfManipulationService();
   static const _writer = SafePdfWriter();
+
   final List<_PlannedPage> _pages = [];
   bool _loading = true;
   bool _busy = false;
   Object? _error;
 
   String? get _sourcePath => widget.document.localPath;
+
+  int get _selectedCount => _pages.where((page) => page.selected).length;
 
   bool get _planIsIdentity {
     for (var index = 0; index < _pages.length; index++) {
@@ -77,7 +80,8 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         for (var index = 0; index < document.pages.length; index++) {
           _pages.add(
             _PlannedPage(
-              id: 'page-${index + 1}-${DateTime.now().microsecondsSinceEpoch}-$index',
+              id:
+                  'page-${index + 1}-${DateTime.now().microsecondsSinceEpoch}-$index',
               sourcePageNumber: index + 1,
             ),
           );
@@ -146,7 +150,9 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
     final source = _sourcePath;
     if (source == null) throw StateError('PDF não disponível offline.');
     if (_planIsIdentity) return action(source);
-    if (_pages.isEmpty) throw StateError('O documento não pode ficar sem páginas.');
+    if (_pages.isEmpty) {
+      throw StateError('O documento não pode ficar sem páginas.');
+    }
 
     final temp = await Directory.systemTemp.createTemp('lexpdf-page-plan-');
     try {
@@ -347,8 +353,21 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
     setState(() => _pages.removeAt(index));
   }
 
+  void _selectAll(bool selected) {
+    setState(() {
+      for (final page in _pages) {
+        page.selected = selected;
+      }
+    });
+  }
+
+  void _rotate(int index) {
+    setState(() => _pages[index].clockwiseQuarterTurns++);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final path = _sourcePath;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gerenciar páginas PDF'),
@@ -392,117 +411,220 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text('Não foi possível abrir o PDF: $_error'))
-              : Column(
-                  children: [
-                    Material(
-                      color: Theme.of(context).colorScheme.surfaceContainerLow,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${_pages.length} páginas • processamento em disco para PDFs grandes',
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _busy ? null : _extractSelected,
-                              icon: const Icon(Icons.content_cut),
-                              label: const Text('Extrair selecionadas'),
-                            ),
-                            const SizedBox(width: 8),
-                            FilledButton.icon(
-                              onPressed: _busy ? null : _savePlan,
-                              icon: const Icon(Icons.save_as_outlined),
-                              label: const Text('Salvar como'),
-                            ),
-                          ],
+              : path == null || path.isEmpty
+                  ? const Center(child: Text('PDF indisponível offline.'))
+                  : Column(
+                      children: [
+                        _buildTopBar(),
+                        if (_busy) const LinearProgressIndicator(),
+                        Expanded(child: _buildThumbnailGrid(path)),
+                      ],
+                    ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    final compact = MediaQuery.sizeOf(context).width < 900;
+    final status = _selectedCount == 0
+        ? '${_pages.length} páginas'
+        : '$_selectedCount de ${_pages.length} selecionadas';
+
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: compact ? 220 : 300,
+              child: Text(
+                '$status • miniaturas renderizadas sob demanda',
+                maxLines: 2,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _busy ? null : () => _selectAll(true),
+              icon: const Icon(Icons.select_all_outlined),
+              label: const Text('Selecionar todas'),
+            ),
+            if (_selectedCount > 0)
+              TextButton.icon(
+                onPressed: _busy ? null : () => _selectAll(false),
+                icon: const Icon(Icons.deselect_outlined),
+                label: const Text('Limpar seleção'),
+              ),
+            OutlinedButton.icon(
+              onPressed: _busy || _selectedCount == 0 ? null : _extractSelected,
+              icon: const Icon(Icons.content_cut),
+              label: const Text('Extrair'),
+            ),
+            FilledButton.icon(
+              onPressed: _busy ? null : _savePlan,
+              icon: const Icon(Icons.save_as_outlined),
+              label: const Text('Salvar como'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumbnailGrid(String path) {
+    return PdfDocumentViewBuilder.file(
+      path,
+      builder: (context, document) {
+        if (document == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(14),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 220,
+            mainAxisExtent: 315,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+          ),
+          itemCount: _pages.length,
+          itemBuilder: (context, index) {
+            final page = _pages[index];
+            return _buildPageCard(document, page, index);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPageCard(PdfDocument document, _PlannedPage page, int index) {
+    final degrees = (page.clockwiseQuarterTurns % 4) * 90;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      key: ValueKey(page.id),
+      clipBehavior: Clip.antiAlias,
+      color: page.selected ? scheme.secondaryContainer : null,
+      child: InkWell(
+        onTap: _busy
+            ? null
+            : () => setState(() => page.selected = !page.selected),
+        child: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: scheme.outlineVariant),
+                      ),
+                      child: RotatedBox(
+                        quarterTurns: page.clockwiseQuarterTurns % 4,
+                        child: PdfPageView(
+                          document: document,
+                          pageNumber: page.sourcePageNumber,
+                          maximumDpi: 110,
                         ),
                       ),
                     ),
-                    if (_busy) const LinearProgressIndicator(),
-                    Expanded(
-                      child: ReorderableListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: _pages.length,
-                        onReorderItem: _busy
-                            ? (_, __) {}
-                            : (oldIndex, newIndex) {
-                                setState(() {
-                                  final item = _pages.removeAt(oldIndex);
-                                  _pages.insert(newIndex, item);
-                                });
-                              },
-                        itemBuilder: (context, index) {
-                          final page = _pages[index];
-                          final degrees =
-                              (page.clockwiseQuarterTurns % 4) * 90;
-                          return Card(
-                            key: ValueKey(page.id),
-                            child: ListTile(
-                              leading: Checkbox(
-                                value: page.selected,
-                                onChanged: _busy
-                                    ? null
-                                    : (value) => setState(
-                                          () => page.selected = value ?? false,
-                                        ),
+                  ),
+                  Positioned(
+                    left: 6,
+                    top: 6,
+                    child: Checkbox(
+                      value: page.selected,
+                      onChanged: _busy
+                          ? null
+                          : (value) => setState(
+                                () => page.selected = value ?? false,
                               ),
-                              title: Text(
-                                'Página original ${page.sourcePageNumber}',
-                              ),
-                              subtitle: Text('Rotação aplicada: $degrees°'),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Mover para cima',
-                                    onPressed: _busy || index == 0
-                                        ? null
-                                        : () => _move(index, -1),
-                                    icon: const Icon(Icons.arrow_upward),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Mover para baixo',
-                                    onPressed:
-                                        _busy || index == _pages.length - 1
-                                            ? null
-                                            : () => _move(index, 1),
-                                    icon: const Icon(Icons.arrow_downward),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Girar 90°',
-                                    onPressed: _busy
-                                        ? null
-                                        : () => setState(
-                                              () => page
-                                                  .clockwiseQuarterTurns++,
-                                            ),
-                                    icon: const Icon(Icons.rotate_right),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Duplicar',
-                                    onPressed:
-                                        _busy ? null : () => _duplicate(index),
-                                    icon: const Icon(Icons.copy_outlined),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Excluir',
-                                    onPressed: _busy || _pages.length <= 1
-                                        ? null
-                                        : () => _delete(index),
-                                    icon: const Icon(Icons.delete_outline),
-                                  ),
-                                  const Icon(Icons.drag_handle),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                     ),
-                  ],
-                ),
+                  ),
+                  Positioned(
+                    right: 4,
+                    top: 4,
+                    child: PopupMenuButton<String>(
+                      enabled: !_busy,
+                      tooltip: 'Ações da página',
+                      onSelected: (value) {
+                        if (value == 'rotate') _rotate(index);
+                        if (value == 'duplicate') _duplicate(index);
+                        if (value == 'delete') _delete(index);
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'rotate',
+                          child: Text('Girar 90°'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'duplicate',
+                          child: Text('Duplicar'),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          enabled: _pages.length > 1,
+                          child: const Text('Excluir'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              child: Column(
+                children: [
+                  Text(
+                    'Página ${index + 1}',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    degrees == 0
+                        ? 'Original ${page.sourcePageNumber}'
+                        : 'Original ${page.sourcePageNumber} • $degrees°',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Mover uma posição para trás',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: _busy || index == 0
+                            ? null
+                            : () => _move(index, -1),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      IconButton(
+                        tooltip: 'Girar 90°',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: _busy ? null : () => _rotate(index),
+                        icon: const Icon(Icons.rotate_right),
+                      ),
+                      IconButton(
+                        tooltip: 'Mover uma posição para frente',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: _busy || index == _pages.length - 1
+                            ? null
+                            : () => _move(index, 1),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
