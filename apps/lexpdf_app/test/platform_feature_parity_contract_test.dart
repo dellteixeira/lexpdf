@@ -23,7 +23,7 @@ void main() {
     );
   });
 
-  test('all native entry paths converge on the same Flutter PDF intake', () {
+  test('all native entry paths converge on the unified Flutter PDF workspace', () {
     final android = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
     ).readAsStringSync();
@@ -39,7 +39,8 @@ void main() {
     expect(windows, contains('set_dart_entrypoint_arguments'));
     expect(mainDart, contains('NativePdfOpenService.pdfPathFromArgs(args)'));
     expect(app, contains('Future<void> _openNativePdf(String path)'));
-    expect(app, contains('PdfReaderScreen('));
+    expect(app, contains('PdfWorkspaceScreen('));
+    expect(app, isNot(contains('PdfReaderScreen(')));
   });
 
   test('reader parity keeps search, text annotations and ink in common code', () {
@@ -64,15 +65,16 @@ void main() {
 
   test('library parity keeps notebooks and offline catalog available', () {
     final library = File(
-      'lib/src/screens/minimal_library_sections_screen.dart',
+      'lib/src/screens/library_workspace_home_screen.dart',
     ).readAsStringSync();
     final catalog = File(
       'lib/src/core/storage/local_document_catalog.dart',
     ).readAsStringSync();
 
     expect(library, contains('NotebookScreen'));
-    expect(library, contains('_ShellSection.notebooks'));
-    expect(library, contains('_ShellSection.offline'));
+    expect(library, contains('_HomeSection.notebooks'));
+    expect(library, contains('_HomeSection.offline'));
+    expect(library, contains('document.hasLocalPath'));
     expect(catalog, contains('is_available_offline'));
     expect(catalog, contains('availableOffline:'));
     expect(catalog, contains('markOpened'));
