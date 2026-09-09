@@ -478,7 +478,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   Future<void> _scrollBy(double deltaY) async {
     if (!_controller.isReady) return;
-    final matrix = _controller.value.clone()..translate(0.0, deltaY);
+    final matrix = _controller.value.clone()
+      ..multiply(Matrix4.translationValues(0.0, deltaY, 0.0));
     final safe = _controller.makeMatrixInSafeRange(matrix, forceClamp: true);
     await _controller.goTo(
       safe,
