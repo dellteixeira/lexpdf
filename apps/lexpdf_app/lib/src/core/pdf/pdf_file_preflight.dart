@@ -32,9 +32,20 @@ class PdfFilePreflight {
 
   /// Performs a bounded local-file check before PDFium receives the path.
   ///
-  /// Only metadata and at most the first 1 KiB are read, so the cost does not
-  /// grow with the number of pages or the total PDF size.
+  /// On Windows this method intentionally avoids synchronous filesystem I/O.
+  /// A path selected from OneDrive, a network share, external storage or a file
+  /// being inspected by antivirus can make even existsSync/openSync block the
+  /// Flutter UI isolate for a long time. The pdfrx viewer already owns the
+  /// asynchronous/open-error path, so Windows delegates file availability and
+  /// format failures to the viewer instead of freezing the application before
+  /// the first reader frame can be painted.
+  ///
+  /// Other platforms keep the bounded metadata + 1 KiB signature probe.
   static PdfFilePreflightResult inspectSync(String path) {
+    if (Platform.isWindows) {
+      return const PdfFilePreflightResult.ready(lengthBytes: 0);
+    }
+
     try {
       final file = File(path);
       if (!file.existsSync()) {
