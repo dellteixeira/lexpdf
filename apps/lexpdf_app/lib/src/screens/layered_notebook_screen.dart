@@ -40,6 +40,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const InkShapeRecognizer _shapeRecognizer = InkShapeRecognizer();
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
+  final GlobalKey _pageViewportKey = GlobalKey();
   final NotebookHistoryController _history = NotebookHistoryController();
   final ScrollController _toolbarScrollController = ScrollController();
   final TransformationController _pageTransformController =
@@ -403,6 +404,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   Widget _buildPageViewport(InkNotebookPage page) {
     return ColoredBox(
+      key: _pageViewportKey,
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Stack(
         children: [
@@ -485,7 +487,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           onObjectChanged: _onObjectChanged,
                           onObjectDoubleTap: _handleObjectDoubleTap,
                           onSelectionChanged: (id) {
-                            if (mounted) setState(() => _selectedObjectId = id);
+                            if (!mounted) return;
+                            setState(() => _selectedObjectId = id);
                           },
                         ),
                         NotebookRulerOverlay(enabled: _rulerMode),
@@ -496,6 +499,31 @@ class _NotebookScreenState extends State<NotebookScreen> {
               ),
             ),
           ),
+          if (_pointerMode)
+            Positioned(
+              left: 16,
+              bottom: 16,
+              child: Material(
+                color: Theme.of(context).colorScheme.surface.withValues(
+                      alpha: 0.94,
+                    ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  child: Text(
+                    _selectedObjectId == null
+                        ? 'Selecionar: clique em um objeto ou texto'
+                        : 'Objeto selecionado: arraste para mover ou use os controles acima',
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             right: 16,
             bottom: 16,
@@ -520,7 +548,28 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _setZoom(double value) {
     final next = value.clamp(0.25, 4.0);
-    _pageTransformController.value = Matrix4.diagonal3Values(next, next, 1);
+    final renderObject =
+        _pageViewportKey.currentContext?.findRenderObject();
+    if (renderObject is RenderBox && renderObject.hasSize) {
+      final viewportCenter = renderObject.size.center(Offset.zero);
+      final sceneCenter = _pageTransformController.toScene(viewportCenter);
+      final matrix = Matrix4.identity()
+        ..multiply(
+          Matrix4.translationValues(
+            viewportCenter.dx,
+            viewportCenter.dy,
+            0,
+          ),
+        )
+        ..multiply(Matrix4.diagonal3Values(next, next, 1))
+        ..multiply(
+          Matrix4.translationValues(-sceneCenter.dx, -sceneCenter.dy, 0),
+        );
+      _pageTransformController.value = matrix;
+    } else {
+      _pageTransformController.value =
+          Matrix4.diagonal3Values(next, next, 1);
+    }
     if (mounted) setState(() => _zoom = next);
   }
 
@@ -639,8 +688,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
       selectionCount: _selectionCount,
       rulerMode: _rulerMode,
       palette: _palette,
-      colorValue: _colorValue,
-      width: _width,
+      colorValue: selectedObject?.colorValue ?? _colorValue,
+      width: selectedObject?.strokeWidth ?? _width,
       stylusOnly: _stylusOnly,
       selectedObject: selectedObject,
       onPointerModeChanged: (value) => setState(() {
@@ -707,6 +756,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onAddText: () => unawaited(_addText()),
       onAddShape: (type) => unawaited(_addShape(type)),
       onAddImage: () => unawaited(_addImage()),
+      onScaleObjectDown: () => _scaleSelectedObject(_scaleDown),
+      onScaleObjectUp: () => _scaleSelectedObject(_scaleUp),
+      onDuplicateObject: () => unawaited(_duplicateSelectedObject()),
       onRotateObjectLeft: () => _rotateSelectedObject(-_rotationStep),
       onRotateObjectRight: () => _rotateSelectedObject(_rotationStep),
       onEditTextObject: () {
@@ -723,7 +775,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
           setState(() => _colorValue = value);
         }
       },
-      onWidthChanged: (value) => setState(() => _width = value),
+      onWidthChanged: (value) {
+        if (_pointerMode && _selectedObjectId != null) {
+          _setSelectedObjectWidth(value);
+        } else {
+          setState(() => _width = value);
+        }
+      },
       onStylusOnlyChanged: (value) => setState(() => _stylusOnly = value),
       onClearActiveLayer: () => unawaited(_clearActiveLayer()),
     );
@@ -1361,6 +1419,51 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final snapped = ((object.rotation + delta) / step).round() * step;
     _onObjectChanged(
       object.copyWith(rotation: snapped, updatedAt: DateTime.now().toUtc()),
+    );
+  }
+
+  void _scaleSelectedObject(double factor) {
+    final object = _selectedObject;
+    if (object == null || factor <= 0) return;
+    final nextWidth = math.max(24.0, object.width * factor);
+    final nextHeight = math.max(24.0, object.height * factor);
+    final nextFontSize = object.fontSize == null
+        ? null
+        : math.max(8.0, object.fontSize! * factor);
+    _onObjectChanged(
+      object.copyWith(
+        x: object.x + (object.width - nextWidth) / 2,
+        y: object.y + (object.height - nextHeight) / 2,
+        width: nextWidth,
+        height: nextHeight,
+        fontSize: nextFontSize,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  Future<void> _duplicateSelectedObject() async {
+    final object = _selectedObject;
+    if (object == null || !_canEditActiveLayer) return;
+    _recordHistory();
+    final now = DateTime.now().toUtc();
+    final duplicate = object.copyWith(
+      id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
+      x: object.x + 24,
+      y: object.y + 24,
+      updatedAt: now,
+    );
+    await _persistNewObject(duplicate);
+  }
+
+  void _setSelectedObjectWidth(double value) {
+    final object = _selectedObject;
+    if (object == null) return;
+    _onObjectChanged(
+      object.copyWith(
+        strokeWidth: value.clamp(1.0, 10.0).toDouble(),
+        updatedAt: DateTime.now().toUtc(),
+      ),
     );
   }
 
