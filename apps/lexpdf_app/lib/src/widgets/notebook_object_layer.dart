@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../core/notebook/notebook_object_models.dart';
 
+enum _ResizeHandle { topLeft, topRight, bottomLeft, bottomRight }
+
 class NotebookObjectLayer extends StatefulWidget {
   const NotebookObjectLayer({
     required this.objects,
@@ -28,6 +30,9 @@ class NotebookObjectLayer extends StatefulWidget {
 }
 
 class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
+  static const double _minimumObjectExtent = 24;
+  static const double _handleExtent = 18;
+
   NotebookObject? _working;
 
   NotebookObject _effective(NotebookObject object) =>
@@ -52,93 +57,190 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
   }
 
   Widget _buildObject(NotebookObject object, bool selected) {
-    final safeWidth = math.max(24.0, object.width);
-    final safeHeight = math.max(24.0, object.height);
+    final width = math.max(_minimumObjectExtent, object.width);
+    final height = math.max(_minimumObjectExtent, object.height);
+
     return Positioned(
       left: object.x,
       top: object.y,
-      width: safeWidth,
-      height: safeHeight,
+      width: width,
+      height: height,
       child: Transform.rotate(
         angle: object.rotation,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: MouseRegion(
+                cursor: SystemMouseCursors.move,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTapDown: (_) => widget.onSelectionChanged(object.id),
+                  onTap: () => widget.onSelectionChanged(object.id),
+                  onDoubleTap: () {
+                    widget.onSelectionChanged(object.id);
+                    widget.onObjectDoubleTap?.call(object);
+                  },
+                  onPanStart: (_) {
+                    widget.onSelectionChanged(object.id);
+                    _working = object;
+                  },
+                  onPanUpdate: (details) {
+                    final current = _working ?? object;
+                    setState(() {
+                      _working = current.copyWith(
+                        x: current.x + details.delta.dx,
+                        y: current.y + details.delta.dy,
+                        updatedAt: DateTime.now().toUtc(),
+                      );
+                    });
+                  },
+                  onPanEnd: (_) => _commitWorking(),
+                  onPanCancel: _cancelWorking,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _ObjectVisual(object: object),
+                      if (selected)
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 1.7,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (selected) ...[
+              _buildResizeHandle(object, _ResizeHandle.topLeft),
+              _buildResizeHandle(object, _ResizeHandle.topRight),
+              _buildResizeHandle(object, _ResizeHandle.bottomLeft),
+              _buildResizeHandle(object, _ResizeHandle.bottomRight),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResizeHandle(NotebookObject object, _ResizeHandle handle) {
+    final left = switch (handle) {
+      _ResizeHandle.topLeft || _ResizeHandle.bottomLeft => -_handleExtent / 2,
+      _ResizeHandle.topRight || _ResizeHandle.bottomRight => null,
+    };
+    final right = switch (handle) {
+      _ResizeHandle.topRight || _ResizeHandle.bottomRight => -_handleExtent / 2,
+      _ResizeHandle.topLeft || _ResizeHandle.bottomLeft => null,
+    };
+    final top = switch (handle) {
+      _ResizeHandle.topLeft || _ResizeHandle.topRight => -_handleExtent / 2,
+      _ResizeHandle.bottomLeft || _ResizeHandle.bottomRight => null,
+    };
+    final bottom = switch (handle) {
+      _ResizeHandle.bottomLeft || _ResizeHandle.bottomRight => -_handleExtent / 2,
+      _ResizeHandle.topLeft || _ResizeHandle.topRight => null,
+    };
+    final cursor = switch (handle) {
+      _ResizeHandle.topLeft || _ResizeHandle.bottomRight =>
+        SystemMouseCursors.resizeUpLeftDownRight,
+      _ResizeHandle.topRight || _ResizeHandle.bottomLeft =>
+        SystemMouseCursors.resizeUpRightDownLeft,
+    };
+
+    return Positioned(
+      left: left,
+      right: right,
+      top: top,
+      bottom: bottom,
+      child: MouseRegion(
+        cursor: cursor,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => widget.onSelectionChanged(object.id),
-          onDoubleTap: () {
-            widget.onSelectionChanged(object.id);
-            widget.onObjectDoubleTap?.call(object);
-          },
           onPanStart: (_) {
             widget.onSelectionChanged(object.id);
             _working = object;
           },
           onPanUpdate: (details) {
             final current = _working ?? object;
-            final next = current.copyWith(
-              x: current.x + details.delta.dx,
-              y: current.y + details.delta.dy,
-              updatedAt: DateTime.now().toUtc(),
-            );
-            setState(() => _working = next);
+            setState(() {
+              _working = _resize(current, handle, details.delta);
+            });
           },
-          onPanEnd: (_) {
-            final next = _working;
-            _working = null;
-            if (next != null) widget.onObjectChanged(next);
-            setState(() {});
-          },
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(child: _ObjectVisual(object: object)),
-              if (selected)
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 1.5,
-                      ),
-                    ),
-                  ),
-                ),
-              if (selected)
-                Positioned(
-                  right: -10,
-                  bottom: -10,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onPanStart: (_) => _working = object,
-                    onPanUpdate: (details) {
-                      final current = _working ?? object;
-                      final next = current.copyWith(
-                        width: math.max(24, current.width + details.delta.dx),
-                        height: math.max(24, current.height + details.delta.dy),
-                        updatedAt: DateTime.now().toUtc(),
-                      );
-                      setState(() => _working = next);
-                    },
-                    onPanEnd: (_) {
-                      final next = _working;
-                      _working = null;
-                      if (next != null) widget.onObjectChanged(next);
-                      setState(() {});
-                    },
-                    child: Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+          onPanEnd: (_) => _commitWorking(),
+          onPanCancel: _cancelWorking,
+          child: Container(
+            width: _handleExtent,
+            height: _handleExtent,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.onPrimary,
+                width: 2,
+              ),
+            ),
           ),
         ),
       ),
     );
+  }
+
+  NotebookObject _resize(
+    NotebookObject current,
+    _ResizeHandle handle,
+    Offset delta,
+  ) {
+    var x = current.x;
+    var y = current.y;
+    var width = current.width;
+    var height = current.height;
+
+    final resizeLeft =
+        handle == _ResizeHandle.topLeft || handle == _ResizeHandle.bottomLeft;
+    final resizeTop =
+        handle == _ResizeHandle.topLeft || handle == _ResizeHandle.topRight;
+
+    if (resizeLeft) {
+      final nextWidth = math.max(_minimumObjectExtent, width - delta.dx);
+      x += width - nextWidth;
+      width = nextWidth;
+    } else {
+      width = math.max(_minimumObjectExtent, width + delta.dx);
+    }
+
+    if (resizeTop) {
+      final nextHeight = math.max(_minimumObjectExtent, height - delta.dy);
+      y += height - nextHeight;
+      height = nextHeight;
+    } else {
+      height = math.max(_minimumObjectExtent, height + delta.dy);
+    }
+
+    return current.copyWith(
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      updatedAt: DateTime.now().toUtc(),
+    );
+  }
+
+  void _commitWorking() {
+    final next = _working;
+    _working = null;
+    if (next != null) widget.onObjectChanged(next);
+    if (mounted) setState(() {});
+  }
+
+  void _cancelWorking() {
+    _working = null;
+    if (mounted) setState(() {});
   }
 }
 
@@ -204,22 +306,23 @@ class _NotebookShapePainter extends CustomPainter {
 
     switch (object.type) {
       case NotebookObjectType.line:
-        canvas.drawLine(Offset.zero, Offset(size.width, size.height), stroke);
+        final y = size.height / 2;
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke);
         return;
       case NotebookObjectType.arrow:
-        final start = Offset.zero;
-        final end = Offset(size.width, size.height);
+        final start = Offset(0, size.height / 2);
+        final end = Offset(size.width, size.height / 2);
         canvas.drawLine(start, end, stroke);
-        final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);
         const headLength = 14.0;
+        const headAngle = math.pi / 6;
         canvas.drawLine(
           end,
-          end - Offset(math.cos(angle - math.pi / 6), math.sin(angle - math.pi / 6)) * headLength,
+          end - Offset(math.cos(headAngle), math.sin(headAngle)) * headLength,
           stroke,
         );
         canvas.drawLine(
           end,
-          end - Offset(math.cos(angle + math.pi / 6), math.sin(angle + math.pi / 6)) * headLength,
+          end - Offset(math.cos(headAngle), -math.sin(headAngle)) * headLength,
           stroke,
         );
         return;
