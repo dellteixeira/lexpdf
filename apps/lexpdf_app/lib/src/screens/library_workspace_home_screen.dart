@@ -1,61 +1,55 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_ink_store.dart';
-import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
-import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import 'cloud_sync_screen.dart';
 import 'global_search_screen.dart';
-import 'library_screen.dart';
 import 'notebook_screen.dart';
-import 'pdf_reader_screen.dart';
+import 'pdf_workspace_screen.dart';
 
-enum _ShellSection { library, recent, favorites, notebooks, offline, cloud }
-enum _MoreAction { allTools, account, print }
+enum _HomeSection { library, recent, favorites, notebooks, offline, cloud }
+enum _HomeMoreAction { account, print }
 
-class MinimalLibrarySectionsScreen extends StatefulWidget {
-  const MinimalLibrarySectionsScreen({
+class LibraryWorkspaceHomeScreen extends StatefulWidget {
+  const LibraryWorkspaceHomeScreen({
     required this.catalog,
-    required this.readingProgress,
     required this.annotations,
     required this.inkStore,
-    required this.pdfInkStore,
     required this.onOpenAccount,
     required this.onOpenPrint,
     super.key,
   });
 
   final LocalDocumentCatalog catalog;
-  final LocalReadingProgressStore readingProgress;
   final LocalTextAnnotationStore annotations;
   final LocalInkStore inkStore;
-  final LocalPdfInkStore pdfInkStore;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenPrint;
 
   @override
-  State<MinimalLibrarySectionsScreen> createState() =>
-      _MinimalLibrarySectionsScreenState();
+  State<LibraryWorkspaceHomeScreen> createState() =>
+      _LibraryWorkspaceHomeScreenState();
 }
 
-class _MinimalLibrarySectionsScreenState
-    extends State<MinimalLibrarySectionsScreen> {
-  static const _items = <(_ShellSection, IconData, String)>[
-    (_ShellSection.library, Icons.folder_outlined, 'Biblioteca'),
-    (_ShellSection.recent, Icons.history, 'Recentes'),
-    (_ShellSection.favorites, Icons.star_border, 'Favoritos'),
-    (_ShellSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
-    (_ShellSection.offline, Icons.offline_pin_outlined, 'Offline'),
-    (_ShellSection.cloud, Icons.cloud_outlined, 'Nuvem'),
+class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen> {
+  static const _items = <(_HomeSection, IconData, String)>[
+    (_HomeSection.library, Icons.folder_outlined, 'Biblioteca'),
+    (_HomeSection.recent, Icons.history, 'Recentes'),
+    (_HomeSection.favorites, Icons.star_border, 'Favoritos'),
+    (_HomeSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
+    (_HomeSection.offline, Icons.offline_pin_outlined, 'Offline'),
+    (_HomeSection.cloud, Icons.cloud_outlined, 'Nuvem'),
   ];
 
   final DocumentPickerService _picker = const DocumentPickerService();
-  _ShellSection _section = _ShellSection.library;
-  bool _opening = false;
+  _HomeSection _section = _HomeSection.library;
+  bool _picking = false;
 
   LocalPdfNavigationStore get _navigationStore =>
       LocalPdfNavigationStore(widget.annotations.db);
@@ -81,8 +75,7 @@ class _MinimalLibrarySectionsScreenState
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.picture_as_pdf_outlined,
-                color: scheme.primary, size: 22),
+            Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 22),
             const SizedBox(width: 9),
             const Text('LexPDF'),
           ],
@@ -94,34 +87,26 @@ class _MinimalLibrarySectionsScreenState
             icon: const Icon(Icons.search),
           ),
           IconButton(
-            tooltip: 'Abrir PDF',
-            onPressed: _opening ? null : _openPdf,
-            icon: _opening
+            tooltip: 'Abrir PDF em Trabalhar com PDF',
+            onPressed: _picking ? null : _pickPdf,
+            icon: _picking
                 ? const SizedBox.square(
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.add),
           ),
-          PopupMenuButton<_MoreAction>(
+          PopupMenuButton<_HomeMoreAction>(
             tooltip: 'Mais opções',
             icon: const Icon(Icons.more_vert),
             onSelected: _handleMore,
             itemBuilder: (context) => const [
               PopupMenuItem(
-                value: _MoreAction.allTools,
-                child: _MenuLabel(
-                  icon: Icons.grid_view_outlined,
-                  label: 'Todas as ferramentas',
-                ),
-              ),
-              PopupMenuDivider(),
-              PopupMenuItem(
-                value: _MoreAction.account,
+                value: _HomeMoreAction.account,
                 child: _MenuLabel(icon: Icons.person_outline, label: 'Conta'),
               ),
               PopupMenuItem(
-                value: _MoreAction.print,
+                value: _HomeMoreAction.print,
                 child: _MenuLabel(
                   icon: Icons.print_outlined,
                   label: 'Imprimir PDF',
@@ -171,7 +156,11 @@ class _MinimalLibrarySectionsScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _SectionHeader(section: _section),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 12),
+                      if (_section == _HomeSection.library) ...[
+                        _WorkspaceHint(onOpen: _picking ? null : _pickPdf),
+                        const SizedBox(height: 14),
+                      ],
                       Expanded(child: _buildContent()),
                     ],
                   ),
@@ -185,7 +174,7 @@ class _MinimalLibrarySectionsScreenState
   }
 
   Widget _buildContent() {
-    if (_section == _ShellSection.notebooks) {
+    if (_section == _HomeSection.notebooks) {
       return _ActionPanel(
         icon: Icons.edit_note_outlined,
         title: 'Cadernos',
@@ -194,7 +183,7 @@ class _MinimalLibrarySectionsScreenState
         onTap: _openNotebook,
       );
     }
-    if (_section == _ShellSection.cloud) {
+    if (_section == _HomeSection.cloud) {
       return _ActionPanel(
         icon: Icons.cloud_outlined,
         title: 'Nuvem e sincronização',
@@ -208,19 +197,17 @@ class _MinimalLibrarySectionsScreenState
 
   Future<List<DocumentRef>> _documents() async {
     switch (_section) {
-      case _ShellSection.library:
+      case _HomeSection.library:
         return widget.catalog.list(limit: 200);
-      case _ShellSection.recent:
+      case _HomeSection.recent:
         return widget.catalog.listRecent(limit: 200);
-      case _ShellSection.favorites:
+      case _HomeSection.favorites:
         return widget.catalog.listFavorites(limit: 200);
-      case _ShellSection.offline:
+      case _HomeSection.offline:
         final documents = await widget.catalog.list(limit: 500);
-        return documents
-            .where((document) => document.availableOffline)
-            .toList(growable: false);
-      case _ShellSection.notebooks:
-      case _ShellSection.cloud:
+        return documents.where((document) => document.hasLocalPath).toList(growable: false);
+      case _HomeSection.notebooks:
+      case _HomeSection.cloud:
         return const [];
     }
   }
@@ -236,7 +223,7 @@ class _MinimalLibrarySectionsScreenState
         if (documents.isEmpty) {
           return _EmptyState(
             section: _section,
-            onOpen: _section == _ShellSection.library ? _openPdf : null,
+            onOpen: _section == _HomeSection.library ? _pickPdf : null,
           );
         }
         return ListView.separated(
@@ -255,44 +242,64 @@ class _MinimalLibrarySectionsScreenState
     );
   }
 
-  void _select(_ShellSection section) {
+  void _select(_HomeSection section) {
     if (_section != section) setState(() => _section = section);
     if (Scaffold.maybeOf(context)?.hasDrawer ?? false) {
       Navigator.of(context).maybePop();
     }
   }
 
-  Future<void> _openPdf() async {
-    if (_opening) return;
-    setState(() => _opening = true);
+  Future<void> _pickPdf() async {
+    if (_picking) return;
+    setState(() => _picking = true);
     try {
       final picked = await _picker.pickPdf();
-      if (picked == null) return;
-      await widget.catalog.upsert(picked);
-      final stored = await widget.catalog.getById(picked.id) ?? picked;
-      if (!mounted) return;
-      await _openDocument(stored);
+      if (picked == null || !mounted) return;
+
+      // Opening the workspace must never wait for catalog/database bookkeeping.
+      unawaited(_rememberDocument(picked));
+      await _openDocument(picked, recordOpen: false);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Não foi possível abrir o PDF: $error')),
       );
     } finally {
-      if (mounted) setState(() => _opening = false);
+      if (mounted) setState(() => _picking = false);
     }
   }
 
-  Future<void> _openDocument(DocumentRef document) async {
-    if (!document.availableOffline) return;
+  Future<void> _rememberDocument(DocumentRef document) async {
+    await widget.catalog.upsert(document);
     await widget.catalog.markOpened(document.id);
-    if (!mounted) return;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openDocument(
+    DocumentRef document, {
+    bool recordOpen = true,
+  }) async {
+    if (!document.hasLocalPath) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O arquivo local deste PDF não está disponível.'),
+        ),
+      );
+      return;
+    }
+
+    if (recordOpen) {
+      // Do not block the first frame of the PDF workspace on a SQLite write.
+      unawaited(widget.catalog.markOpened(document.id));
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PdfReaderScreen(
+        builder: (_) => PdfWorkspaceScreen(
           document: document,
-          readingProgress: widget.readingProgress,
+          store: _navigationStore,
           annotations: widget.annotations,
-          pdfInkStore: widget.pdfInkStore,
         ),
       ),
     );
@@ -325,27 +332,12 @@ class _MinimalLibrarySectionsScreenState
         ),
       );
 
-  Future<void> _openAllTools() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => LibraryScreen(
-            catalog: widget.catalog,
-            readingProgress: widget.readingProgress,
-            annotations: widget.annotations,
-            inkStore: widget.inkStore,
-            pdfInkStore: widget.pdfInkStore,
-          ),
-        ),
-      );
-
-  void _handleMore(_MoreAction action) {
+  void _handleMore(_HomeMoreAction action) {
     switch (action) {
-      case _MoreAction.allTools:
-        _openAllTools();
-        break;
-      case _MoreAction.account:
+      case _HomeMoreAction.account:
         widget.onOpenAccount();
         break;
-      case _MoreAction.print:
+      case _HomeMoreAction.print:
         widget.onOpenPrint();
         break;
     }
@@ -359,8 +351,8 @@ class _NavigationList extends StatelessWidget {
     required this.mobile,
   });
 
-  final _ShellSection section;
-  final ValueChanged<_ShellSection> onSelect;
+  final _HomeSection section;
+  final ValueChanged<_HomeSection> onSelect;
   final bool mobile;
 
   @override
@@ -376,17 +368,14 @@ class _NavigationList extends StatelessWidget {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
             ),
           ),
-        for (final item in _MinimalLibrarySectionsScreenState._items)
+        for (final item in _LibraryWorkspaceHomeScreenState._items)
           Padding(
             padding: const EdgeInsets.only(bottom: 3),
             child: ListTile(
               dense: !mobile,
               selected: section == item.$1,
-              selectedTileColor:
-                  Theme.of(context).colorScheme.surfaceContainerLow,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
+              selectedTileColor: Theme.of(context).colorScheme.surfaceContainerLow,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               leading: Icon(item.$2, size: mobile ? 22 : 20),
               title: Text(item.$3),
               onTap: () => onSelect(item.$1),
@@ -404,10 +393,7 @@ class _NavigationList extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Offline-first',
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
+                Text('Offline-first', style: Theme.of(context).textTheme.labelMedium),
               ],
             ),
           ),
@@ -419,25 +405,25 @@ class _NavigationList extends StatelessWidget {
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.section});
-  final _ShellSection section;
+  final _HomeSection section;
 
   @override
   Widget build(BuildContext context) {
     final title = switch (section) {
-      _ShellSection.library => 'Biblioteca',
-      _ShellSection.recent => 'Recentes',
-      _ShellSection.favorites => 'Favoritos',
-      _ShellSection.notebooks => 'Cadernos',
-      _ShellSection.offline => 'Offline',
-      _ShellSection.cloud => 'Nuvem',
+      _HomeSection.library => 'Biblioteca',
+      _HomeSection.recent => 'Recentes',
+      _HomeSection.favorites => 'Favoritos',
+      _HomeSection.notebooks => 'Cadernos',
+      _HomeSection.offline => 'Offline',
+      _HomeSection.cloud => 'Nuvem',
     };
     final subtitle = switch (section) {
-      _ShellSection.library => 'Seus documentos, sem distrações.',
-      _ShellSection.recent => 'Documentos realmente abertos por você.',
-      _ShellSection.favorites => 'Documentos mantidos por perto.',
-      _ShellSection.notebooks => 'Notas manuscritas e conteúdo livre.',
-      _ShellSection.offline => 'Disponíveis sem conexão.',
-      _ShellSection.cloud => 'Arquivos remotos e sincronização opcional.',
+      _HomeSection.library => 'Clique em um documento para abrir diretamente em Trabalhar com PDF.',
+      _HomeSection.recent => 'Documentos realmente abertos por você.',
+      _HomeSection.favorites => 'Documentos mantidos por perto.',
+      _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.offline => 'Arquivos locais prontos para abrir.',
+      _HomeSection.cloud => 'Arquivos remotos e sincronização opcional.',
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -451,6 +437,37 @@ class _SectionHeader extends StatelessWidget {
               ),
         ),
       ],
+    );
+  }
+}
+
+class _WorkspaceHint extends StatelessWidget {
+  const _WorkspaceHint({required this.onOpen});
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.primaryContainer.withValues(alpha: 0.38),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.edit_document, color: scheme.primary),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('Os PDFs da Biblioteca abrem no espaço completo de leitura e ferramentas.'),
+            ),
+            TextButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.add),
+              label: const Text('Abrir PDF'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -469,13 +486,12 @@ class _DocumentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final canOpen = document.hasLocalPath;
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: scheme.outlineVariant.withValues(alpha: 0.8),
-        ),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.8)),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -486,19 +502,11 @@ class _DocumentRow extends StatelessWidget {
             color: scheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            Icons.picture_as_pdf_outlined,
-            color: scheme.primary,
-            size: 20,
-          ),
+          child: Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 20),
         ),
-        title: Text(
-          document.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(document.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(
-          document.availableOffline ? 'Disponível offline' : 'Necessita download',
+          canOpen ? 'Abrir em Trabalhar com PDF' : 'Arquivo local indisponível',
           maxLines: 1,
         ),
         trailing: Row(
@@ -512,7 +520,7 @@ class _DocumentRow extends StatelessWidget {
             const Icon(Icons.chevron_right, size: 20),
           ],
         ),
-        onTap: document.availableOffline ? onOpen : null,
+        onTap: canOpen ? onOpen : null,
       ),
     );
   }
@@ -550,8 +558,7 @@ class _ActionPanel extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title,
-                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(title, style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 4),
                       Text(subtitle),
                     ],
@@ -569,7 +576,7 @@ class _ActionPanel extends StatelessWidget {
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.section, required this.onOpen});
-  final _ShellSection section;
+  final _HomeSection section;
   final VoidCallback? onOpen;
 
   @override
@@ -586,11 +593,10 @@ class _EmptyState extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 14),
-            Text('Nada por aqui ainda',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text('Nada por aqui ainda', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
-              section == _ShellSection.recent
+              section == _HomeSection.recent
                   ? 'Abra um documento e ele aparecerá em Recentes.'
                   : 'Os documentos desta seção aparecerão aqui.',
               textAlign: TextAlign.center,

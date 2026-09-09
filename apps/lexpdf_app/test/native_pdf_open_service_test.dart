@@ -27,8 +27,9 @@ void main() {
     expect(service, contains("call.method != 'openPdfPath'"));
     expect(service, contains("invokeMethod<String>('getInitialPdfPath')"));
     expect(app, contains('NativePdfOpenService _nativeOpen'));
-    expect(app, contains('PdfReaderScreen('));
+    expect(app, contains('PdfWorkspaceScreen('));
     expect(app, contains('await _catalog.upsert(document)'));
-    expect(app, contains('await _catalog.markOpened(document.id)'));
+    expect(app, contains('_catalog.markOpened(document.id)'));
+    expect(app, isNot(contains('PdfReaderScreen(')));
   });
 }
