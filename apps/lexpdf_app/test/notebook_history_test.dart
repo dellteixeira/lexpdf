@@ -70,6 +70,26 @@ void main() {
     expect(history.canRedo, isFalse);
   });
 
+  test('history always preserves at least ten undo states', () {
+    final history = NotebookHistoryController(limit: 1);
+    expect(history.limit, 10);
+
+    for (var index = 0; index < 12; index++) {
+      history.record(snapshot(index));
+    }
+
+    expect(history.undoDepth, 10);
+    var current = snapshot(12);
+    var undoCount = 0;
+    while (history.canUndo) {
+      current = history.undo(current)!;
+      undoCount += 1;
+    }
+
+    expect(undoCount, 10);
+    expect(history.redoDepth, 10);
+  });
+
   test('long undo/redo cycle stays bounded and preserves layer assignments', () {
     const limit = 80;
     final history = NotebookHistoryController(limit: limit);
