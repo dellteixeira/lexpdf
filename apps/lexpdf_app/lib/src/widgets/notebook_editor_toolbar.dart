@@ -44,6 +44,9 @@ class NotebookEditorToolbar extends StatelessWidget {
     required this.onAddText,
     required this.onAddShape,
     required this.onAddImage,
+    required this.onScaleObjectDown,
+    required this.onScaleObjectUp,
+    required this.onDuplicateObject,
     required this.onRotateObjectLeft,
     required this.onRotateObjectRight,
     required this.onEditTextObject,
@@ -93,6 +96,9 @@ class NotebookEditorToolbar extends StatelessWidget {
   final VoidCallback onAddText;
   final ValueChanged<NotebookObjectType> onAddShape;
   final VoidCallback onAddImage;
+  final VoidCallback onScaleObjectDown;
+  final VoidCallback onScaleObjectUp;
+  final VoidCallback onDuplicateObject;
   final VoidCallback onRotateObjectLeft;
   final VoidCallback onRotateObjectRight;
   final VoidCallback onEditTextObject;
@@ -180,6 +186,9 @@ class NotebookEditorToolbar extends StatelessWidget {
                   onAddText: onAddText,
                   onAddShape: onAddShape,
                   onAddImage: onAddImage,
+                  onScaleDown: onScaleObjectDown,
+                  onScaleUp: onScaleObjectUp,
+                  onDuplicate: onDuplicateObject,
                   onRotateLeft: onRotateObjectLeft,
                   onRotateRight: onRotateObjectRight,
                   onEditText: onEditTextObject,
@@ -191,6 +200,7 @@ class NotebookEditorToolbar extends StatelessWidget {
                 NotebookStyleControls(
                   editable: editable,
                   pointerMode: pointerMode,
+                  objectSelected: selectedObject != null,
                   eraserMode: eraserMode,
                   lassoMode: lassoMode,
                   selectionCount: selectionCount,

@@ -211,48 +211,62 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ],
         );
       default:
-        return GridView.extent(
-          maxCrossAxisExtent: 360,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
+        return Column(
           children: [
-            _QuickAction(
-              icon: Icons.picture_as_pdf_outlined,
-              title: 'Trabalhar com PDF',
-              subtitle:
-                  'Abrir, ler, navegar, zoom, anotar, editar páginas, OCR, exportar e imprimir',
-              onTap: _openingDocument ? null : _openPdfWorkspacePicker,
-              emphasized: true,
+            SizedBox(
+              height: 132,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _QuickAction(
+                      icon: Icons.picture_as_pdf_outlined,
+                      title: 'Trabalhar com PDF',
+                      subtitle:
+                          'Abrir um novo PDF no espaço de leitura e edição',
+                      onTap:
+                          _openingDocument ? null : _openPdfWorkspacePicker,
+                      emphasized: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _QuickAction(
+                      icon: Icons.folder_copy_outlined,
+                      title: 'Organizar',
+                      subtitle: 'Coleções e tags',
+                      onTap: _openOrganizer,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            _QuickAction(
-              icon: Icons.manage_search_outlined,
-              title: 'Busca local',
-              subtitle: 'PDFs, anotações, OCR e cadernos',
-              onTap: _openSearch,
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Text(
+                  'Documentos da biblioteca',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _openingDocument ? null : _openPdfWorkspacePicker,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Abrir PDF'),
+                ),
+              ],
             ),
-            _QuickAction(
-              icon: Icons.folder_copy_outlined,
-              title: 'Organizar biblioteca',
-              subtitle: 'Coleções e tags offline',
-              onTap: _openOrganizer,
-            ),
-            _QuickAction(
-              icon: Icons.note_add_outlined,
-              title: 'Novo caderno',
-              subtitle: 'Escrita e desenhos',
-              onTap: _openNotebook,
-            ),
-            _QuickAction(
-              icon: Icons.cloud_outlined,
-              title: 'Nuvem',
-              subtitle: 'Contas e sincronização',
-              onTap: _openCloudSync,
-            ),
-            _QuickAction(
-              icon: Icons.backup_outlined,
-              title: 'Backup',
-              subtitle: 'Criar, validar, restaurar ou migrar',
-              onTap: _openBackupMigration,
+            const SizedBox(height: 8),
+            Expanded(
+              child: _buildDocumentList(
+                future: widget.catalog.list(limit: 500),
+                emptyIcon: Icons.folder_open_outlined,
+                emptyTitle: 'Nenhum PDF na biblioteca',
+                emptySubtitle:
+                    'Abra um PDF para que ele fique disponível aqui.',
+              ),
             ),
           ],
         );
@@ -264,6 +278,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return documents
         .where((document) => document.availableOffline)
         .toList(growable: false);
+  }
+
+  bool _hasLocalPath(DocumentRef document) {
+    final path = document.localPath;
+    return path != null && path.trim().isNotEmpty;
   }
 
   Widget _buildDocumentList({
@@ -292,6 +311,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final document = documents[index];
+            final canOpen = _hasLocalPath(document);
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.picture_as_pdf_outlined),
@@ -301,9 +321,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  document.availableOffline
-                      ? 'Abrir no espaço de trabalho PDF'
-                      : 'Necessita download',
+                  canOpen
+                      ? 'Clique para abrir em Trabalhar com PDF'
+                      : 'Arquivo local indisponível',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -317,12 +337,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       onPressed: () => _toggleFavorite(document),
                     ),
-                    const Icon(Icons.chevron_right),
+                    Icon(
+                      canOpen ? Icons.chevron_right : Icons.cloud_download,
+                    ),
                   ],
                 ),
-                onTap: document.availableOffline
-                    ? () => _openWorkspaceDocument(document)
-                    : null,
+                onTap: canOpen ? () => _openWorkspaceDocument(document) : null,
               ),
             );
           },
@@ -360,12 +380,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _openWorkspaceDocument(DocumentRef document) async {
-    await widget.catalog.markOpened(document.id);
+    final current = await widget.catalog.getById(document.id) ?? document;
+    if (!_hasLocalPath(current)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O arquivo local deste PDF não está disponível.'),
+        ),
+      );
+      return;
+    }
+
+    await widget.catalog.markOpened(current.id);
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PdfWorkspaceScreen(
-          document: document,
+          document: current,
           store: _navigationStore,
           annotations: widget.annotations,
         ),

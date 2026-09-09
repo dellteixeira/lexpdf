@@ -30,14 +30,18 @@ class NotebookPageSnapshot {
 }
 
 class NotebookHistoryController {
-  NotebookHistoryController({this.limit = 80});
+  NotebookHistoryController({int limit = 80}) : limit = limit < 10 ? 10 : limit;
 
+  /// Safety floor: the notebook must always preserve at least ten undo states.
+  /// The application default remains 80 states for comfortable editing sessions.
   final int limit;
   final List<NotebookPageSnapshot> _undo = [];
   final List<NotebookPageSnapshot> _redo = [];
 
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
+  int get undoDepth => _undo.length;
+  int get redoDepth => _redo.length;
 
   void record(NotebookPageSnapshot snapshot) {
     _undo.add(snapshot);
@@ -48,12 +52,14 @@ class NotebookHistoryController {
   NotebookPageSnapshot? undo(NotebookPageSnapshot current) {
     if (_undo.isEmpty) return null;
     _redo.add(current);
+    if (_redo.length > limit) _redo.removeAt(0);
     return _undo.removeLast();
   }
 
   NotebookPageSnapshot? redo(NotebookPageSnapshot current) {
     if (_redo.isEmpty) return null;
     _undo.add(current);
+    if (_undo.length > limit) _undo.removeAt(0);
     return _redo.removeLast();
   }
 
