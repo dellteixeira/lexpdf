@@ -14,11 +14,7 @@ import 'global_search_screen.dart';
 import 'library_organizer_screen.dart';
 import 'notebook_export_screen.dart';
 import 'notebook_screen.dart';
-import 'pdf_advanced_annotation_screen.dart';
-import 'pdf_navigation_screen.dart';
-import 'pdf_ocr_screen.dart';
-import 'pdf_page_tools_screen.dart';
-import 'pdf_reader_screen.dart';
+import 'pdf_workspace_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -59,8 +55,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final compact = width < 720;
+    final compact = MediaQuery.sizeOf(context).width < 720;
 
     return Scaffold(
       appBar: AppBar(
@@ -84,8 +79,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
             icon: const Icon(Icons.cloud_sync_outlined),
           ),
           IconButton(
-            tooltip: 'Abrir arquivo',
-            onPressed: _openingDocument ? null : _openPdf,
+            tooltip: 'Abrir PDF',
+            onPressed: _openingDocument ? null : _openPdfWorkspacePicker,
             icon: _openingDocument
                 ? const SizedBox.square(
                     dimension: 20,
@@ -104,7 +99,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       drawer: compact
           ? Drawer(
-              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
             )
           : null,
       body: Row(
@@ -112,22 +110,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
           if (!compact)
             SizedBox(
               width: 232,
-              child: _Navigation(selectedIndex: _selectedIndex, onSelect: _select),
+              child: _Navigation(
+                selectedIndex: _selectedIndex,
+                onSelect: _select,
+              ),
             ),
-          const VerticalDivider(width: 1),
+          if (!compact) const VerticalDivider(width: 1),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(compact ? 18 : 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     _destinations[_selectedIndex].$2,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Seus PDFs e cadernos permanecem disponíveis localmente. A sincronização é opcional.',
+                    'Leitura e ferramentas de PDF em um fluxo único, com funcionamento offline.',
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 24),
@@ -142,144 +146,124 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildSection() {
-    if (_selectedIndex == 1) {
-      return _buildDocumentList(
-        future: widget.catalog.list(limit: 100),
-        emptyIcon: Icons.history,
-        emptyTitle: 'Nenhum PDF recente',
-        emptySubtitle: 'Os documentos abertos aparecerão aqui automaticamente.',
-      );
+    switch (_selectedIndex) {
+      case 1:
+        return _buildDocumentList(
+          future: widget.catalog.list(limit: 100),
+          emptyIcon: Icons.history,
+          emptyTitle: 'Nenhum PDF recente',
+          emptySubtitle:
+              'Os documentos abertos aparecerão aqui automaticamente.',
+        );
+      case 2:
+        return _buildDocumentList(
+          future: widget.catalog.listFavorites(limit: 100),
+          emptyIcon: Icons.star_border,
+          emptyTitle: 'Nenhum favorito',
+          emptySubtitle:
+              'Use a estrela de um documento para mantê-lo aqui.',
+        );
+      case 3:
+        return GridView.extent(
+          maxCrossAxisExtent: 340,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          children: [
+            _QuickAction(
+              icon: Icons.edit_outlined,
+              title: 'Abrir cadernos',
+              subtitle: 'Páginas, escrita, formas, texto e imagens',
+              onTap: _openNotebook,
+            ),
+            _QuickAction(
+              icon: Icons.picture_as_pdf_outlined,
+              title: 'Exportar caderno',
+              subtitle: 'Página atual ou caderno completo em PDF',
+              onTap: _openNotebookExport,
+            ),
+          ],
+        );
+      case 4:
+        return _buildDocumentList(
+          future: _offlineDocuments(),
+          emptyIcon: Icons.offline_pin_outlined,
+          emptyTitle: 'Nenhum documento offline',
+          emptySubtitle: 'PDFs locais e downloads aparecem aqui.',
+        );
+      case 5:
+        return GridView.extent(
+          maxCrossAxisExtent: 360,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          children: [
+            _QuickAction(
+              icon: Icons.cloud_sync_outlined,
+              title: 'Contas e sincronização',
+              subtitle: 'Nuvens conectadas e sincronização opcional',
+              onTap: _openCloudSync,
+            ),
+            _QuickAction(
+              icon: Icons.backup_outlined,
+              title: 'Backup e migração',
+              subtitle: 'Criar, validar, restaurar ou migrar',
+              onTap: _openBackupMigration,
+            ),
+          ],
+        );
+      default:
+        return GridView.extent(
+          maxCrossAxisExtent: 360,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          children: [
+            _QuickAction(
+              icon: Icons.picture_as_pdf_outlined,
+              title: 'Trabalhar com PDF',
+              subtitle:
+                  'Abrir, ler, navegar, zoom, anotar, editar páginas, OCR, exportar e imprimir',
+              onTap: _openingDocument ? null : _openPdfWorkspacePicker,
+              emphasized: true,
+            ),
+            _QuickAction(
+              icon: Icons.manage_search_outlined,
+              title: 'Busca local',
+              subtitle: 'PDFs, anotações, OCR e cadernos',
+              onTap: _openSearch,
+            ),
+            _QuickAction(
+              icon: Icons.folder_copy_outlined,
+              title: 'Organizar biblioteca',
+              subtitle: 'Coleções e tags offline',
+              onTap: _openOrganizer,
+            ),
+            _QuickAction(
+              icon: Icons.note_add_outlined,
+              title: 'Novo caderno',
+              subtitle: 'Escrita e desenhos',
+              onTap: _openNotebook,
+            ),
+            _QuickAction(
+              icon: Icons.cloud_outlined,
+              title: 'Nuvem',
+              subtitle: 'Contas e sincronização',
+              onTap: _openCloudSync,
+            ),
+            _QuickAction(
+              icon: Icons.backup_outlined,
+              title: 'Backup',
+              subtitle: 'Criar, validar, restaurar ou migrar',
+              onTap: _openBackupMigration,
+            ),
+          ],
+        );
     }
-    if (_selectedIndex == 2) {
-      return _buildDocumentList(
-        future: widget.catalog.listFavorites(limit: 100),
-        emptyIcon: Icons.star_border,
-        emptyTitle: 'Nenhum favorito',
-        emptySubtitle: 'Toque na estrela de um documento para mantê-lo aqui.',
-      );
-    }
-    if (_selectedIndex == 3) {
-      return GridView.extent(
-        maxCrossAxisExtent: 320,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        children: [
-          _QuickAction(
-            icon: Icons.edit_outlined,
-            title: 'Abrir cadernos',
-            subtitle: 'Páginas, escrita, formas, texto e imagens',
-            onTap: _openNotebook,
-          ),
-          _QuickAction(
-            icon: Icons.picture_as_pdf_outlined,
-            title: 'Exportar caderno',
-            subtitle: 'Página atual ou caderno completo em PDF',
-            onTap: _openNotebookExport,
-          ),
-        ],
-      );
-    }
-    if (_selectedIndex == 4) {
-      return _buildDocumentList(
-        future: _offlineDocuments(),
-        emptyIcon: Icons.offline_pin_outlined,
-        emptyTitle: 'Nenhum documento em cache offline',
-        emptySubtitle: 'Downloads da nuvem aparecerão aqui automaticamente.',
-      );
-    }
-    if (_selectedIndex == 5) {
-      return GridView.extent(
-        maxCrossAxisExtent: 340,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        children: [
-          _QuickAction(
-            icon: Icons.cloud_sync_outlined,
-            title: 'Contas e sincronização',
-            subtitle: 'Google Drive, OneDrive, iCloud e LexPDF Cloud/R2',
-            onTap: _openCloudSync,
-          ),
-          _QuickAction(
-            icon: Icons.backup_outlined,
-            title: 'Backup e migração',
-            subtitle: '.lexbackup, .lexnote e importação Squid segura',
-            onTap: _openBackupMigration,
-          ),
-        ],
-      );
-    }
-    return GridView.extent(
-      maxCrossAxisExtent: 280,
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
-      children: [
-        _QuickAction(
-          icon: Icons.file_open_outlined,
-          title: 'Abrir PDF',
-          subtitle: 'Neste dispositivo',
-          onTap: _openingDocument ? null : _openPdf,
-        ),
-        _QuickAction(
-          icon: Icons.navigation_outlined,
-          title: 'Navegação avançada',
-          subtitle: 'Miniaturas, sumário, marcadores e modos de página',
-          onTap: _openingDocument ? null : _openNavigationPicker,
-        ),
-        _QuickAction(
-          icon: Icons.draw_outlined,
-          title: 'Anotar PDF',
-          subtitle: 'Notas, texto, formas, carimbos e assinatura',
-          onTap: _openingDocument ? null : _openAdvancedAnnotations,
-        ),
-        _QuickAction(
-          icon: Icons.edit_document,
-          title: 'Editar páginas',
-          subtitle: 'Adicionar, excluir, reordenar, girar, extrair, combinar e dividir',
-          onTap: _openingDocument ? null : _openPageToolsPicker,
-        ),
-        _QuickAction(
-          icon: Icons.document_scanner_outlined,
-          title: 'OCR offline',
-          subtitle: 'Reconhecer e indexar texto de PDFs digitalizados',
-          onTap: _openingDocument ? null : _openOcrPicker,
-        ),
-        _QuickAction(
-          icon: Icons.manage_search_outlined,
-          title: 'Busca local',
-          subtitle: 'PDFs, anotações, OCR e cadernos',
-          onTap: _openSearch,
-        ),
-        _QuickAction(
-          icon: Icons.folder_copy_outlined,
-          title: 'Organizar biblioteca',
-          subtitle: 'Coleções e tags offline',
-          onTap: _openOrganizer,
-        ),
-        _QuickAction(
-          icon: Icons.note_add_outlined,
-          title: 'Novo caderno',
-          subtitle: 'Escrita e desenhos',
-          onTap: _openNotebook,
-        ),
-        _QuickAction(
-          icon: Icons.cloud_outlined,
-          title: 'Conectar nuvem',
-          subtitle: 'Google Drive, OneDrive, iCloud ou R2',
-          onTap: _openCloudSync,
-        ),
-        _QuickAction(
-          icon: Icons.backup_outlined,
-          title: 'Backup',
-          subtitle: 'Criar, validar, restaurar ou migrar',
-          onTap: _openBackupMigration,
-        ),
-      ],
-    );
   }
 
   Future<List<DocumentRef>> _offlineDocuments() async {
     final documents = await widget.catalog.list(limit: 500);
-    return documents.where((document) => document.availableOffline).toList(growable: false);
+    return documents
+        .where((document) => document.availableOffline)
+        .toList(growable: false);
   }
 
   Widget _buildDocumentList({
@@ -296,8 +280,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
         final documents = snapshot.data ?? const <DocumentRef>[];
         if (documents.isEmpty) {
-          return _EmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
+          return _EmptyState(
+            icon: emptyIcon,
+            title: emptyTitle,
+            subtitle: emptySubtitle,
+          );
         }
+
         return ListView.separated(
           itemCount: documents.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -306,48 +295,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.picture_as_pdf_outlined),
-                title: Text(document.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(document.availableOffline ? 'Disponível offline' : 'Necessita download'),
+                title: Text(
+                  document.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  document.availableOffline
+                      ? 'Abrir no espaço de trabalho PDF'
+                      : 'Necessita download',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: 'Navegação avançada',
-                      icon: const Icon(Icons.navigation_outlined),
-                      onPressed: document.availableOffline
-                          ? () => _openNavigationDocument(document)
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: 'Anotações avançadas',
-                      icon: const Icon(Icons.draw_outlined),
-                      onPressed: document.availableOffline
-                          ? () => _openAdvancedDocument(document)
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: 'Editar páginas',
-                      icon: const Icon(Icons.edit_document),
-                      onPressed: document.availableOffline
-                          ? () => _openPageToolsDocument(document)
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: 'OCR offline',
-                      icon: const Icon(Icons.document_scanner_outlined),
-                      onPressed: document.availableOffline
-                          ? () => _openOcrDocument(document)
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: document.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
-                      icon: Icon(document.favorite ? Icons.star : Icons.star_border),
+                      tooltip: document.favorite
+                          ? 'Remover dos favoritos'
+                          : 'Adicionar aos favoritos',
+                      icon: Icon(
+                        document.favorite ? Icons.star : Icons.star_border,
+                      ),
                       onPressed: () => _toggleFavorite(document),
                     ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
-                onTap: document.availableOffline ? () => _openDocument(document) : null,
+                onTap: document.availableOffline
+                    ? () => _openWorkspaceDocument(document)
+                    : null,
               ),
             );
           },
@@ -368,12 +343,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return await widget.catalog.getById(document.id) ?? document;
   }
 
-  Future<void> _openPdf() async {
+  Future<void> _openPdfWorkspacePicker() async {
     if (_openingDocument) return;
     setState(() => _openingDocument = true);
     try {
       final stored = await _pickAndStorePdf();
-      if (stored != null) await _openDocument(stored);
+      if (stored != null) await _openWorkspaceDocument(stored);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -384,133 +359,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  Future<void> _openNavigationPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openNavigationDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir a navegação avançada: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openAdvancedAnnotations() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openAdvancedDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o editor de anotações: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openPageToolsPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openPageToolsDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o editor de páginas: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openOcrPicker() async {
-    if (_openingDocument) return;
-    setState(() => _openingDocument = true);
-    try {
-      final stored = await _pickAndStorePdf();
-      if (stored != null) await _openOcrDocument(stored);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível abrir o OCR: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _openingDocument = false);
-    }
-  }
-
-  Future<void> _openDocument(DocumentRef document) async {
+  Future<void> _openWorkspaceDocument(DocumentRef document) async {
     await widget.catalog.markOpened(document.id);
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PdfReaderScreen(
-          document: document,
-          readingProgress: widget.readingProgress,
-          annotations: widget.annotations,
-          pdfInkStore: widget.pdfInkStore,
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _openNavigationDocument(DocumentRef document) async {
-    await widget.catalog.markOpened(document.id);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PdfNavigationScreen(
+        builder: (_) => PdfWorkspaceScreen(
           document: document,
           store: _navigationStore,
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _openAdvancedDocument(DocumentRef document) async {
-    await widget.catalog.markOpened(document.id);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PdfAdvancedAnnotationScreen(
-          document: document,
           annotations: widget.annotations,
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _openPageToolsDocument(DocumentRef document) async {
-    await widget.catalog.markOpened(document.id);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PdfPageToolsScreen(document: document),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _openOcrDocument(DocumentRef document) async {
-    await widget.catalog.markOpened(document.id);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PdfOcrScreen(
-          document: document,
-          navigationStore: _navigationStore,
         ),
       ),
     );
@@ -574,11 +431,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  void _select(int index) => setState(() => _selectedIndex = index);
+  void _select(int index) {
+    setState(() => _selectedIndex = index);
+    if (MediaQuery.sizeOf(context).width < 720 && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
 }
 
 class _Navigation extends StatelessWidget {
-  const _Navigation({required this.selectedIndex, required this.onSelect});
+  const _Navigation({
+    required this.selectedIndex,
+    required this.onSelect,
+  });
+
   final int selectedIndex;
   final ValueChanged<int> onSelect;
 
@@ -594,7 +460,10 @@ class _Navigation extends StatelessWidget {
             child: Text('DOCUMENTOS'),
           ),
           for (final destination in _LibraryScreenState._destinations)
-            NavigationDrawerDestination(icon: Icon(destination.$1), label: Text(destination.$2)),
+            NavigationDrawerDestination(
+              icon: Icon(destination.$1),
+              label: Text(destination.$2),
+            ),
         ],
       ),
     );
@@ -602,16 +471,26 @@ class _Navigation extends StatelessWidget {
 }
 
 class _QuickAction extends StatelessWidget {
-  const _QuickAction({required this.icon, required this.title, required this.subtitle, this.onTap});
+  const _QuickAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+    this.emphasized = false,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       clipBehavior: Clip.antiAlias,
+      color: emphasized ? scheme.primaryContainer : null,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -620,9 +499,19 @@ class _QuickAction extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Icon(icon, size: 42),
+              Icon(
+                icon,
+                size: 42,
+                color: emphasized ? scheme.onPrimaryContainer : null,
+              ),
               const Spacer(),
-              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Text(subtitle),
             ],
@@ -634,7 +523,12 @@ class _QuickAction extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.title, required this.subtitle});
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -649,9 +543,17 @@ class _EmptyState extends StatelessWidget {
           children: [
             Icon(icon, size: 56),
             const SizedBox(height: 16),
-            Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(subtitle, style: Theme.of(context).textTheme.bodyLarge, textAlign: TextAlign.center),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodyLarge,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
