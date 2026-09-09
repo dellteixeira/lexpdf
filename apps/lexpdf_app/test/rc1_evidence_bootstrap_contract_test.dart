@@ -39,6 +39,7 @@ void main() {
     expect(workflow, contains(r'run-id: ${{ env.RUN_ID }}'));
     expect(workflow, contains(r'ref: ${{ env.CANDIDATE_SHA }}'));
     expect(workflow, contains('SHA256SUMS-Android.txt'));
+    expect(workflow, contains('ANDROID_ARTIFACT_SIZES.txt'));
     expect(workflow, contains('SHA256SUMS-Windows.txt'));
     expect(workflow, contains('WINDOWS_SIGNING_STATUS.txt'));
     expect(workflow, contains('verify_named_hash'));
@@ -49,7 +50,9 @@ void main() {
     expect(workflow, contains('installer_signer_match'));
     expect(workflow, contains('public_trust'));
     expect(workflow, contains("test \"\$public_trust\" = false"));
-    expect(workflow, contains('app-release.apk'));
+    expect(workflow, contains('app-arm64-v8a-release.apk'));
+    expect(workflow, contains('app-armeabi-v7a-release.apk'));
+    expect(workflow, contains('app-x86_64-release.apk'));
     expect(workflow, contains('app-release.aab'));
     expect(workflow, contains("find rc-artifacts -type f -iname '*.exe'"));
     expect(workflow, isNot(contains('SHA256SUMS-macOS.txt')));
@@ -64,7 +67,7 @@ void main() {
     expect(workflow, contains('RC1_AUTOMATED_EVIDENCE.md'));
     expect(workflow, contains('Release distribution scope: `Android + Windows`'));
     expect(workflow, contains('Recomputed hashes match'));
-    expect(workflow, contains('recorded Windows signing evidence only'));
+    expect(workflow, contains('split-artifact size capture'));
     expect(workflow, contains('does not claim public trust'));
     expect(workflow, contains('real-device/runtime validation'));
     expect(workflow, contains('first usable rendered-page timing'));

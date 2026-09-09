@@ -86,6 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s rc-artifacts/SHA256SUMS-Android.txt
+          test -s rc-artifacts/ANDROID_ARTIFACT_SIZES.txt
           test -s rc-artifacts/SHA256SUMS-Windows.txt
           test -s rc-artifacts/WINDOWS_SIGNING_STATUS.txt
 
@@ -112,7 +113,9 @@ jobs:
             normalize_value "$(awk -F= -v key="$1" '$1 == key {print $2; exit}' rc-artifacts/WINDOWS_SIGNING_STATUS.txt)"
           }
 
-          apk_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.apk)
+          arm64_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-arm64-v8a-release.apk)
+          armv7_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-armeabi-v7a-release.apk)
+          x64_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-x86_64-release.apk)
           aab_sha=$(verify_named_hash rc-artifacts/SHA256SUMS-Android.txt app-release.aab)
           installer=$(find rc-artifacts -type f -iname '*.exe' -print -quit)
           test -n "$installer"
@@ -146,7 +149,9 @@ jobs:
             *) echo "Invalid Windows signing mode: $signing_mode" >&2; exit 1 ;;
           esac
 
-          echo "apk_sha=$apk_sha" >> "$GITHUB_OUTPUT"
+          echo "arm64_sha=$arm64_sha" >> "$GITHUB_OUTPUT"
+          echo "armv7_sha=$armv7_sha" >> "$GITHUB_OUTPUT"
+          echo "x64_sha=$x64_sha" >> "$GITHUB_OUTPUT"
           echo "aab_sha=$aab_sha" >> "$GITHUB_OUTPUT"
           echo "installer_name=$installer_name" >> "$GITHUB_OUTPUT"
           echo "windows_sha=$windows_sha" >> "$GITHUB_OUTPUT"
@@ -163,7 +168,9 @@ jobs:
           RUN_URL: ${{ steps.run.outputs.run_url }}
           RUN_ATTEMPT: ${{ steps.run.outputs.run_attempt }}
           RAW_VERSION: ${{ steps.version.outputs.raw }}
-          APK_SHA: ${{ steps.verify.outputs.apk_sha }}
+          ARM64_SHA: ${{ steps.verify.outputs.arm64_sha }}
+          ARMV7_SHA: ${{ steps.verify.outputs.armv7_sha }}
+          X64_SHA: ${{ steps.verify.outputs.x64_sha }}
           AAB_SHA: ${{ steps.verify.outputs.aab_sha }}
           WINDOWS_NAME: ${{ steps.verify.outputs.installer_name }}
           WINDOWS_SHA: ${{ steps.verify.outputs.windows_sha }}
@@ -191,10 +198,18 @@ jobs:
 
           ## Artifact SHA-256 verification
 
-          - Android APK `app-release.apk`: `$APK_SHA`
+          - Android arm64 APK `app-arm64-v8a-release.apk`: `$ARM64_SHA`
+          - Android armeabi-v7a APK `app-armeabi-v7a-release.apk`: `$ARMV7_SHA`
+          - Android x86_64 APK `app-x86_64-release.apk`: `$X64_SHA`
           - Android AAB `app-release.aab`: `$AAB_SHA`
           - Windows installer `$WINDOWS_NAME`: `$WINDOWS_SHA`
           - Recomputed hashes match the checksum files shipped by the distribution workflow: `PASS`
+
+          ## Android artifact sizes
+
+          The exact byte and MiB sizes recorded by the distribution workflow are preserved in
+          `ANDROID_ARTIFACT_SIZES.txt`. Split APKs are architecture-specific and are intended to
+          reduce the per-device download compared with the former universal APK.
 
           ## Windows signing evidence
 
@@ -211,14 +226,15 @@ jobs:
 
           ## Scope
 
-          This automated record proves distribution-run identity, artifact checksum integrity, and the
-          recorded Windows signing evidence only. It does **not** replace Android certificate identity capture,
-          installation tests, real-device/runtime validation, large-PDF rendering observations,
-          first usable rendered-page timing, or memory measurements. Those remain manual evidence
-          in `docs/RC1_EVIDENCE.md` until actually executed.
+          This automated record proves distribution-run identity, artifact checksum integrity, Android
+          split-artifact size capture, and the recorded Windows signing evidence only. It does **not** replace
+          Android certificate identity capture, installation tests, real-device/runtime validation, large-PDF
+          rendering observations, first usable rendered-page timing, or memory measurements. Those remain
+          manual evidence in `docs/RC1_EVIDENCE.md` until actually executed.
           EOF
 
           cp rc-artifacts/SHA256SUMS-Android.txt rc-evidence/
+          cp rc-artifacts/ANDROID_ARTIFACT_SIZES.txt rc-evidence/
           cp rc-artifacts/SHA256SUMS-Windows.txt rc-evidence/
           cp rc-artifacts/WINDOWS_SIGNING_STATUS.txt rc-evidence/
 

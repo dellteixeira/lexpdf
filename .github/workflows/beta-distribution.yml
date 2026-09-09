@@ -74,9 +74,9 @@ jobs:
       - run: git diff --exit-code -- pubspec.lock
       - run: flutter analyze
       - run: flutter test
-      - name: Build signed Android APK
+      - name: Build signed Android APKs per ABI
         run: >-
-          flutter build apk --release
+          flutter build apk --release --split-per-abi
           --dart-define=LEXPDF_ENVIRONMENT=production
           --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
@@ -90,13 +90,20 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
-      - name: Verify Android signature and checksums
+      - name: Verify Android signatures, checksums, and sizes
         shell: bash
         run: |
           set -euo pipefail
-          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apk_dir='build/app/outputs/flutter-apk'
           aab='build/app/outputs/bundle/release/app-release.aab'
-          test -s "$apk"
+          apks=(
+            "$apk_dir/app-arm64-v8a-release.apk"
+            "$apk_dir/app-armeabi-v7a-release.apk"
+            "$apk_dir/app-x86_64-release.apk"
+          )
+          for apk in "${apks[@]}"; do
+            test -s "$apk"
+          done
           test -s "$aab"
           sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           if [ -z "$sdk_root" ] || [ ! -d "$sdk_root/build-tools" ]; then
@@ -108,15 +115,25 @@ jobs:
             echo 'apksigner was not found in Android SDK build-tools.' >&2
             exit 1
           fi
-          "$apksigner_path" verify --verbose --print-certs "$apk"
-          sha256sum "$apk" "$aab" > SHA256SUMS-Android.txt
+          for apk in "${apks[@]}"; do
+            "$apksigner_path" verify --verbose --print-certs "$apk"
+          done
+          sha256sum "${apks[@]}" "$aab" > SHA256SUMS-Android.txt
+          : > ANDROID_ARTIFACT_SIZES.txt
+          for artifact in "${apks[@]}" "$aab"; do
+            bytes=$(stat -c '%s' "$artifact")
+            mib=$(awk -v b="$bytes" 'BEGIN { printf "%.2f", b / 1048576 }')
+            printf '%s bytes=%s mib=%s\n' "$(basename "$artifact")" "$bytes" "$mib" >> ANDROID_ARTIFACT_SIZES.txt
+          done
+          cat ANDROID_ARTIFACT_SIZES.txt
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-Android
           path: |
-            apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
+            apps/lexpdf_app/build/app/outputs/flutter-apk/app-*-release.apk
             apps/lexpdf_app/build/app/outputs/bundle/release/app-release.aab
             apps/lexpdf_app/SHA256SUMS-Android.txt
+            apps/lexpdf_app/ANDROID_ARTIFACT_SIZES.txt
           if-no-files-found: error
 
   windows-installer:
