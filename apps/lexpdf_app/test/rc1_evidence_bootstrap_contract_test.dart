@@ -44,6 +44,11 @@ void main() {
     expect(workflow, contains('verify_named_hash'));
     expect(workflow, contains('normalize_value'));
     expect(workflow, contains("tr -d '\\r'"));
+    expect(workflow, contains('signed-self-signed'));
+    expect(workflow, contains('executable_signer_match'));
+    expect(workflow, contains('installer_signer_match'));
+    expect(workflow, contains('public_trust'));
+    expect(workflow, contains("test \"\$public_trust\" = false"));
     expect(workflow, contains('app-release.apk'));
     expect(workflow, contains('app-release.aab'));
     expect(workflow, contains("find rc-artifacts -type f -iname '*.exe'"));
@@ -59,7 +64,8 @@ void main() {
     expect(workflow, contains('RC1_AUTOMATED_EVIDENCE.md'));
     expect(workflow, contains('Release distribution scope: `Android + Windows`'));
     expect(workflow, contains('Recomputed hashes match'));
-    expect(workflow, contains('recorded Windows signing mode only'));
+    expect(workflow, contains('recorded Windows signing evidence only'));
+    expect(workflow, contains('does not claim public trust'));
     expect(workflow, contains('real-device/runtime validation'));
     expect(workflow, contains('first usable rendered-page timing'));
     expect(workflow, contains('memory measurements'));

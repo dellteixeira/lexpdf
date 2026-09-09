@@ -25,11 +25,13 @@ void main() {
       'flutter build appbundle --release',
       'LEXPDF_WINDOWS_CERTIFICATE_BASE64',
       'WINDOWS_SIGNING_ENABLED',
+      'EXPECTED_WINDOWS_SIGNER_THUMBPRINT',
       'Get-AuthenticodeSignature',
-      'X509Store',
-      "'Root'",
-      "'TrustedPublisher'",
-      'StoreLocation]::CurrentUser',
+      'SignerCertificate',
+      'signed-self-signed',
+      'executable_signer_match=true',
+      'installer_signer_match=true',
+      'public_trust=false',
       'Inno Setup',
       'WINDOWS_SIGNING_STATUS.txt',
       'SHA256SUMS-Android.txt',
@@ -39,6 +41,9 @@ void main() {
     }
 
     expect(workflow, isNot(contains('Import-Certificate -FilePath')));
+    expect(workflow, isNot(contains('X509Store]::new')));
+    expect(workflow, isNot(contains("'Root'")));
+    expect(workflow, isNot(contains("'TrustedPublisher'")));
     expect(workflow, isNot(contains('macos-dmg:')));
     expect(workflow, isNot(contains('LEXPDF_MACOS_CERTIFICATE_BASE64')));
     expect(workflow, isNot(contains('notarytool submit')));
