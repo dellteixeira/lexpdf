@@ -21,6 +21,11 @@ void main() {
 
     for (final requiredContract in <String>[
       'LEXPDF_ANDROID_KEYSTORE_BASE64',
+      'flutter build apk --release --split-per-abi',
+      'app-arm64-v8a-release.apk',
+      'app-armeabi-v7a-release.apk',
+      'app-x86_64-release.apk',
+      'ANDROID_ARTIFACT_SIZES.txt',
       'apksigner_path',
       'flutter build appbundle --release',
       'LEXPDF_WINDOWS_CERTIFICATE_BASE64',
@@ -40,6 +45,7 @@ void main() {
       expect(workflow, contains(requiredContract));
     }
 
+    expect(workflow, isNot(contains("apk='build/app/outputs/flutter-apk/app-release.apk'")));
     expect(workflow, isNot(contains('Import-Certificate -FilePath')));
     expect(workflow, isNot(contains('X509Store]::new')));
     expect(workflow, isNot(contains("'Root'")));
