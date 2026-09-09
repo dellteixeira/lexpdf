@@ -6,11 +6,13 @@ class NotebookInkControls extends StatelessWidget {
   const NotebookInkControls({
     required this.editable,
     required this.pointerMode,
+    required this.handMode,
     required this.tool,
     required this.eraserMode,
     required this.lassoMode,
     required this.selectionCount,
     required this.onPointerModeChanged,
+    required this.onHandModeChanged,
     required this.onToolChanged,
     required this.onEraserModeChanged,
     required this.onLassoModeChanged,
@@ -19,12 +21,14 @@ class NotebookInkControls extends StatelessWidget {
 
   final bool editable;
   final bool pointerMode;
+  final bool handMode;
   final InkTool tool;
   final bool eraserMode;
   final bool lassoMode;
   final int selectionCount;
 
   final ValueChanged<bool> onPointerModeChanged;
+  final ValueChanged<bool> onHandModeChanged;
   final ValueChanged<InkTool> onToolChanged;
   final ValueChanged<bool> onEraserModeChanged;
   final ValueChanged<bool> onLassoModeChanged;
@@ -39,6 +43,13 @@ class NotebookInkControls extends StatelessWidget {
           avatar: const Icon(Icons.near_me_outlined, size: 18),
           label: const Text('Selecionar'),
           onSelected: editable ? onPointerModeChanged : null,
+        ),
+        const SizedBox(width: 6),
+        FilterChip(
+          selected: handMode,
+          avatar: const Icon(Icons.pan_tool_alt_outlined, size: 18),
+          label: const Text('Mão'),
+          onSelected: onHandModeChanged,
         ),
         const SizedBox(width: 6),
         SegmentedButton<InkTool>(

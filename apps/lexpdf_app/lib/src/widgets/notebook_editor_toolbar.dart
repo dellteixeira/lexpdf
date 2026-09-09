@@ -11,6 +11,7 @@ class NotebookEditorToolbar extends StatelessWidget {
     required this.controller,
     required this.editable,
     required this.pointerMode,
+    required this.handMode,
     required this.tool,
     required this.eraserMode,
     required this.lassoMode,
@@ -23,6 +24,7 @@ class NotebookEditorToolbar extends StatelessWidget {
     required this.stylusOnly,
     required this.selectedObject,
     required this.onPointerModeChanged,
+    required this.onHandModeChanged,
     required this.onToolChanged,
     required this.onEraserModeChanged,
     required this.onLassoModeChanged,
@@ -57,6 +59,7 @@ class NotebookEditorToolbar extends StatelessWidget {
   final ScrollController controller;
   final bool editable;
   final bool pointerMode;
+  final bool handMode;
   final InkTool tool;
   final bool eraserMode;
   final bool lassoMode;
@@ -70,6 +73,7 @@ class NotebookEditorToolbar extends StatelessWidget {
   final NotebookObject? selectedObject;
 
   final ValueChanged<bool> onPointerModeChanged;
+  final ValueChanged<bool> onHandModeChanged;
   final ValueChanged<InkTool> onToolChanged;
   final ValueChanged<bool> onEraserModeChanged;
   final ValueChanged<bool> onLassoModeChanged;
@@ -128,11 +132,13 @@ class NotebookEditorToolbar extends StatelessWidget {
                 NotebookInkControls(
                   editable: editable,
                   pointerMode: pointerMode,
+                  handMode: handMode,
                   tool: tool,
                   eraserMode: eraserMode,
                   lassoMode: lassoMode,
                   selectionCount: selectionCount,
                   onPointerModeChanged: onPointerModeChanged,
+                  onHandModeChanged: onHandModeChanged,
                   onToolChanged: onToolChanged,
                   onEraserModeChanged: onEraserModeChanged,
                   onLassoModeChanged: onLassoModeChanged,

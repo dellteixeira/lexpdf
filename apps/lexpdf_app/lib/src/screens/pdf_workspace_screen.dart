@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -40,7 +41,10 @@ class PdfWorkspaceScreen extends StatefulWidget {
 }
 
 class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
+  static const _zoomPresets = <int>[25, 50, 75, 100, 125, 150, 200, 300, 400];
+
   final PdfViewerController _controller = PdfViewerController();
+  final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'pdf-workspace');
   final List<int> _backHistory = <int>[];
   final List<int> _forwardHistory = <int>[];
 
@@ -48,6 +52,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   List<PdfOutlineNode> _outline = const <PdfOutlineNode>[];
   PdfDocument? _document;
   int _page = 1;
+  int _zoomPercent = 100;
   bool _historyNavigation = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
 
@@ -55,7 +60,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void initState() {
     super.initState();
     _page = math.max(1, widget.initialPage);
+    _controller.addListener(_syncZoomFromController);
     unawaited(_reloadBookmarks());
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncZoomFromController);
+    _keyboardFocusNode.dispose();
+    super.dispose();
   }
 
   @override
@@ -90,6 +103,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
             onPressed: _zoomOut,
             icon: const Icon(Icons.zoom_out),
           ),
+          _buildZoomMenu(compact: true),
           IconButton(
             tooltip: 'Zoom +',
             onPressed: _zoomIn,
@@ -101,62 +115,89 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildCommandBar(path),
-          const Divider(height: 1),
-          Expanded(
-            child: ColoredBox(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: PdfViewer.file(
-                path,
-                controller: _controller,
-                initialPageNumber: _page,
-                useProgressiveLoading: true,
-                params: PdfViewerParams(
-                  limitRenderingCache: true,
-                  maxImageBytesCachedOnMemory:
-                      HugePdfPolicy.viewerImageCacheBytes,
-                  horizontalCacheExtent: 0.30,
-                  verticalCacheExtent: 0.30,
-                  onePassRenderingSizeThreshold: 1400,
-                  behaviorControlParams:
-                      const PdfViewerBehaviorControlParams(
-                    loadPageDimensionsOnDemand: true,
-                    enableLowResolutionPagePreview: true,
-                    trailingPageLoadingDelay: Duration(milliseconds: 250),
-                    pageImageCachingDelay: Duration(milliseconds: 40),
-                    partialImageLoadingDelay: Duration(milliseconds: 60),
+      body: CallbackShortcuts(
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
+            unawaited(_previousPage());
+          },
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () {
+            unawaited(_nextPage());
+          },
+          const SingleActivator(LogicalKeyboardKey.arrowUp): () {
+            unawaited(_scrollBy(110));
+          },
+          const SingleActivator(LogicalKeyboardKey.arrowDown): () {
+            unawaited(_scrollBy(-110));
+          },
+          const SingleActivator(LogicalKeyboardKey.pageUp): () {
+            unawaited(_previousPage());
+          },
+          const SingleActivator(LogicalKeyboardKey.pageDown): () {
+            unawaited(_nextPage());
+          },
+        },
+        child: Focus(
+          focusNode: _keyboardFocusNode,
+          autofocus: true,
+          child: Column(
+            children: [
+              _buildCommandBar(path),
+              const Divider(height: 1),
+              Expanded(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: PdfViewer.file(
+                    path,
+                    controller: _controller,
+                    initialPageNumber: _page,
+                    useProgressiveLoading: true,
+                    params: PdfViewerParams(
+                      limitRenderingCache: true,
+                      maxImageBytesCachedOnMemory:
+                          HugePdfPolicy.viewerImageCacheBytes,
+                      horizontalCacheExtent: 0.30,
+                      verticalCacheExtent: 0.30,
+                      onePassRenderingSizeThreshold: 1400,
+                      behaviorControlParams:
+                          const PdfViewerBehaviorControlParams(
+                        loadPageDimensionsOnDemand: true,
+                        enableLowResolutionPagePreview: true,
+                        trailingPageLoadingDelay: Duration(milliseconds: 250),
+                        pageImageCachingDelay: Duration(milliseconds: 40),
+                        partialImageLoadingDelay: Duration(milliseconds: 60),
+                      ),
+                      layoutPages: switch (_viewMode) {
+                        _PdfViewMode.continuous => null,
+                        _PdfViewMode.horizontal => _horizontalLayout,
+                        _PdfViewMode.facing => _facingLayout,
+                      },
+                      linkHandlerParams: PdfLinkHandlerParams(
+                        onLinkTap: (link) {
+                          final url = link.url;
+                          if (url != null) {
+                            unawaited(_openExternalLink(url));
+                            return;
+                          }
+                          final dest = link.dest;
+                          if (dest != null) {
+                            unawaited(_controller.goToDest(dest));
+                          }
+                        },
+                      ),
+                      onViewerReady: (document, controller) {
+                        _document = document;
+                        _syncZoomFromController();
+                        if (mounted) setState(() {});
+                        unawaited(_loadOutline(document));
+                      },
+                      onPageChanged: _onPageChanged,
+                    ),
                   ),
-                  layoutPages: switch (_viewMode) {
-                    _PdfViewMode.continuous => null,
-                    _PdfViewMode.horizontal => _horizontalLayout,
-                    _PdfViewMode.facing => _facingLayout,
-                  },
-                  linkHandlerParams: PdfLinkHandlerParams(
-                    onLinkTap: (link) {
-                      final url = link.url;
-                      if (url != null) {
-                        unawaited(_openExternalLink(url));
-                        return;
-                      }
-                      final dest = link.dest;
-                      if (dest != null) {
-                        unawaited(_controller.goToDest(dest));
-                      }
-                    },
-                  ),
-                  onViewerReady: (document, controller) {
-                    _document = document;
-                    if (mounted) setState(() {});
-                    unawaited(_loadOutline(document));
-                  },
-                  onPageChanged: _onPageChanged,
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -181,6 +222,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 tooltip: 'Avançar na navegação',
                 onPressed: _forwardHistory.isEmpty ? null : _goForward,
                 icon: const Icon(Icons.arrow_forward_outlined),
+              ),
+              IconButton(
+                tooltip: 'Página anterior (←)',
+                onPressed: _page <= 1 ? null : _previousPage,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              IconButton(
+                tooltip: 'Próxima página (→)',
+                onPressed: _document != null && _page >= _document!.pages.length
+                    ? null
+                    : _nextPage,
+                icon: const Icon(Icons.chevron_right),
               ),
               IconButton(
                 tooltip: 'Ir para página',
@@ -235,6 +288,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 onPressed: _zoomOut,
                 icon: const Icon(Icons.zoom_out),
               ),
+              _buildZoomMenu(),
               IconButton(
                 tooltip: 'Zoom +',
                 onPressed: _zoomIn,
@@ -298,14 +352,139 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     );
   }
 
+  Widget _buildZoomMenu({bool compact = false}) {
+    return PopupMenuButton<int>(
+      tooltip: 'Definir zoom',
+      onSelected: (value) {
+        if (value == -1) {
+          unawaited(_showCustomZoomDialog());
+        } else {
+          unawaited(_setZoomPercent(value));
+        }
+      },
+      itemBuilder: (context) => [
+        for (final value in _zoomPresets)
+          PopupMenuItem(
+            value: value,
+            child: Text('$value%'),
+          ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: -1,
+          child: Text('Personalizado…'),
+        ),
+      ],
+      child: Container(
+        constraints: BoxConstraints(minWidth: compact ? 56 : 68),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('$_zoomPercent%'),
+            if (!compact) ...[
+              const SizedBox(width: 3),
+              const Icon(Icons.arrow_drop_down, size: 18),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _syncZoomFromController() {
+    if (!_controller.isReady) return;
+    final percent = (_controller.currentZoom * 100).round();
+    if (!mounted || percent == _zoomPercent) return;
+    setState(() => _zoomPercent = percent);
+  }
+
+  Future<void> _setZoomPercent(int percent) async {
+    if (!_controller.isReady) return;
+    final target = (percent / 100).clamp(
+      _controller.minScale,
+      _controller.maxScale,
+    );
+    await _controller.setZoom(_controller.centerPosition, target);
+    _syncZoomFromController();
+  }
+
+  Future<void> _showCustomZoomDialog() async {
+    final input = TextEditingController(text: '$_zoomPercent');
+    final value = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Zoom personalizado'),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Zoom (%)',
+            suffixText: '%',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(
+              int.tryParse(input.text.trim()),
+            ),
+            child: const Text('Aplicar'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (value == null || value <= 0) return;
+    await _setZoomPercent(value);
+  }
+
   Future<void> _zoomIn() async {
     if (!_controller.isReady) return;
     await _controller.zoomUp();
+    _syncZoomFromController();
   }
 
   Future<void> _zoomOut() async {
     if (!_controller.isReady) return;
     await _controller.zoomDown();
+    _syncZoomFromController();
+  }
+
+  Future<void> _previousPage() async {
+    if (!_controller.isReady || _page <= 1) return;
+    await _controller.goToPage(
+      pageNumber: _page - 1,
+      anchor: PdfPageAnchor.top,
+    );
+  }
+
+  Future<void> _nextPage() async {
+    if (!_controller.isReady) return;
+    final count = _document?.pages.length ?? _controller.pageCount;
+    if (_page >= count) return;
+    await _controller.goToPage(
+      pageNumber: _page + 1,
+      anchor: PdfPageAnchor.top,
+    );
+  }
+
+  Future<void> _scrollBy(double deltaY) async {
+    if (!_controller.isReady) return;
+    final matrix = _controller.value.clone()
+      ..multiply(Matrix4.translationValues(0.0, deltaY, 0.0));
+    final safe = _controller.makeMatrixInSafeRange(matrix, forceClamp: true);
+    await _controller.goTo(
+      safe,
+      duration: const Duration(milliseconds: 90),
+    );
   }
 
   Future<void> _openAnnotations() async {

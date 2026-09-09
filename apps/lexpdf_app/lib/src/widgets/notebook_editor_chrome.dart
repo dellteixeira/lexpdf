@@ -302,13 +302,19 @@ class NotebookZoomControls extends StatelessWidget {
     required this.onZoomOut,
     required this.onZoomIn,
     required this.onReset,
+    required this.onZoomSelected,
+    required this.onCustomZoom,
     super.key,
   });
+
+  static const _presets = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
 
   final double zoom;
   final VoidCallback onZoomOut;
   final VoidCallback onZoomIn;
   final VoidCallback onReset;
+  final ValueChanged<double> onZoomSelected;
+  final VoidCallback onCustomZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -331,9 +337,40 @@ class NotebookZoomControls extends StatelessWidget {
             onPressed: onZoomOut,
             icon: const Icon(Icons.remove),
           ),
-          Text(
-            '${(zoom * 100).round()}%',
-            style: Theme.of(context).textTheme.labelMedium,
+          PopupMenuButton<double>(
+            tooltip: 'Definir zoom',
+            onSelected: onZoomSelected,
+            itemBuilder: (context) => [
+              for (final preset in _presets)
+                PopupMenuItem(
+                  value: preset,
+                  child: Text('${(preset * 100).round()}%'),
+                ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                enabled: false,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    onCustomZoom();
+                  },
+                  child: const Text('Personalizado…'),
+                ),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${(zoom * 100).round()}%',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
           ),
           IconButton(
             tooltip: 'Aumentar zoom',

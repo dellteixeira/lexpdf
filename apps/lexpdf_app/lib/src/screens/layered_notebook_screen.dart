@@ -68,6 +68,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _clipboardAvailable = false;
   int _selectionCount = 0;
   bool _pointerMode = false;
+  bool _handMode = false;
   bool _rulerMode = false;
   double _zoom = 1.0;
   String? _selectedObjectId;
@@ -213,11 +214,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   NotebookPageSnapshot _captureSnapshot() => NotebookPageSnapshot.capture(
-    strokes: _snapshotStrokes(),
-    objects: _allObjects,
-    strokeLayerIds: _strokeLayerIds,
-    objectLayerIds: _objectLayerIds,
-  );
+        strokes: _snapshotStrokes(),
+        objects: _allObjects,
+        strokeLayerIds: _strokeLayerIds,
+        objectLayerIds: _objectLayerIds,
+      );
 
   void _recordHistory() {
     if (_suppressMutationHistory || _currentPage == null) return;
@@ -323,6 +324,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _eraserMode = false;
       _clipboardAvailable = false;
       _selectedObjectId = null;
+      _pointerMode = false;
+      _handMode = false;
     });
     _history.clear();
   }
@@ -380,8 +383,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
             );
           }
           final page = _currentPage;
-          if (page == null)
+          if (page == null) {
             return const Center(child: Text('Nenhuma página disponível.'));
+          }
           return Column(
             children: [
               _buildNotebookNavigation(),
@@ -405,16 +409,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
           Positioned.fill(
             child: InteractiveViewer(
               transformationController: _pageTransformController,
-              minScale: 0.5,
+              minScale: 0.25,
               maxScale: 4,
-              panEnabled: _pointerMode,
-              scaleEnabled: _pointerMode,
+              panEnabled: _handMode,
+              scaleEnabled: _handMode,
               boundaryMargin: const EdgeInsets.all(220),
               onInteractionEnd: (_) {
-                final scale = _pageTransformController.value
-                    .getMaxScaleOnAxis();
+                final scale =
+                    _pageTransformController.value.getMaxScaleOnAxis();
                 if (mounted) {
-                  setState(() => _zoom = scale.clamp(0.5, 4.0));
+                  setState(() => _zoom = scale.clamp(0.25, 4.0));
                 }
               },
               child: Center(
@@ -444,7 +448,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           onSelectionChanged: (_) {},
                         ),
                         IgnorePointer(
-                          ignoring: !_canEditActiveLayer || _pointerMode,
+                          ignoring: !_canEditActiveLayer ||
+                              _pointerMode ||
+                              _handMode,
                           child: InkCanvas(
                             key: _canvasKey,
                             initialStrokes: _activeLayer?.isVisible == true
@@ -472,7 +478,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           objects: _activeLayer?.isVisible == true
                               ? _activeObjects
                               : const [],
-                          enabled: _pointerMode && _canEditActiveLayer,
+                          enabled: _pointerMode &&
+                              !_handMode &&
+                              _canEditActiveLayer,
                           selectedId: _selectedObjectId,
                           onObjectChanged: _onObjectChanged,
                           onObjectDoubleTap: _handleObjectDoubleTap,
@@ -496,6 +504,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
               onZoomOut: () => _zoomBy(0.85),
               onZoomIn: () => _zoomBy(1.15),
               onReset: _resetZoom,
+              onZoomSelected: _setZoom,
+              onCustomZoom: _showCustomZoomDialog,
             ),
           ),
         ],
@@ -504,12 +514,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   void _zoomBy(double factor) {
-    final next = (_zoom * factor).clamp(0.5, 4.0);
+    final next = (_zoom * factor).clamp(0.25, 4.0);
     _setZoom(next);
   }
 
   void _setZoom(double value) {
-    final next = value.clamp(0.5, 4.0);
+    final next = value.clamp(0.25, 4.0);
     _pageTransformController.value = Matrix4.diagonal3Values(next, next, 1);
     if (mounted) setState(() => _zoom = next);
   }
@@ -517,6 +527,41 @@ class _NotebookScreenState extends State<NotebookScreen> {
   void _resetZoom() {
     _pageTransformController.value = Matrix4.identity();
     if (mounted) setState(() => _zoom = 1.0);
+  }
+
+  Future<void> _showCustomZoomDialog() async {
+    final controller = TextEditingController(text: '${(_zoom * 100).round()}');
+    final percent = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Zoom personalizado'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Zoom (%)',
+            suffixText: '%',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              int.tryParse(controller.text.trim()),
+            ),
+            child: const Text('Aplicar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (percent == null || percent <= 0) return;
+    _setZoom(percent / 100);
   }
 
   Widget _buildLayerStatus() {
@@ -564,11 +609,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   int get _pageIndex =>
       _pages.indexWhere((item) => item.id == _currentPage?.id);
+
   double get _effectiveWidth => switch (_tool) {
-    InkTool.pen => _width,
-    InkTool.pencil => _width * 0.8,
-    InkTool.highlighter => _width * 5,
-  };
+        InkTool.pen => _width,
+        InkTool.pencil => _width * 0.8,
+        InkTool.highlighter => _width * 5,
+      };
 
   NotebookObject? get _selectedObject {
     final id = _selectedObjectId;
@@ -585,6 +631,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       controller: _toolbarScrollController,
       editable: _canEditActiveLayer,
       pointerMode: _pointerMode,
+      handMode: _handMode,
       tool: _tool,
       eraserMode: _eraserMode,
       lassoMode: _lassoMode,
@@ -599,6 +646,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onPointerModeChanged: (value) => setState(() {
         _pointerMode = value;
         if (value) {
+          _handMode = false;
           _eraserMode = false;
           _lassoMode = false;
           _selectionCount = 0;
@@ -606,11 +654,23 @@ class _NotebookScreenState extends State<NotebookScreen> {
           _selectedObjectId = null;
         }
       }),
+      onHandModeChanged: (value) => setState(() {
+        _handMode = value;
+        if (value) {
+          _pointerMode = false;
+          _eraserMode = false;
+          _lassoMode = false;
+          _selectionCount = 0;
+          _selectedObjectId = null;
+          _canvasKey.currentState?.clearSelection();
+        }
+      }),
       onToolChanged: (value) => setState(() {
         _tool = value;
         _eraserMode = false;
         _lassoMode = false;
         _pointerMode = false;
+        _handMode = false;
         _selectedObjectId = null;
         _selectionCount = 0;
       }),
@@ -619,6 +679,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         if (value) {
           _lassoMode = false;
           _pointerMode = false;
+          _handMode = false;
           _selectedObjectId = null;
         }
       }),
@@ -626,6 +687,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         _lassoMode = value;
         _eraserMode = false;
         _pointerMode = false;
+        _handMode = false;
         _selectedObjectId = null;
         if (!value) _selectionCount = 0;
       }),
@@ -694,7 +756,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
     await widget.inkStore.deleteStroke(stroke.id);
     if (!mounted) return;
     setState(() {
-      _allStrokes = _allStrokes.where((item) => item.id != stroke.id).toList();
+      _allStrokes =
+          _allStrokes.where((item) => item.id != stroke.id).toList();
       _strokeLayerIds = {..._strokeLayerIds}..remove(stroke.id);
     });
   }
@@ -813,10 +876,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                 ),
                                 PopupMenuButton<String>(
                                   onSelected: (value) async {
-                                    if (value == 'rename')
+                                    if (value == 'rename') {
                                       await _renameLayer(layer);
-                                    if (value == 'delete')
+                                    }
+                                    if (value == 'delete') {
                                       await _deleteLayer(layer);
+                                    }
                                     await refresh();
                                   },
                                   itemBuilder: (_) => [
@@ -856,6 +921,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _selectedObjectId = null;
       _lassoMode = false;
       _eraserMode = false;
+      _pointerMode = false;
+      _handMode = false;
     });
     _history.clear();
   }
@@ -880,8 +947,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
       ),
     );
     controller.dispose();
-    if (value != null && value.trim().isNotEmpty)
+    if (value != null && value.trim().isNotEmpty) {
       await _layerStore.renameLayer(layer.id, value);
+    }
   }
 
   Future<void> _deleteLayer(NotebookLayer layer) async {
@@ -903,11 +971,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _pages = pages;
     _currentPage = page;
     await _loadPageContent(page.id);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _selectionCount = 0;
         _selectedObjectId = null;
+        _pointerMode = false;
+        _handMode = false;
       });
+    }
     _history.clear();
   }
 
@@ -987,12 +1058,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (index < 0 || index >= _pages.length) return;
     _currentPage = _pages[index];
     await _loadPageContent(_currentPage!.id);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _selectionCount = 0;
         _selectedObjectId = null;
         _clipboardAvailable = false;
+        _pointerMode = false;
+        _handMode = false;
       });
+    }
     _history.clear();
   }
 
@@ -1042,13 +1116,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   String _backgroundLabel(InkPageBackground value) => switch (value) {
-    InkPageBackground.blank => 'Branco',
-    InkPageBackground.ruled => 'Pautado',
-    InkPageBackground.grid => 'Quadriculado',
-    InkPageBackground.dotted => 'Pontilhado',
-    InkPageBackground.cornell => 'Cornell',
-    InkPageBackground.planner => 'Planner',
-  };
+        InkPageBackground.blank => 'Branco',
+        InkPageBackground.ruled => 'Pautado',
+        InkPageBackground.grid => 'Quadriculado',
+        InkPageBackground.dotted => 'Pontilhado',
+        InkPageBackground.cornell => 'Cornell',
+        InkPageBackground.planner => 'Planner',
+      };
 
   Future<void> _persistNewObject(NotebookObject object) async {
     final layer = _activeLayer;
@@ -1135,12 +1209,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
         updatedAt: now,
       ),
     );
-    if (mounted)
+    if (mounted) {
       setState(() {
         _pointerMode = true;
+        _handMode = false;
         _eraserMode = false;
         _lassoMode = false;
       });
+    }
   }
 
   Future<void> _addImage() async {
@@ -1185,8 +1261,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   void _handleObjectDoubleTap(NotebookObject object) {
-    if (object.type == NotebookObjectType.text && _canEditActiveLayer)
+    if (object.type == NotebookObjectType.text && _canEditActiveLayer) {
       unawaited(_editTextObject(object));
+    }
   }
 
   Future<void> _editTextObject(NotebookObject object) async {
@@ -1251,20 +1328,24 @@ class _NotebookScreenState extends State<NotebookScreen> {
       for (final item in removed) {
         await _onStrokeErased(item);
       }
-      if (mounted)
+      if (mounted) {
         setState(() {
           _lassoMode = false;
           _selectionCount = 0;
           _selectedObjectId = object.id;
+          _pointerMode = true;
+          _handMode = false;
         });
+      }
     } finally {
       _suppressMutationHistory = false;
     }
   }
 
   void _onObjectChanged(NotebookObject object) {
-    if (!_canEditActiveLayer || _objectLayerIds[object.id] != _activeLayerId)
+    if (!_canEditActiveLayer || _objectLayerIds[object.id] != _activeLayerId) {
       return;
+    }
     final index = _allObjects.indexWhere((item) => item.id == object.id);
     if (index < 0) return;
     _recordHistory();
@@ -1310,14 +1391,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _moveSelection(double dx, double dy) =>
       _runCanvasMutation(() => _canvasKey.currentState?.moveSelected(dx, dy));
+
   void _scaleSelection(double factor) =>
       _runCanvasMutation(() => _canvasKey.currentState?.scaleSelected(factor));
+
   void _rotateSelection(double angleRadians) => _runCanvasMutation(
-    () => _canvasKey.currentState?.rotateSelected(angleRadians),
-  );
+        () => _canvasKey.currentState?.rotateSelected(angleRadians),
+      );
+
   void _adjustSelectionWidth(double factor) => _runCanvasMutation(
-    () => _canvasKey.currentState?.adjustSelectedWidth(factor),
-  );
+        () => _canvasKey.currentState?.adjustSelectedWidth(factor),
+      );
 
   void _setSelectionColor(int colorValue) {
     if (!_canEditActiveLayer) return;
@@ -1346,11 +1430,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final removed = _canvasKey.currentState?.cutSelected() ?? const [];
     _suppressMutationHistory = false;
     _syncActiveCanvasToState();
-    if (removed.isNotEmpty)
+    if (removed.isNotEmpty) {
       setState(() {
         _clipboardAvailable = true;
         _selectionCount = 0;
       });
+    }
   }
 
   void _pasteClipboard() {
@@ -1377,12 +1462,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _allStrokes = _allStrokes
-          .where((s) => !strokeIds.contains(s.id))
-          .toList();
-      _allObjects = _allObjects
-          .where((o) => !objectIds.contains(o.id))
-          .toList();
+      _allStrokes =
+          _allStrokes.where((s) => !strokeIds.contains(s.id)).toList();
+      _allObjects =
+          _allObjects.where((o) => !objectIds.contains(o.id)).toList();
       _strokeLayerIds = {..._strokeLayerIds}
         ..removeWhere((k, v) => v == layer.id);
       _objectLayerIds = {..._objectLayerIds}
