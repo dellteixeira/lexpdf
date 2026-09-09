@@ -124,6 +124,16 @@ class NotebookEditorToolbar extends StatelessWidget {
           ),
         );
 
+    void addShapeAndSelect(NotebookObjectType type) {
+      if (!pointerMode) onPointerModeChanged(true);
+      onAddShape(type);
+    }
+
+    void addImageAndSelect() {
+      if (!pointerMode) onPointerModeChanged(true);
+      onAddImage();
+    }
+
     return Material(
       color: scheme.surface,
       child: SizedBox(
@@ -184,8 +194,8 @@ class NotebookEditorToolbar extends StatelessWidget {
                   editable: editable,
                   selectedObject: selectedObject,
                   onAddText: onAddText,
-                  onAddShape: onAddShape,
-                  onAddImage: onAddImage,
+                  onAddShape: addShapeAndSelect,
+                  onAddImage: addImageAndSelect,
                   onScaleDown: onScaleObjectDown,
                   onScaleUp: onScaleObjectUp,
                   onDuplicate: onDuplicateObject,

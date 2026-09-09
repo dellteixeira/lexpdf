@@ -8,14 +8,23 @@ void main() {
         .readAsStringSync();
     final controls = File('lib/src/widgets/notebook_object_controls.dart')
         .readAsStringSync();
+    final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
+        .readAsStringSync();
 
     expect(toolbar, contains("import 'notebook_object_controls.dart';"));
     expect(toolbar, contains('NotebookObjectControls('));
+    expect(toolbar, contains('onPointerModeChanged(true)'));
     expect(controls, contains('class NotebookObjectControls'));
     expect(controls, contains("label: const Text('Texto')"));
-    expect(controls, contains("tooltip: 'Inserir forma'"));
-    expect(controls, contains("tooltip: 'Inserir imagem'"));
-    expect(controls, contains("tooltip: 'Editar texto'"));
-    expect(controls, contains("tooltip: 'Excluir objeto'"));
+    expect(controls, contains("tooltip: 'Inserir forma e selecionar'"));
+    expect(controls, contains("tooltip: 'Inserir imagem e selecionar'"));
+    expect(controls, contains("tooltip: 'Editar texto selecionado'"));
+    expect(controls, contains("label: const Text('Excluir')"));
+    expect(objectLayer, contains('enum _ResizeHandle'));
+    expect(objectLayer, contains('_ResizeHandle.topLeft'));
+    expect(objectLayer, contains('_ResizeHandle.topRight'));
+    expect(objectLayer, contains('_ResizeHandle.bottomLeft'));
+    expect(objectLayer, contains('_ResizeHandle.bottomRight'));
+    expect(objectLayer, contains('canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke)'));
   });
 }

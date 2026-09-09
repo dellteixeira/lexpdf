@@ -22,7 +22,7 @@ class DocumentRef {
     required this.id,
     required this.name,
     required this.provider,
-    this.localPath,
+    String? localPath,
     this.remoteId,
     this.remotePath,
     this.checksum,
@@ -31,7 +31,8 @@ class DocumentRef {
     this.availableOffline = false,
     this.favorite = false,
     this.syncState = DocumentSyncState.localOnly,
-  });
+  }) : localPath = localPath ??
+            (provider == DocumentProviderKind.local ? id : null);
 
   final String id;
   final String name;
@@ -45,6 +46,8 @@ class DocumentRef {
   final bool availableOffline;
   final bool favorite;
   final DocumentSyncState syncState;
+
+  bool get hasLocalPath => localPath != null && localPath!.trim().isNotEmpty;
 
   DocumentRef copyWith({
     String? name,
