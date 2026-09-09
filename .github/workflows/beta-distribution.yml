@@ -154,10 +154,22 @@ jobs:
           $secure = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
           $cert = Get-PfxCertificate -FilePath $path -Password $secure
           if ($null -eq $cert -or -not $cert.HasPrivateKey) { throw 'Windows signing certificate is invalid or has no private key.' }
-          $cerPath = Join-Path $env:RUNNER_TEMP 'lexpdf-code-signing.cer'
-          [IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
-          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+
+          # Avoid Import-Certificate for trust bootstrap because importing a self-signed
+          # certificate into Root can block on an interactive confirmation dialog in a
+          # headless GitHub-hosted runner. Use X509Store directly instead.
+          foreach ($storeName in @('Root', 'TrustedPublisher')) {
+            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+              $storeName,
+              [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+            )
+            try {
+              $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+              $store.Add($cert)
+            } finally {
+              $store.Close()
+            }
+          }
           'WINDOWS_SIGNING_ENABLED=true' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
