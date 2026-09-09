@@ -14,6 +14,26 @@ void main() {
     expect(reader, contains('[LexPDF][reader] render-error'));
   });
 
+  test('Windows preflight never performs synchronous filesystem I/O', () {
+    final preflight = File(
+      'lib/src/core/pdf/pdf_file_preflight.dart',
+    ).readAsStringSync();
+
+    expect(preflight, contains('if (Platform.isWindows)'));
+    expect(
+      preflight,
+      contains('PdfFilePreflightResult.ready(lengthBytes: 0)'),
+    );
+    expect(
+      preflight.indexOf('if (Platform.isWindows)'),
+      lessThan(preflight.indexOf('file.existsSync()')),
+    );
+    expect(
+      preflight,
+      contains('delegates file availability and format failures to the viewer'),
+    );
+  });
+
   test('fast page changes debounce overlay hydration', () {
     final reader = File('lib/src/screens/pdf_reader_screen.dart').readAsStringSync();
 
