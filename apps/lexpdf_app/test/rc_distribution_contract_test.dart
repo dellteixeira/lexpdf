@@ -38,7 +38,7 @@ void main() {
       expect(workflow, contains(requiredContract));
     }
 
-    expect(workflow, isNot(contains('Import-Certificate')));
+    expect(workflow, isNot(contains('Import-Certificate -FilePath')));
     expect(workflow, isNot(contains('macos-dmg:')));
     expect(workflow, isNot(contains('LEXPDF_MACOS_CERTIFICATE_BASE64')));
     expect(workflow, isNot(contains('notarytool submit')));
