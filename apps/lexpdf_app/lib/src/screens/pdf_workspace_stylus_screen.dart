@@ -16,6 +16,7 @@ import '../core/storage/local_pdf_form_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../widgets/pdf_selection_action_menu.dart';
 import '../widgets/pdf_stylus_page_overlay.dart';
 import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_export_screen.dart';
@@ -66,6 +67,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   final Map<int, List<PdfInkStroke>> _inkByPage = <int, List<PdfInkStroke>>{};
 
   late final LocalPdfInkStore _inkStore = LocalPdfInkStore(widget.store.db);
+  late final PdfSelectionActionMenu _selectionMenu = PdfSelectionActionMenu(
+    documentId: widget.document.id,
+    store: widget.annotations,
+    controller: _controller,
+    colorValue: () => _inkColor,
+    onChanged: () {
+      if (!mounted) return;
+      setState(() {});
+      _controller.invalidate();
+    },
+  );
   late _StylusMode _stylusMode;
   List<PdfBookmark> _bookmarks = const <PdfBookmark>[];
   List<PdfOutlineNode> _outline = const <PdfOutlineNode>[];
@@ -76,6 +88,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   int _inkCount = 0;
   int _inkColor = 0xFF246BFD;
   double _inkWidth = 3.0;
+  double _eraserWidth = 36.0;
   bool _historyNavigation = false;
   bool _loadingInk = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
@@ -217,9 +230,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           ),
                           panEnabled: !_inkMode || _mobile,
                           scaleEnabled: !_inkMode || _mobile,
+                          buildContextMenu: _stylusMode == _StylusMode.selectText
+                              ? _selectionMenu.buildContextMenu
+                              : null,
                           textSelectionParams: PdfTextSelectionParams(
                             enabled: _stylusMode == _StylusMode.selectText,
+                            showContextMenuAutomatically: true,
                           ),
+                          pagePaintCallbacks: [_selectionMenu.paint],
                           layoutPages: switch (_viewMode) {
                             _PdfViewMode.continuous => null,
                             _PdfViewMode.horizontal => _horizontalLayout,
@@ -242,7 +260,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             Positioned.fill(
                               child: PdfStylusPageOverlay(
                                 key: ValueKey(
-                                  'stylus-${page.pageNumber}-${_stylusMode.name}-$_inkCount',
+                                  'stylus-${page.pageNumber}-${_stylusMode.name}-$_inkCount-${_eraserWidth.toStringAsFixed(1)}',
                                 ),
                                 documentId: widget.document.id,
                                 pageNumber: page.pageNumber,
@@ -252,6 +270,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 colorValue: _inkColor,
                                 strokeWidth: _effectiveInkWidth,
                                 eraserMode: _eraserMode,
+                                eraserRadius: _eraserWidth / 2,
                                 onStrokeCompleted: _onStrokeCompleted,
                                 onEraseApplied: _onEraseApplied,
                               ),
@@ -263,6 +282,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             if (mounted) setState(() {});
                             unawaited(_loadOutline(document));
                             unawaited(_loadInkWindow(document, _page));
+                            unawaited(_selectionMenu.load(document));
                           },
                           onPageChanged: _onPageChanged,
                         ),
@@ -357,9 +377,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 'Borracha',
               ),
               IconButton(
-                tooltip: 'Cor e espessura da caneta',
+                tooltip: _eraserMode
+                    ? 'Espessura da borracha: ${_eraserWidth.toStringAsFixed(0)}'
+                    : 'Cor e espessura da caneta',
                 onPressed: _showInkSettings,
-                icon: Icon(Icons.palette_outlined, color: Color(_inkColor)),
+                icon: _eraserMode
+                    ? const Icon(Icons.line_weight)
+                    : Icon(Icons.palette_outlined, color: Color(_inkColor)),
               ),
               IconButton(
                 tooltip: 'Desfazer último traço nesta página',
@@ -591,6 +615,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   Future<void> _showInkSettings() async {
     var color = _inkColor;
     var width = _inkWidth;
+    var eraserWidth = _eraserWidth;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -605,7 +630,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 Text('S Pen / Stylus', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
                 const Text(
-                  'A pressão da caneta controla o traço. O stylus invertido funciona como borracha quando suportado pelo Android.',
+                  'A pressão da caneta controla o traço. O botão lateral da S Pen funciona como atalho temporário para a borracha quando o Android reporta o botão ao Flutter.',
                 ),
                 const SizedBox(height: 16),
                 Wrap(
@@ -633,12 +658,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text('Espessura: ${width.toStringAsFixed(1)}'),
+                Text('Espessura da caneta: ${width.toStringAsFixed(1)}'),
                 Slider(
                   min: 1,
                   max: 10,
                   value: width,
                   onChanged: (value) => setSheetState(() => width = value),
+                ),
+                Text('Espessura da borracha: ${eraserWidth.toStringAsFixed(0)}'),
+                Slider(
+                  min: 6,
+                  max: 80,
+                  divisions: 37,
+                  value: eraserWidth,
+                  onChanged: (value) =>
+                      setSheetState(() => eraserWidth = value),
                 ),
                 Align(
                   alignment: Alignment.centerRight,
@@ -647,7 +681,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                       setState(() {
                         _inkColor = color;
                         _inkWidth = width;
+                        _eraserWidth = eraserWidth;
                       });
+                      _controller.invalidate();
                       Navigator.of(sheetContext).pop();
                     },
                     child: const Text('Aplicar'),
@@ -773,14 +809,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     await _controller.goTo(safe, duration: const Duration(milliseconds: 90));
   }
 
-  Future<void> _openAnnotations() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfAdvancedAnnotationScreen(
-            document: widget.document,
-            annotations: widget.annotations,
-          ),
+  Future<void> _openAnnotations() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfAdvancedAnnotationScreen(
+          document: widget.document,
+          annotations: widget.annotations,
         ),
-      );
+      ),
+    );
+    final document = _document;
+    if (document != null) await _selectionMenu.load(document);
+  }
 
   Future<void> _openPageTools() => Navigator.of(context).push(
         MaterialPageRoute<void>(
