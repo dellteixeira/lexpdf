@@ -97,6 +97,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
+
   bool get _inkMode => switch (_stylusMode) {
         _StylusMode.pen ||
         _StylusMode.pencil ||
@@ -212,21 +214,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         path,
                         controller: _controller,
                         initialPageNumber: _page,
-                        useProgressiveLoading: true,
+                        useProgressiveLoading: !_windows,
                         params: PdfViewerParams(
                           limitRenderingCache: true,
-                          maxImageBytesCachedOnMemory:
-                              HugePdfPolicy.viewerImageCacheBytes,
-                          horizontalCacheExtent: 0.30,
-                          verticalCacheExtent: 0.30,
-                          onePassRenderingSizeThreshold: 1400,
-                          behaviorControlParams:
-                              const PdfViewerBehaviorControlParams(
+                          maxImageBytesCachedOnMemory: _windows
+                              ? 128 * 1024 * 1024
+                              : HugePdfPolicy.viewerImageCacheBytes,
+                          horizontalCacheExtent: _windows ? 0.15 : 0.30,
+                          verticalCacheExtent: _windows ? 0.15 : 0.30,
+                          onePassRenderingSizeThreshold: _windows ? 4096 : 1400,
+                          behaviorControlParams: PdfViewerBehaviorControlParams(
                             loadPageDimensionsOnDemand: true,
-                            enableLowResolutionPagePreview: true,
-                            trailingPageLoadingDelay: Duration(milliseconds: 250),
-                            pageImageCachingDelay: Duration(milliseconds: 40),
-                            partialImageLoadingDelay: Duration(milliseconds: 60),
+                            enableLowResolutionPagePreview: !_windows,
+                            trailingPageLoadingDelay: _windows
+                                ? Duration.zero
+                                : const Duration(milliseconds: 250),
+                            pageImageCachingDelay: _windows
+                                ? const Duration(milliseconds: 10)
+                                : const Duration(milliseconds: 40),
+                            partialImageLoadingDelay: _windows
+                                ? const Duration(milliseconds: 10)
+                                : const Duration(milliseconds: 60),
                           ),
                           panEnabled: !_inkMode || _mobile,
                           scaleEnabled: !_inkMode || _mobile,
@@ -745,6 +753,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     if (!_controller.isReady) return;
     final target = (percent / 100).clamp(_controller.minScale, _controller.maxScale);
     await _controller.setZoom(_controller.centerPosition, target);
+    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
@@ -780,12 +789,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   Future<void> _zoomIn() async {
     if (!_controller.isReady) return;
     await _controller.zoomUp();
+    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
   Future<void> _zoomOut() async {
     if (!_controller.isReady) return;
     await _controller.zoomDown();
+    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
