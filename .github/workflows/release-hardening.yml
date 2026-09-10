@@ -18,14 +18,19 @@ jobs:
           test -d apps/lexpdf_app/android
           test -d apps/lexpdf_app/windows
           test -d apps/lexpdf_app/macos
+          test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
           grep -q "defaultValue: 'development'" apps/lexpdf_app/lib/src/core/backend/backend_config.dart
           grep -q "flutter-version: '3.47.2'" .github/workflows/flutter-foundation.yml
           grep -q "flutter-version: '3.47.2'" .github/workflows/release-hardening.yml
+          grep -Eq '^[[:space:]]*compileSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
+          grep -Eq '^[[:space:]]*targetSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
 
           beta='.github/workflows/beta-distribution.yml'
           grep -q 'LEXPDF_ANDROID_KEYSTORE_BASE64' "$beta"
           grep -q 'apksigner_path' "$beta"
+          grep -q 'verify_android_target_sdk.sh' "$beta"
+          grep -q 'ANDROID_TARGET_SDK.txt' "$beta"
           grep -q 'SHA256SUMS-Android.txt' "$beta"
           grep -q 'LEXPDF_WINDOWS_CERTIFICATE_BASE64' "$beta"
           grep -q 'LEXPDF_WINDOWS_CERTIFICATE_PASSWORD' "$beta"
@@ -82,6 +87,13 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Verify compiled APK targets Android 16+
+        shell: bash
+        run: |
+          set -euo pipefail
+          MINIMUM_TARGET_SDK=36 \
+          ANDROID_TARGET_SDK_REPORT=ANDROID_TARGET_SDK.txt \
+          bash tool/verify_android_target_sdk.sh build/app/outputs/flutter-apk/app-release.apk
       - name: Smoke-check Android release artifact
         shell: bash
         run: |
@@ -95,7 +107,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-android-release
-          path: apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
+            apps/lexpdf_app/ANDROID_TARGET_SDK.txt
           if-no-files-found: error
 
   windows-release:

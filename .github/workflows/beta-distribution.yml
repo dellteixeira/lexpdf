@@ -20,6 +20,9 @@ jobs:
           printf '%s\n' "$raw" | grep -Eq '^1\.0\.0-rc\.[1-9][0-9]*\+[1-9][0-9]*$'
           echo "version=$version" >> "$GITHUB_OUTPUT"
           grep -q "flutter-version: '3.47.2'" .github/workflows/beta-distribution.yml
+          grep -Eq '^[[:space:]]*compileSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
+          grep -Eq '^[[:space:]]*targetSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
+          test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
 
   android-signed:
     needs: preflight
@@ -90,7 +93,7 @@ jobs:
           --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
           --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
           --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
-      - name: Verify Android signatures, checksums, and sizes
+      - name: Verify Android signatures, target SDK, checksums, and sizes
         shell: bash
         run: |
           set -euo pipefail
@@ -118,6 +121,9 @@ jobs:
           for apk in "${apks[@]}"; do
             "$apksigner_path" verify --verbose --print-certs "$apk"
           done
+          MINIMUM_TARGET_SDK=36 \
+          ANDROID_TARGET_SDK_REPORT=ANDROID_TARGET_SDK.txt \
+          bash tool/verify_android_target_sdk.sh "${apks[@]}"
           sha256sum "${apks[@]}" "$aab" > SHA256SUMS-Android.txt
           : > ANDROID_ARTIFACT_SIZES.txt
           for artifact in "${apks[@]}" "$aab"; do
@@ -125,6 +131,7 @@ jobs:
             mib=$(awk -v b="$bytes" 'BEGIN { printf "%.2f", b / 1048576 }')
             printf '%s bytes=%s mib=%s\n' "$(basename "$artifact")" "$bytes" "$mib" >> ANDROID_ARTIFACT_SIZES.txt
           done
+          cat ANDROID_TARGET_SDK.txt
           cat ANDROID_ARTIFACT_SIZES.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -132,6 +139,7 @@ jobs:
           path: |
             apps/lexpdf_app/build/app/outputs/flutter-apk/app-*-release.apk
             apps/lexpdf_app/build/app/outputs/bundle/release/app-release.aab
+            apps/lexpdf_app/ANDROID_TARGET_SDK.txt
             apps/lexpdf_app/SHA256SUMS-Android.txt
             apps/lexpdf_app/ANDROID_ARTIFACT_SIZES.txt
           if-no-files-found: error
