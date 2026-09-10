@@ -214,26 +214,26 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         path,
                         controller: _controller,
                         initialPageNumber: _page,
-                        useProgressiveLoading: !_windows,
+                        useProgressiveLoading: true,
                         params: PdfViewerParams(
                           limitRenderingCache: true,
                           maxImageBytesCachedOnMemory: _windows
-                              ? 128 * 1024 * 1024
+                              ? 100 * 1024 * 1024
                               : HugePdfPolicy.viewerImageCacheBytes,
-                          horizontalCacheExtent: _windows ? 0.15 : 0.30,
-                          verticalCacheExtent: _windows ? 0.15 : 0.30,
-                          onePassRenderingSizeThreshold: _windows ? 4096 : 1400,
+                          horizontalCacheExtent: _windows ? 1.0 : 0.30,
+                          verticalCacheExtent: _windows ? 1.0 : 0.30,
+                          onePassRenderingSizeThreshold: _windows ? 2000 : 1400,
                           behaviorControlParams: PdfViewerBehaviorControlParams(
-                            loadPageDimensionsOnDemand: true,
-                            enableLowResolutionPagePreview: !_windows,
+                            loadPageDimensionsOnDemand: !_windows,
+                            enableLowResolutionPagePreview: true,
                             trailingPageLoadingDelay: _windows
-                                ? Duration.zero
+                                ? const Duration(milliseconds: 100)
                                 : const Duration(milliseconds: 250),
                             pageImageCachingDelay: _windows
-                                ? const Duration(milliseconds: 10)
+                                ? const Duration(milliseconds: 20)
                                 : const Duration(milliseconds: 40),
                             partialImageLoadingDelay: _windows
-                                ? const Duration(milliseconds: 10)
+                                ? Duration.zero
                                 : const Duration(milliseconds: 60),
                           ),
                           panEnabled: !_inkMode || _mobile,
@@ -753,7 +753,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     if (!_controller.isReady) return;
     final target = (percent / 100).clamp(_controller.minScale, _controller.maxScale);
     await _controller.setZoom(_controller.centerPosition, target);
-    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
@@ -789,14 +788,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   Future<void> _zoomIn() async {
     if (!_controller.isReady) return;
     await _controller.zoomUp();
-    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
   Future<void> _zoomOut() async {
     if (!_controller.isReady) return;
     await _controller.zoomDown();
-    if (_windows) _controller.invalidate();
     _syncZoomFromController();
   }
 
