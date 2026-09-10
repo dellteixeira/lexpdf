@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
@@ -34,11 +35,13 @@ class PdfSelectionActionMenu {
     final annotations = await store.listForDocument(documentId);
     final pageTexts = <int, PdfPageText>{};
     final rendered = <int, List<_RenderedTextAnnotation>>{};
+
     for (final annotation in annotations) {
       if (annotation.pageNumber < 1 ||
           annotation.pageNumber > document.pages.length) {
         continue;
       }
+
       final text = pageTexts[annotation.pageNumber] ??=
           await document.pages[annotation.pageNumber - 1].loadStructuredText();
       if (annotation.startIndex < 0 ||
@@ -47,17 +50,30 @@ class PdfSelectionActionMenu {
           annotation.endIndex > text.fullText.length) {
         continue;
       }
+
+      final range = PdfPageTextRange(
+        pageText: text,
+        start: annotation.startIndex,
+        end: annotation.endIndex,
+      );
+
+      // Computing fragment geometry can be expensive. Do it once when the
+      // annotation model is loaded instead of during every page repaint. On
+      // Windows a repaint may be requested for every pan/zoom frame; doing text
+      // layout work there caused severe frame starvation and visible smearing.
+      final fragmentBounds = range
+          .enumerateFragmentBoundingRects()
+          .map((fragment) => fragment.bounds)
+          .toList(growable: false);
+
       rendered.putIfAbsent(annotation.pageNumber, () => []).add(
             _RenderedTextAnnotation(
               annotation: annotation,
-              range: PdfPageTextRange(
-                pageText: text,
-                start: annotation.startIndex,
-                end: annotation.endIndex,
-              ),
+              fragmentBounds: fragmentBounds,
             ),
           );
     }
+
     _rendered
       ..clear()
       ..addAll(rendered);
@@ -83,14 +99,8 @@ class PdfSelectionActionMenu {
               }
             : null,
       ),
-      const ContextMenuButtonItem(
-        label: 'Recortar',
-        onPressed: null,
-      ),
-      const ContextMenuButtonItem(
-        label: 'Colar',
-        onPressed: null,
-      ),
+      const ContextMenuButtonItem(label: 'Recortar', onPressed: null),
+      const ContextMenuButtonItem(label: 'Colar', onPressed: null),
       ContextMenuButtonItem(
         label: 'Marca-texto',
         onPressed: () {
@@ -140,6 +150,7 @@ class PdfSelectionActionMenu {
     final ranges = await delegate.getSelectedTextRanges();
     if (ranges.isEmpty) return;
     final now = DateTime.now().toUtc();
+
     for (var i = 0; i < ranges.length; i++) {
       final range = ranges[i];
       final annotation = LocalTextAnnotation(
@@ -159,6 +170,7 @@ class PdfSelectionActionMenu {
       );
       await store.upsert(annotation);
     }
+
     final document = _document;
     if (document != null) await load(document);
     await delegate.clearTextSelection();
@@ -167,21 +179,30 @@ class PdfSelectionActionMenu {
 
   void paint(Canvas canvas, Rect pageRect, PdfPage page) {
     final annotations = _rendered[page.pageNumber];
-    if (annotations == null) return;
+    if (annotations == null || annotations.isEmpty) return;
+
+    final isWindows = defaultTargetPlatform == TargetPlatform.windows;
     for (final rendered in annotations) {
       final annotation = rendered.annotation;
       final color = Color(annotation.colorValue);
-      for (final fragment in rendered.range.enumerateFragmentBoundingRects()) {
-        final rect =
-            fragment.bounds.toRectInDocument(page: page, pageRect: pageRect);
+
+      for (final bounds in rendered.fragmentBounds) {
+        final rect = bounds.toRectInDocument(page: page, pageRect: pageRect);
         switch (annotation.type) {
           case TextAnnotationType.highlight:
-            canvas.drawRect(
-              rect,
-              Paint()
-                ..color = color.withValues(alpha: annotation.opacity)
-                ..blendMode = BlendMode.multiply,
-            );
+            final paint = Paint()
+              ..color = color.withValues(
+                alpha: isWindows
+                    ? (annotation.opacity * 0.78).clamp(0.0, 1.0)
+                    : annotation.opacity,
+              )
+              ..style = PaintingStyle.fill;
+            // Avoid non-default blend operations in the Windows PDF page paint
+            // callback. The page is already rasterized by PDFium; srcOver keeps
+            // the text readable with translucency without forcing an extra
+            // compositor path while the page is moving.
+            if (!isWindows) paint.blendMode = BlendMode.multiply;
+            canvas.drawRect(rect, paint);
           case TextAnnotationType.underline:
             canvas.drawLine(
               Offset(rect.left, rect.bottom - 1),
@@ -207,9 +228,9 @@ class PdfSelectionActionMenu {
 class _RenderedTextAnnotation {
   const _RenderedTextAnnotation({
     required this.annotation,
-    required this.range,
+    required this.fragmentBounds,
   });
 
   final LocalTextAnnotation annotation;
-  final PdfPageTextRange range;
+  final List<PdfRect> fragmentBounds;
 }
