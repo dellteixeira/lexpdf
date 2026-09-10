@@ -1,5 +1,4 @@
-import 'dart:ui' show PointerDeviceKind;
-
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ink/ink_models.dart';
@@ -54,8 +53,19 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
       event.kind == PointerDeviceKind.invertedStylus ||
       event.kind == PointerDeviceKind.mouse;
 
+  bool _stylusButtonPressed(PointerEvent event) {
+    if (event.kind != PointerDeviceKind.stylus &&
+        event.kind != PointerDeviceKind.invertedStylus) {
+      return false;
+    }
+    return (event.buttons & kPrimaryStylusButton) != 0 ||
+        (event.buttons & kSecondaryStylusButton) != 0;
+  }
+
   bool _isErasing(PointerEvent event) =>
-      widget.eraserMode || event.kind == PointerDeviceKind.invertedStylus;
+      widget.eraserMode ||
+      event.kind == PointerDeviceKind.invertedStylus ||
+      _stylusButtonPressed(event);
 
   InkPoint _point(PointerEvent event) {
     final pressure = event.pressureMax > event.pressureMin
@@ -80,7 +90,9 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
     if (!widget.enabled || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
     if (_isErasing(event)) {
+      _active.clear();
       _eraseAt(event.localPosition);
+      setState(() {});
       return;
     }
     _active
@@ -92,6 +104,10 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
   void _move(PointerMoveEvent event) {
     if (_pointer != event.pointer) return;
     if (_isErasing(event)) {
+      if (_active.isNotEmpty) {
+        _active.clear();
+        setState(() {});
+      }
       _eraseAt(event.localPosition);
       return;
     }
@@ -101,7 +117,7 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   void _up(PointerUpEvent event) {
     if (_pointer != event.pointer) return;
-    if (!_isErasing(event)) {
+    if (!_isErasing(event) && _active.isNotEmpty) {
       _active.add(_point(event));
       if (_active.length >= 2) {
         final now = DateTime.now().toUtc();
