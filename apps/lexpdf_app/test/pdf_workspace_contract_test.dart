@@ -27,7 +27,7 @@ void main() {
 
     expect(workspace, contains("export 'pdf_workspace_stylus_screen.dart';"));
     expect(workspace, contains('PdfViewer.file('));
-    expect(workspace, contains('useProgressiveLoading: !_windows'));
+    expect(workspace, contains('useProgressiveLoading: true'));
     expect(workspace, contains('_controller.zoomUp()'));
     expect(workspace, contains('_controller.zoomDown()'));
     expect(workspace, contains("label: 'Miniaturas'"));
