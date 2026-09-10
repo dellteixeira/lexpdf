@@ -2,6 +2,15 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+String _workspaceSource() {
+  final entrypoint =
+      File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+  final implementation = File(
+    'lib/src/screens/pdf_workspace_stylus_screen.dart',
+  ).readAsStringSync();
+  return '$entrypoint\n$implementation';
+}
+
 void main() {
   test('library exposes one primary PDF workspace entry point', () {
     final library = File('lib/src/screens/library_screen.dart').readAsStringSync();
@@ -14,13 +23,13 @@ void main() {
   });
 
   test('workspace groups navigation editing OCR and zoom controls', () {
-    final workspace =
-        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+    final workspace = _workspaceSource();
 
+    expect(workspace, contains("export 'pdf_workspace_stylus_screen.dart';"));
     expect(workspace, contains('PdfViewer.file('));
     expect(workspace, contains('useProgressiveLoading: true'));
-    expect(workspace, contains('controller.zoomUp()'));
-    expect(workspace, contains('controller.zoomDown()'));
+    expect(workspace, contains('_controller.zoomUp()'));
+    expect(workspace, contains('_controller.zoomDown()'));
     expect(workspace, contains("label: 'Miniaturas'"));
     expect(workspace, contains("label: 'Sumário'"));
     expect(workspace, contains("label: 'Marcadores'"));

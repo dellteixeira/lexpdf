@@ -17,10 +17,15 @@ void main() {
   });
 
   test('PDF workspace exposes keyboard navigation and numeric zoom', () {
-    final source = File(
+    final entrypoint = File(
       'lib/src/screens/pdf_workspace_screen.dart',
     ).readAsStringSync();
+    final implementation = File(
+      'lib/src/screens/pdf_workspace_stylus_screen.dart',
+    ).readAsStringSync();
+    final source = '$entrypoint\n$implementation';
 
+    expect(source, contains("export 'pdf_workspace_stylus_screen.dart';"));
     expect(source, contains('LogicalKeyboardKey.arrowLeft'));
     expect(source, contains('LogicalKeyboardKey.arrowRight'));
     expect(source, contains('LogicalKeyboardKey.arrowUp'));
