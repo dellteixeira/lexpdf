@@ -14,7 +14,10 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.lexpdf.lexpdf_app"
-    compileSdk = flutter.compileSdkVersion
+    // Pin Android 16 / API 36 explicitly so release compatibility cannot drift
+    // with a Flutter SDK default. CI also validates the targetSdk embedded in
+    // the final APK, not just this Gradle configuration.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -25,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "com.lexpdf.lexpdf_app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
