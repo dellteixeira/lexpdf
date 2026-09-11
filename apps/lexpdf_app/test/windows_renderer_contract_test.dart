@@ -16,20 +16,27 @@ void main() {
     expect(projectIndex, greaterThan(switchIndex));
   });
 
-  test('Windows 10 uses software rendering without changing Windows 11', () {
+  test('Windows uses accelerated Skia by default on Windows 10 and 11', () {
     final source = File('windows/runner/main.cpp').readAsStringSync();
 
-    expect(source, contains('RtlGetVersion'));
-    expect(source, contains('dwMajorVersion == 10'));
-    expect(source, contains('dwBuildNumber < 22000'));
-    expect(source, contains('IsWindows10Build()'));
-    expect(source, contains('FLUTTER_ENGINE_SWITCH_2'));
+    expect(source, isNot(contains('RtlGetVersion')));
+    expect(source, isNot(contains('IsWindows10Build')));
+    expect(source, contains('LEXPDF_FORCE_SOFTWARE_RENDERING'));
+    expect(source, contains('ForceSoftwareRenderingRequested()'));
     expect(source, contains('enable-software-rendering'));
     expect(source, contains('FLUTTER_ENGINE_SWITCHES", L"2"'));
     expect(source, contains('FLUTTER_ENGINE_SWITCHES", L"1"'));
 
+    final diagnosticGateIndex =
+        source.indexOf('if (ForceSoftwareRenderingRequested())');
+    final softwareIndex = source.indexOf('enable-software-rendering');
+    final defaultSkiaIndex = source.lastIndexOf('FLUTTER_ENGINE_SWITCHES", L"1"');
     final configureIndex = source.indexOf('ConfigureWindowsRenderer();');
     final projectIndex = source.indexOf('flutter::DartProject project');
+
+    expect(diagnosticGateIndex, greaterThanOrEqualTo(0));
+    expect(softwareIndex, greaterThan(diagnosticGateIndex));
+    expect(defaultSkiaIndex, greaterThan(softwareIndex));
     expect(configureIndex, greaterThanOrEqualTo(0));
     expect(projectIndex, greaterThan(configureIndex));
   });
