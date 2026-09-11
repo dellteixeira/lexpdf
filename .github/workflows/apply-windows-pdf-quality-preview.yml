@@ -24,32 +24,32 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path('apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart')
           source = path.read_text(encoding='utf-8')
           old = 'enableLowResolutionPagePreview: true,'
           new = 'enableLowResolutionPagePreview: !_windows,'
-          if source.count(old) != 1:
-              raise SystemExit(f'Expected exactly one {old!r}, found {source.count(old)}')
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one {old!r}, found {count}')
           path.write_text(source.replace(old, new), encoding='utf-8')
-
-          test = Path('apps/lexpdf_app/test/windows_pdf_vector_quality_contract_test.dart')
-          test.write_text("""import 'dart:io';
-
-import 'package:flutter_test/flutter_test.dart';
-
-void main() {
-  test('Windows disables low-resolution PDF page preview', () {
-    final source = File(
-      'lib/src/screens/pdf_workspace_stylus_screen.dart',
-    ).readAsStringSync();
-
-    expect(source, contains('enableLowResolutionPagePreview: !_windows'));
-    expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
-  });
-}
-""", encoding='utf-8')
           PY
+
+          cat > apps/lexpdf_app/test/windows_pdf_vector_quality_contract_test.dart <<'DART'
+          import 'dart:io';
+
+          import 'package:flutter_test/flutter_test.dart';
+
+          void main() {
+            test('Windows disables low-resolution PDF page preview', () {
+              final source = File(
+                'lib/src/screens/pdf_workspace_stylus_screen.dart',
+              ).readAsStringSync();
+
+              expect(source, contains('enableLowResolutionPagePreview: !_windows'));
+              expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
+            });
+          }
+          DART
 
       - name: Commit quality fix
         shell: bash
