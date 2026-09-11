@@ -17,8 +17,8 @@ import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../widgets/pdf_selection_action_menu.dart';
+import '../widgets/pdf_sticky_note_overlay.dart';
 import '../widgets/pdf_stylus_page_overlay.dart';
-import 'pdf_advanced_annotation_screen.dart';
 import 'pdf_export_screen.dart';
 import 'pdf_forms_screen.dart';
 import 'pdf_ocr_screen.dart';
@@ -27,7 +27,7 @@ import 'pdf_print_screen.dart';
 
 enum _PdfViewMode { continuous, horizontal, facing }
 enum _WorkspaceMoreAction { forms, export, print }
-enum _StylusMode { hand, selectText, pen, pencil, highlighter, eraser }
+enum _StylusMode { hand, selectText, note, pen, highlighter, eraser }
 
 class PdfWorkspaceScreen extends StatefulWidget {
   const PdfWorkspaceScreen({
@@ -101,7 +101,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   bool get _inkMode => switch (_stylusMode) {
         _StylusMode.pen ||
-        _StylusMode.pencil ||
         _StylusMode.highlighter ||
         _StylusMode.eraser => true,
         _ => false,
@@ -110,7 +109,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool get _eraserMode => _stylusMode == _StylusMode.eraser;
 
   InkTool get _inkTool => switch (_stylusMode) {
-        _StylusMode.pencil => InkTool.pencil,
         _StylusMode.highlighter => InkTool.highlighter,
         _ => InkTool.pen,
       };
@@ -251,8 +249,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ? Duration.zero
                                 : const Duration(milliseconds: 60),
                           ),
-                          panEnabled: !_inkMode || _mobile,
-                          scaleEnabled: !_inkMode || _mobile,
+                          panEnabled: _stylusMode == _StylusMode.note
+                              ? false
+                              : (!_inkMode || _mobile),
+                          scaleEnabled: _stylusMode == _StylusMode.note
+                              ? false
+                              : (!_inkMode || _mobile),
                           buildContextMenu: _stylusMode == _StylusMode.selectText
                               ? _selectionMenu.buildContextMenu
                               : null,
@@ -296,6 +298,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 eraserRadius: _eraserWidth / 2,
                                 onStrokeCompleted: _onStrokeCompleted,
                                 onEraseApplied: _onEraseApplied,
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: PdfStickyNoteOverlay(
+                                key: ValueKey(
+                                  'sticky-${page.pageNumber}-${_stylusMode.name}',
+                                ),
+                                documentId: widget.document.id,
+                                pageNumber: page.pageNumber,
+                                store: widget.annotations.objectStore,
+                                createEnabled: _stylusMode == _StylusMode.note,
+                                onNoteSaved: () {
+                                  if (!mounted) return;
+                                  setState(() => _stylusMode = _StylusMode.hand);
+                                  _controller.invalidate();
+                                },
                               ),
                             ),
                           ],
@@ -387,8 +405,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 Icons.text_fields_outlined,
                 'Selecionar',
               ),
+              _stylusButton(
+                _StylusMode.note,
+                Icons.sticky_note_2_outlined,
+                'Anotar',
+              ),
               _stylusButton(_StylusMode.pen, Icons.edit, 'Caneta'),
-              _stylusButton(_StylusMode.pencil, Icons.draw_outlined, 'Lápis'),
               _stylusButton(
                 _StylusMode.highlighter,
                 Icons.border_color_outlined,
@@ -441,11 +463,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 ),
               ),
               const VerticalDivider(width: 20),
-              _CommandButton(
-                icon: Icons.draw_outlined,
-                label: 'Anotar',
-                onPressed: _openAnnotations,
-              ),
               _CommandButton(
                 icon: Icons.edit_document,
                 label: 'Páginas',
@@ -830,19 +847,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       ..multiply(Matrix4.translationValues(0.0, deltaY, 0.0));
     final safe = _controller.makeMatrixInSafeRange(matrix, forceClamp: true);
     await _controller.goTo(safe, duration: const Duration(milliseconds: 90));
-  }
-
-  Future<void> _openAnnotations() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PdfAdvancedAnnotationScreen(
-          document: widget.document,
-          annotations: widget.annotations,
-        ),
-      ),
-    );
-    final document = _document;
-    if (document != null) await _selectionMenu.load(document);
   }
 
   Future<void> _openPageTools() => Navigator.of(context).push(
