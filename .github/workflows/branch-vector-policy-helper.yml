@@ -1,0 +1,81 @@
+name: Branch Vector Policy Helper
+
+on:
+  push:
+    branches:
+      - fix/mobile-touch-tools-and-vector-rendering-policy
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-touch-tools-and-vector-rendering-policy
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply bounded Windows vector rendering policy
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart')
+          s = p.read_text()
+          old = '                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,\n'
+          new = '''                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,\n                          getPageRenderingScale: _windows\n                              ? (context, page, controller, estimatedScale) {\n                                  const maxRenderPixels = 6000.0;\n                                  final width = page.width * estimatedScale;\n                                  final height = page.height * estimatedScale;\n                                  if (width <= maxRenderPixels &&\n                                      height <= maxRenderPixels) {\n                                    return estimatedScale;\n                                  }\n                                  return math.min(\n                                    maxRenderPixels / page.width,\n                                    maxRenderPixels / page.height,\n                                  );\n                                }\n                              : null,\n'''
+          if old not in s:
+              raise SystemExit('target snippet not found')
+          p.write_text(s.replace(old, new, 1))
+
+          test = Path('apps/lexpdf_app/test/mobile_touch_and_vector_rendering_contract_test.dart')
+          test.write_text(r'''import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('compact Android touch tools and bounded Windows rendering stay wired', () {
+    final overlay = File(
+      'lib/src/widgets/pdf_stylus_page_overlay.dart',
+    ).readAsStringSync();
+    final workspace = File(
+      'lib/src/screens/pdf_workspace_stylus_screen.dart',
+    ).readAsStringSync();
+
+    expect(overlay, contains('TargetPlatform.android'));
+    expect(overlay, contains('size.shortestSide'));
+    expect(overlay, contains('< 600'));
+    expect(overlay, contains('onPanStart: _touchPanStart'));
+    expect(overlay, contains('onPanUpdate: _touchPanUpdate'));
+    expect(overlay, contains('onPanEnd: _touchPanEnd'));
+    expect(overlay, contains('PointerDeviceKind.stylus'));
+
+    expect(workspace, contains('onePassRenderingSizeThreshold: _windows ? 6000 : 1400'));
+    expect(workspace, contains('getPageRenderingScale: _windows'));
+    expect(workspace, contains('const maxRenderPixels = 6000.0'));
+    expect(workspace, contains('maxRenderPixels / page.width'));
+    expect(workspace, contains('maxRenderPixels / page.height'));
+    expect(workspace, contains('enabled: _stylusMode == _StylusMode.selectText'));
+  });
+}
+''')
+      - name: Remove helper workflow before commit
+        run: rm .github/workflows/branch-vector-policy-helper.yml
+      - name: Validate Flutter
+        working-directory: apps/lexpdf_app
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib/src/widgets/pdf_stylus_page_overlay.dart lib/src/screens/pdf_workspace_stylus_screen.dart test/mobile_touch_and_vector_rendering_contract_test.dart
+          flutter analyze
+          flutter test test/mobile_touch_and_vector_rendering_contract_test.dart
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart apps/lexpdf_app/lib/src/widgets/pdf_stylus_page_overlay.dart apps/lexpdf_app/test/mobile_touch_and_vector_rendering_contract_test.dart .github/workflows/branch-vector-policy-helper.yml
+          git commit -m "fix: harden vector rendering and compact Android touch tools"
+          git push origin HEAD:fix/mobile-touch-tools-and-vector-rendering-policy
