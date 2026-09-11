@@ -33,10 +33,12 @@ void main() {
     expect(workspace, contains("label: 'Miniaturas'"));
     expect(workspace, contains("label: 'Sumário'"));
     expect(workspace, contains("label: 'Marcadores'"));
-    expect(workspace, contains("label: 'Anotar'"));
+    expect(workspace, contains("'Anotar'"));
+    expect(workspace, contains('_StylusMode.note'));
+    expect(workspace, contains('PdfStickyNoteOverlay('));
     expect(workspace, contains("label: 'Páginas'"));
     expect(workspace, contains("label: 'OCR'"));
-    expect(workspace, contains('PdfAdvancedAnnotationScreen('));
+    expect(workspace, isNot(contains('PdfAdvancedAnnotationScreen(')));
     expect(workspace, contains('PdfPageToolsScreen('));
     expect(workspace, contains('PdfOcrScreen('));
     expect(workspace, contains('PdfFormsScreen('));

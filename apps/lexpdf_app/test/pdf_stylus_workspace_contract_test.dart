@@ -3,29 +3,32 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('unified workspace exposes explicit S Pen modes on Android', () {
+  test('unified workspace exposes explicit input modes on Android', () {
     final workspace = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
 
     expect(workspace, contains('_StylusMode.hand'));
     expect(workspace, contains('_StylusMode.selectText'));
+    expect(workspace, contains('_StylusMode.note'));
     expect(workspace, contains('_StylusMode.pen'));
-    expect(workspace, contains('_StylusMode.pencil'));
+    expect(workspace, isNot(contains('_StylusMode.pencil')));
     expect(workspace, contains('_StylusMode.highlighter'));
     expect(workspace, contains('_StylusMode.eraser'));
     expect(workspace, contains('TargetPlatform.android'));
     expect(workspace, contains('? _StylusMode.pen'));
     expect(workspace, contains("'Selecionar'"));
+    expect(workspace, contains("'Anotar'"));
     expect(workspace, contains("'Caneta'"));
+    expect(workspace, isNot(contains("'Lápis'")));
     expect(workspace, contains("'Marca-texto'"));
     expect(workspace, contains("'Borracha'"));
     expect(
       workspace,
       contains('enabled: _stylusMode == _StylusMode.selectText'),
     );
-    expect(workspace, contains('panEnabled: !_inkMode || _mobile'));
-    expect(workspace, contains('scaleEnabled: !_inkMode || _mobile'));
+    expect(workspace, contains('_stylusMode == _StylusMode.note'));
+    expect(workspace, contains(': (!_inkMode || _mobile)'));
   });
 
   test('stylus overlay rejects touch and keeps pressure-aware vector ink', () {
