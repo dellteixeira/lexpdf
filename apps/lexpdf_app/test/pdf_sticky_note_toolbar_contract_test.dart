@@ -19,7 +19,7 @@ void main() {
     expect(overlay, contains("tooltip: 'Negrito'"));
     expect(overlay, contains("tooltip: 'Itálico'"));
     expect(overlay, contains("tooltip: 'Sublinhado'"));
-    expect(overlay, contains("tooltip: 'Tamanho da fonte'"));
+    expect(overlay, contains("message: 'Tamanho da fonte'"));
     expect(overlay, contains("prefix = 'lexpdf-note-v1:'"));
     expect(overlay, contains("label: const Text('Salvar')"));
   });
