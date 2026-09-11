@@ -17,7 +17,7 @@ void main() {
     expect(source, contains('useProgressiveLoading: true'));
     expect(
       source,
-      contains('onePassRenderingSizeThreshold: _windows ? 2000 : 1400'),
+      contains('onePassRenderingSizeThreshold: _windows ? 6000 : 1400'),
     );
     expect(source, contains('loadPageDimensionsOnDemand: !_windows'));
     expect(source, contains('enableLowResolutionPagePreview: !_windows'));
