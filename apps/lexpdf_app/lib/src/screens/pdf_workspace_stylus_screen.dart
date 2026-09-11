@@ -225,7 +225,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           onePassRenderingSizeThreshold: _windows ? 2000 : 1400,
                           behaviorControlParams: PdfViewerBehaviorControlParams(
                             loadPageDimensionsOnDemand: !_windows,
-                            enableLowResolutionPagePreview: true,
+                            enableLowResolutionPagePreview: !_windows,
                             trailingPageLoadingDelay: _windows
                                 ? const Duration(milliseconds: 100)
                                 : const Duration(milliseconds: 250),
