@@ -222,7 +222,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                               : HugePdfPolicy.viewerImageCacheBytes,
                           horizontalCacheExtent: _windows ? 1.0 : 0.30,
                           verticalCacheExtent: _windows ? 1.0 : 0.30,
-                          onePassRenderingSizeThreshold: _windows ? 2000 : 1400,
+                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,
                           behaviorControlParams: PdfViewerBehaviorControlParams(
                             loadPageDimensionsOnDemand: !_windows,
                             enableLowResolutionPagePreview: !_windows,
