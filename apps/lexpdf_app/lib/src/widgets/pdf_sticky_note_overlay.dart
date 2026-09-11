@@ -86,10 +86,25 @@ class _NoteEditorResult {
   final bool delete;
 }
 
+class _StickyNoteDragData {
+  const _StickyNoteDragData({
+    required this.object,
+    required this.onPersistedMove,
+  });
+
+  final PdfAnnotationObject object;
+  final ValueChanged<PdfAnnotationObject> onPersistedMove;
+}
+
 class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
   static const _markerSize = 34.0;
+  static const _autoScrollEdge = 56.0;
+  static const _autoScrollStep = 120.0;
+  final GlobalKey _dropSurfaceKey = GlobalKey();
   final List<PdfAnnotationObject> _notes = <PdfAnnotationObject>[];
   bool _loading = true;
+  bool _dropActive = false;
+  DateTime _lastAutoScrollAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -178,6 +193,90 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
     final index = _notes.indexWhere((item) => item.id == object.id);
     if (index >= 0) setState(() => _notes[index] = updated);
   }
+
+  Future<void> _acceptDrop(
+    DragTargetDetails<_StickyNoteDragData> details,
+    Size size,
+  ) async {
+    if (size.width <= 0 || size.height <= 0) return;
+    final renderObject = _dropSurfaceKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox) return;
+    final local = renderObject.globalToLocal(details.offset);
+    final source = details.data.object;
+    final x = (local.dx / size.width).clamp(0.0, 1.0 - source.width);
+    final y = (local.dy / size.height).clamp(0.0, 1.0 - source.height);
+    final moved = source.copyWith(
+      pageNumber: widget.pageNumber,
+      x: x,
+      y: y,
+      updatedAt: DateTime.now().toUtc(),
+    );
+    await widget.store.upsert(moved);
+    if (!mounted) return;
+    setState(() {
+      _dropActive = false;
+      _notes.removeWhere((item) => item.id == moved.id);
+      _notes.add(moved);
+    });
+    details.data.onPersistedMove(moved);
+  }
+
+  void _sourceNoteMoved(PdfAnnotationObject moved) {
+    if (!mounted) return;
+    setState(() {
+      final index = _notes.indexWhere((item) => item.id == moved.id);
+      if (moved.pageNumber != widget.pageNumber) {
+        if (index >= 0) _notes.removeAt(index);
+      } else if (index >= 0) {
+        _notes[index] = moved;
+      } else {
+        _notes.add(moved);
+      }
+    });
+  }
+
+  void _maybeAutoScroll(Offset globalPosition) {
+    final renderObject = _dropSurfaceKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox) return;
+    final local = renderObject.globalToLocal(globalPosition);
+    final now = DateTime.now();
+    if (now.difference(_lastAutoScrollAt) < const Duration(milliseconds: 90)) {
+      return;
+    }
+    double? delta;
+    if (local.dy <= _autoScrollEdge) {
+      delta = -_autoScrollStep;
+    } else if (local.dy >= renderObject.size.height - _autoScrollEdge) {
+      delta = _autoScrollStep;
+    }
+    if (delta == null) return;
+    final scrollable = Scrollable.maybeOf(context);
+    if (scrollable == null || !scrollable.position.hasPixels) return;
+    _lastAutoScrollAt = now;
+    final target = (scrollable.position.pixels + delta).clamp(
+      scrollable.position.minScrollExtent,
+      scrollable.position.maxScrollExtent,
+    );
+    unawaited(
+      scrollable.position.animateTo(
+        target,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.linear,
+      ),
+    );
+  }
+
+  Widget _markerIcon({double opacity = 1}) => Opacity(
+        opacity: opacity,
+        child: const Material(
+          color: Colors.transparent,
+          child: Icon(
+            Icons.sticky_note_2,
+            color: Color(0xFFFFC107),
+            size: 30,
+          ),
+        ),
+      );
 
   Future<_NoteEditorResult?> _showEditor({
     required _StickyNoteContent initial,
@@ -316,54 +415,96 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         final maxLeft = (size.width - _markerSize).clamp(0.0, double.infinity);
         final maxTop = (size.height - _markerSize).clamp(0.0, double.infinity);
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            if (widget.createEnabled)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTapDown: (details) =>
-                      unawaited(_createAt(details.localPosition, size)),
-                  child: const SizedBox.expand(),
+        return DragTarget<_StickyNoteDragData>(
+          key: _dropSurfaceKey,
+          onWillAcceptWithDetails: (details) =>
+              details.data.object.documentId == widget.documentId,
+          onMove: (details) {
+            if (!_dropActive && mounted) setState(() => _dropActive = true);
+            _maybeAutoScroll(details.offset);
+          },
+          onLeave: (_) {
+            if (_dropActive && mounted) setState(() => _dropActive = false);
+          },
+          onAcceptWithDetails: (details) => unawaited(_acceptDrop(details, size)),
+          builder: (context, candidateData, rejectedData) => Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (widget.createEnabled)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTapDown: (details) =>
+                        unawaited(_createAt(details.localPosition, size)),
+                    child: const SizedBox.expand(),
+                  ),
                 ),
-              ),
-            for (final note in _notes)
-              Positioned(
-                left: (note.x * size.width - _markerSize / 2)
-                    .clamp(0.0, maxLeft),
-                top: (note.y * size.height - _markerSize / 2)
-                    .clamp(0.0, maxTop),
-                width: _markerSize,
-                height: _markerSize,
-                child: Tooltip(
-                  message: _StickyNoteContent.decode(note.textValue).text,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: () => unawaited(_edit(note)),
-                      child: const Icon(
-                        Icons.sticky_note_2,
-                        color: Color(0xFFFFC107),
-                        size: 30,
+              if (_dropActive)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            if (_loading)
-              const Positioned(
-                right: 4,
-                bottom: 4,
-                child: IgnorePointer(
-                  child: SizedBox.square(
-                    dimension: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+              for (final note in _notes)
+                Positioned(
+                  left: (note.x * size.width - _markerSize / 2)
+                      .clamp(0.0, maxLeft),
+                  top: (note.y * size.height - _markerSize / 2)
+                      .clamp(0.0, maxTop),
+                  width: _markerSize,
+                  height: _markerSize,
+                  child: Tooltip(
+                    message:
+                        '${_StickyNoteContent.decode(note.textValue).text}\nSegure e arraste para mover',
+                    child: LongPressDraggable<_StickyNoteDragData>(
+                      data: _StickyNoteDragData(
+                        object: note,
+                        onPersistedMove: _sourceNoteMoved,
+                      ),
+                      delay: const Duration(milliseconds: 280),
+                      hapticFeedbackOnStart: true,
+                      feedback: Material(
+                        color: Colors.transparent,
+                        elevation: 6,
+                        child: SizedBox.square(
+                          dimension: _markerSize,
+                          child: _markerIcon(),
+                        ),
+                      ),
+                      childWhenDragging: _markerIcon(opacity: 0.28),
+                      onDragUpdate: (details) =>
+                          _maybeAutoScroll(details.globalPosition),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () => unawaited(_edit(note)),
+                          child: _markerIcon(),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-          ],
+              if (_loading)
+                const Positioned(
+                  right: 4,
+                  bottom: 4,
+                  child: IgnorePointer(
+                    child: SizedBox.square(
+                      dimension: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
