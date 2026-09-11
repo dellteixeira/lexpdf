@@ -232,27 +232,29 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
                         icon: const Icon(Icons.format_underline),
                       ),
                       const SizedBox(width: 8),
-                      DropdownButton<double>(
-                        value: <double>[12, 14, 16, 18, 20, 24, 28, 32]
-                                .contains(fontSize)
-                            ? fontSize
-                            : 16,
-                        tooltip: 'Tamanho da fonte',
-                        items: const [
-                          DropdownMenuItem(value: 12, child: Text('12 pt')),
-                          DropdownMenuItem(value: 14, child: Text('14 pt')),
-                          DropdownMenuItem(value: 16, child: Text('16 pt')),
-                          DropdownMenuItem(value: 18, child: Text('18 pt')),
-                          DropdownMenuItem(value: 20, child: Text('20 pt')),
-                          DropdownMenuItem(value: 24, child: Text('24 pt')),
-                          DropdownMenuItem(value: 28, child: Text('28 pt')),
-                          DropdownMenuItem(value: 32, child: Text('32 pt')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() => fontSize = value);
-                          }
-                        },
+                      Tooltip(
+                        message: 'Tamanho da fonte',
+                        child: DropdownButton<double>(
+                          value: <double>[12, 14, 16, 18, 20, 24, 28, 32]
+                                  .contains(fontSize)
+                              ? fontSize
+                              : 16,
+                          items: const [
+                            DropdownMenuItem(value: 12, child: Text('12 pt')),
+                            DropdownMenuItem(value: 14, child: Text('14 pt')),
+                            DropdownMenuItem(value: 16, child: Text('16 pt')),
+                            DropdownMenuItem(value: 18, child: Text('18 pt')),
+                            DropdownMenuItem(value: 20, child: Text('20 pt')),
+                            DropdownMenuItem(value: 24, child: Text('24 pt')),
+                            DropdownMenuItem(value: 28, child: Text('28 pt')),
+                            DropdownMenuItem(value: 32, child: Text('32 pt')),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setDialogState(() => fontSize = value);
+                            }
+                          },
+                        ),
                       ),
                     ],
                   ),
