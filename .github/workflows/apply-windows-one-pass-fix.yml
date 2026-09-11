@@ -1,0 +1,52 @@
+name: Apply Windows one-pass rendering fix
+
+on:
+  push:
+    branches:
+      - fix/windows-one-pass-rendering-threshold
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[one-pass-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windows-one-pass-rendering-threshold
+          fetch-depth: 0
+      - name: Apply deterministic rendering threshold fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          root = Path('apps/lexpdf_app')
+          target = root / 'lib/src/screens/pdf_workspace_stylus_screen.dart'
+          old = 'onePassRenderingSizeThreshold: _windows ? 2000 : 1400,'
+          new = 'onePassRenderingSizeThreshold: _windows ? 6000 : 1400,'
+          text = target.read_text(encoding='utf-8')
+          if old not in text:
+              raise SystemExit('Expected Windows rendering threshold not found')
+          target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replaced = 0
+          for test in (root / 'test').rglob('*.dart'):
+              data = test.read_text(encoding='utf-8')
+              if old in data:
+                  test.write_text(data.replace(old, new), encoding='utf-8')
+                  replaced += 1
+          print(f'Updated threshold contract in {replaced} test file(s)')
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart apps/lexpdf_app/test
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: keep Windows PDF pages in one-pass rendering [one-pass-applied]"
+          git push origin HEAD:fix/windows-one-pass-rendering-threshold
