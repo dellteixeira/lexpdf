@@ -223,6 +223,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           horizontalCacheExtent: _windows ? 1.0 : 0.30,
                           verticalCacheExtent: _windows ? 1.0 : 0.30,
                           onePassRenderingSizeThreshold: _windows ? 6000 : 1400,
+                          getPageRenderingScale: _windows
+                              ? (context, page, controller, estimatedScale) {
+                                  const maxRenderPixels = 6000.0;
+                                  final width = page.width * estimatedScale;
+                                  final height = page.height * estimatedScale;
+                                  if (width <= maxRenderPixels &&
+                                      height <= maxRenderPixels) {
+                                    return estimatedScale;
+                                  }
+                                  return math.min(
+                                    maxRenderPixels / page.width,
+                                    maxRenderPixels / page.height,
+                                  );
+                                }
+                              : null,
                           behaviorControlParams: PdfViewerBehaviorControlParams(
                             loadPageDimensionsOnDemand: !_windows,
                             enableLowResolutionPagePreview: !_windows,
