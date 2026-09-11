@@ -7,42 +7,35 @@
 
 namespace {
 
-bool IsWindows10Build() {
-  using RtlGetVersionFn = LONG(WINAPI *)(OSVERSIONINFOW *);
-
-  HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
-  if (ntdll == nullptr) {
+bool ForceSoftwareRenderingRequested() {
+  wchar_t value[8] = {};
+  const DWORD length = ::GetEnvironmentVariableW(
+      L"LEXPDF_FORCE_SOFTWARE_RENDERING", value,
+      static_cast<DWORD>(sizeof(value) / sizeof(value[0])));
+  if (length == 0 || length >= sizeof(value) / sizeof(value[0])) {
     return false;
   }
-
-  const auto rtl_get_version = reinterpret_cast<RtlGetVersionFn>(
-      ::GetProcAddress(ntdll, "RtlGetVersion"));
-  if (rtl_get_version == nullptr) {
-    return false;
-  }
-
-  OSVERSIONINFOW version_info{};
-  version_info.dwOSVersionInfoSize = sizeof(version_info);
-  if (rtl_get_version(&version_info) != 0) {
-    return false;
-  }
-
-  // Windows 11 keeps major version 10. Build 22000 is the first Windows 11
-  // release, so use the build number to distinguish the two systems.
-  return version_info.dwMajorVersion == 10 &&
-         version_info.dwBuildNumber < 22000;
+  return value[0] == L'1';
 }
 
 void ConfigureWindowsRenderer() {
-  // Flutter 3.47 enables Impeller on Windows. LexPDF already disables it to
-  // avoid compositor corruption while panning/zooming large PDF pages.
+  // Keep Impeller disabled on Windows because LexPDF's PDF pages are large
+  // raster surfaces with independent vector/stylus overlays. Skia is the
+  // validated compositor for that path.
   //
-  // On some Windows 10 systems, particularly hybrid-GPU notebooks, the
-  // remaining Skia/ANGLE accelerated path can still smear or stretch page
-  // bitmaps while the view is moving. Use Skia software rendering only on
-  // Windows 10 to remove ANGLE/GPU composition from that path. Windows 11
-  // remains GPU accelerated because it is already validated there.
-  if (IsWindows10Build()) {
+  // IMPORTANT: do not select software rendering automatically by Windows
+  // version. A PDF page rendered by PDFium is uploaded/scaled by Flutter as a
+  // large image. Forcing Flutter's software backend on Windows 10 can leave
+  // those page bitmaps soft or geometrically corrupted while ordinary Flutter
+  // widgets and vector overlays remain sharp. That symptom matches the real
+  // Win10 failures observed in LexPDF.
+  //
+  // Hardware-accelerated Skia is therefore the default on both Windows 10 and
+  // Windows 11, matching the strategy used by mature PDF viewers that prefer
+  // accelerated 2D composition when the GPU is available. A software fallback
+  // remains available only as an explicit diagnostic escape hatch:
+  //   LEXPDF_FORCE_SOFTWARE_RENDERING=1
+  if (ForceSoftwareRenderingRequested()) {
     ::SetEnvironmentVariableW(L"FLUTTER_ENGINE_SWITCHES", L"2");
     ::SetEnvironmentVariableW(L"FLUTTER_ENGINE_SWITCH_1",
                               L"enable-impeller=false");
