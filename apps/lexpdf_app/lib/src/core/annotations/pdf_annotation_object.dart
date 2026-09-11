@@ -47,6 +47,7 @@ class PdfAnnotationObject {
   final DateTime updatedAt;
 
   PdfAnnotationObject copyWith({
+    int? pageNumber,
     double? x,
     double? y,
     double? width,
@@ -62,7 +63,7 @@ class PdfAnnotationObject {
     return PdfAnnotationObject(
       id: id,
       documentId: documentId,
-      pageNumber: pageNumber,
+      pageNumber: pageNumber ?? this.pageNumber,
       type: type,
       x: x ?? this.x,
       y: y ?? this.y,
