@@ -22,23 +22,25 @@ jobs:
           p = Path('apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart')
           s = p.read_text()
           old = '                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,\n'
-          new = """                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,
-                          getPageRenderingScale: _windows
-                              ? (context, page, controller, estimatedScale) {
-                                  const maxRenderPixels = 6000.0;
-                                  final width = page.width * estimatedScale;
-                                  final height = page.height * estimatedScale;
-                                  if (width <= maxRenderPixels &&
-                                      height <= maxRenderPixels) {
-                                    return estimatedScale;
-                                  }
-                                  return math.min(
-                                    maxRenderPixels / page.width,
-                                    maxRenderPixels / page.height,
-                                  );
-                                }
-                              : null,
-"""
+          lines = [
+              '                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,',
+              '                          getPageRenderingScale: _windows',
+              '                              ? (context, page, controller, estimatedScale) {',
+              '                                  const maxRenderPixels = 6000.0;',
+              '                                  final width = page.width * estimatedScale;',
+              '                                  final height = page.height * estimatedScale;',
+              '                                  if (width <= maxRenderPixels &&',
+              '                                      height <= maxRenderPixels) {',
+              '                                    return estimatedScale;',
+              '                                  }',
+              '                                  return math.min(',
+              '                                    maxRenderPixels / page.width,',
+              '                                    maxRenderPixels / page.height,',
+              '                                  );',
+              '                                }',
+              '                              : null,',
+          ]
+          new = '\n'.join(lines) + '\n'
           if old not in s:
               raise SystemExit('target snippet not found')
           p.write_text(s.replace(old, new, 1))
@@ -48,6 +50,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart .github/workflows/branch-vector-policy-helper.yml
+          git add -A
           git commit -m "fix: bound Windows vector page rendering scale"
           git push origin HEAD:fix/mobile-touch-tools-and-vector-rendering-policy
