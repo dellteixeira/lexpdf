@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../core/pdf/render_core2_scale_model.dart';
+
 /// Returns the Windows build number from [Platform.operatingSystemVersion].
 ///
 /// Typical values contain `10.0.19045` (Windows 10) or `10.0.22631`
@@ -66,8 +68,6 @@ class Windows10PdfTileOverlay extends StatefulWidget {
 class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
   static const int _tilePixels = 768;
   static const Duration _settleDelay = Duration(milliseconds: 45);
-  static const double _minimumScale = 0.75;
-  static const double _maximumScale = 8.0;
 
   final Map<_TileKey, _TileEntry> _tiles = <_TileKey, _TileEntry>{};
   Timer? _settleTimer;
@@ -121,12 +121,20 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
     if (intersection.width <= 0 || intersection.height <= 0) return;
 
     final dpr = View.of(context).devicePixelRatio;
-    final requestedScale = (widget.controller.currentZoom * dpr)
-        .clamp(_minimumScale, _maximumScale);
-    // Quantize upward in quarter steps. This prevents a cascade of expensive
-    // rerenders during smooth zoom while guaranteeing that cached tiles are
-    // never undersampled for the current view.
-    final scale = (requestedScale * 4).ceilToDouble() / 4;
+    final scaleModel = RenderCore2ScaleModel.fromViewerRect(
+      pageWidthPoints: widget.page.width,
+      pageHeightPoints: widget.page.height,
+      pageRectWidthLogical: pageRect.width,
+      pageRectHeightLogical: pageRect.height,
+      currentZoom: widget.controller.currentZoom,
+      devicePixelRatio: dpr,
+    );
+
+    // pageRect is already in viewer coordinates and already reflects viewer
+    // layout/zoom. Convert viewer logical pixels to physical pixels with DPR
+    // exactly once. Multiplying currentZoom here again is a coordinate-space
+    // error: below 100% it undersamples and above 100% it over-renders.
+    final scale = dpr;
     final scaleKey = (scale * 1000).round();
 
     if (_activeScaleKey != scaleKey) {
@@ -137,8 +145,8 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
     }
 
     final generation = ++_generation;
-    final fullWidth = math.max(1, (pageRect.width * scale).ceil());
-    final fullHeight = math.max(1, (pageRect.height * scale).ceil());
+    final fullWidth = scaleModel.targetPixelWidth;
+    final fullHeight = scaleModel.targetPixelHeight;
 
     final local = intersection.shift(-pageRect.topLeft);
     final leftPixel = (local.left * scale).floor().clamp(0, fullWidth - 1);
@@ -269,8 +277,8 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
     return IgnorePointer(
       child: ColoredBox(
         // Opaque white intentionally hides pdfrx's underlying large page
-        // bitmap on Windows 10. The sharp tile surfaces below are the only PDF
-        // pixels the user sees; LexPDF overlays are added above this widget.
+        // bitmap on Windows 10. The tile layer remains an intermediate
+        // diagnostic path while Render Core 2 moves toward a native surface.
         color: Colors.white,
         child: Stack(
           clipBehavior: Clip.hardEdge,
