@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lexpdf_app/src/widgets/windows10_pdf_tile_overlay.dart';
 
 void main() {
-  test('Windows build parser distinguishes Windows 10 from Windows 11', () {
+  test('Windows build parser remains available for diagnostics', () {
     expect(
       parseWindowsBuildNumber(
         'Microsoft Windows [Version 10.0.19045.4780]',
@@ -19,53 +19,55 @@ void main() {
     expect(parseWindowsBuildNumber('unknown version'), isNull);
   });
 
-  test('Phase 7D forces the replacement renderer on native Windows', () {
-    final overlay = File(
-      'lib/src/widgets/windows10_pdf_tile_overlay.dart',
-    ).readAsStringSync();
-
-    expect(overlay, contains("if (nativeOverride == '0') return false;"));
-    expect(overlay, contains("if (legacyOverride == '0') return false;"));
-    expect(
-      overlay,
-      contains(
-        '// Phase 7D: use the replacement renderer on all native Windows builds.',
-      ),
-    );
-  });
-
-  test('Win10 workspace uses one supersampled full-page raster', () {
+  test('Phase 7E abandons Flutter PDF pixels on native Windows', () {
     final workspace = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
-    final overlay = File(
+    final compatibilityOverlay = File(
       'lib/src/widgets/windows10_pdf_tile_overlay.dart',
     ).readAsStringSync();
+    final nativeWidget = File(
+      'lib/src/widgets/windows_native_pdf_surface.dart',
+    ).readAsStringSync();
+    final nativeRunner = File(
+      'windows/runner/windows_native_pdf_surface.cpp',
+    ).readAsStringSync();
+    final flutterWindow = File(
+      'windows/runner/flutter_window.cpp',
+    ).readAsStringSync();
+    final cmake = File('windows/runner/CMakeLists.txt').readAsStringSync();
 
     expect(workspace, contains('isWindows10ManualTileRenderingEnabled()'));
     expect(workspace, contains('Windows10PdfTileOverlay('));
     expect(workspace, contains('if (_windows10Tiles) return 1.0;'));
-    expect(workspace, contains('_SelectionMarkupOverlayPainter('));
 
-    // The 7D path deliberately abandons the failed external texture bridge
-    // and the old independently positioned tile composition.
-    expect(overlay, contains('widget.page.render('));
-    expect(overlay, contains('fullWidth: renderWidth.toDouble()'));
-    expect(overlay, contains('fullHeight: renderHeight.toDouble()'));
-    expect(overlay, contains('pageRectWidthLogical: pageRect.width'));
-    expect(overlay, contains('devicePixelRatio: dpr'));
-    expect(overlay, contains('ui.decodeImageFromPixels'));
-    expect(overlay, contains('ui.PixelFormat.bgra8888'));
-    expect(overlay, contains('RawImage('));
-    expect(overlay, contains('filterQuality: FilterQuality.high'));
-    expect(overlay, contains('RC2 fullpage'));
-    expect(overlay, contains('if (longest <= 1800) return 2.0'));
-    expect(overlay, contains('_maxRasterDimension = 8192'));
+    expect(compatibilityOverlay, contains('LEXPDF_WINDOWS_NATIVE_PDF'));
+    expect(compatibilityOverlay, contains('WindowsNativePdfSurface('));
+    expect(compatibilityOverlay, isNot(contains('widget.page.render(')));
+    expect(compatibilityOverlay, isNot(contains('RawImage(')));
+    expect(compatibilityOverlay, isNot(contains('Texture(')));
+    expect(compatibilityOverlay, isNot(contains('decodeImageFromPixels')));
 
-    expect(overlay, isNot(contains('MethodChannel(')));
-    expect(overlay, isNot(contains('Texture(')));
-    expect(overlay, isNot(contains('renderPageToTexture')));
-    expect(overlay, isNot(contains('_TileKey')));
-    expect(overlay, isNot(contains('_tilePixels')));
+    expect(nativeWidget, contains("MethodChannel('lexpdf/windows_native_pdf')"));
+    expect(nativeWidget, contains("'showPage'"));
+    expect(nativeWidget, contains("'disposeSurface'"));
+    expect(nativeWidget, contains('localToGlobal(Offset.zero)'));
+    expect(nativeWidget, contains('devicePixelRatio'));
+
+    expect(nativeRunner, contains('Windows::Data::Pdf::PdfDocument'));
+    expect(nativeRunner, contains('RenderToStreamAsync'));
+    expect(nativeRunner, contains('GUID_WICPixelFormat32bppBGRA'));
+    expect(nativeRunner, contains('StretchDIBits'));
+    expect(nativeRunner, contains('WINPDF NATIVE'));
+    expect(nativeRunner, isNot(contains('FPDF_RenderPageBitmap')));
+    expect(nativeRunner, isNot(contains('FlutterDesktopPixelBuffer')));
+
+    expect(
+      flutterWindow,
+      contains('RegisterWindowsNativePdfSurfaceChannel'),
+    );
+    expect(cmake, contains('windows_native_pdf_surface.cpp'));
+    expect(cmake, contains('windowsapp.lib'));
+    expect(cmake, contains('windowscodecs.lib'));
   });
 }

@@ -1,13 +1,10 @@
-import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
-import '../core/pdf/render_core2_scale_model.dart';
+import 'windows_native_pdf_surface.dart';
 
 /// Returns the Windows build number from [Platform.operatingSystemVersion].
 int? parseWindowsBuildNumber(String version) {
@@ -27,36 +24,25 @@ int? parseWindowsBuildNumber(String version) {
 
 /// Historical name retained to avoid broad workspace churn.
 ///
-/// Phase 7D deliberately forces the replacement surface on every native
-/// Windows host. The previous build-number gate can silently fail if the
-/// runtime version string differs from the parser assumptions; that failure
-/// leaves the known-bad pdfrx backing raster visible and makes physical tests
-/// ambiguous. Explicit environment opt-out remains available.
+/// Phase 7E intentionally abandons the previous PDFium/Flutter rendering
+/// experiments. Every native Windows build now uses Windows.Data.Pdf painted
+/// into a native child HWND. An explicit environment opt-out remains available
+/// for diagnostics only.
 bool isWindows10ManualTileRenderingEnabled() {
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return false;
 
-  final nativeOverride =
-      Platform.environment['LEXPDF_WINDOWS10_NATIVE_TEXTURE'];
-  if (nativeOverride == '0') return false;
-  if (nativeOverride == '1') return true;
-
-  final legacyOverride =
-      Platform.environment['LEXPDF_WINDOWS10_TILED_RENDERING'];
-  if (legacyOverride == '0') return false;
-  if (legacyOverride == '1') return true;
-
-  // Phase 7D: use the replacement renderer on all native Windows builds.
-  // Keep parseWindowsBuildNumber for diagnostics/regression tests only.
+  final optOut = Platform.environment['LEXPDF_WINDOWS_NATIVE_PDF'];
+  if (optOut == '0') return false;
   return true;
 }
 
-/// Windows production PDF visual surface used by the Phase 7D diagnostic.
+/// Compatibility wrapper for the existing workspace overlay hook.
 ///
-/// pdfrx remains responsible for layout/navigation/text-selection. The visible
-/// page is rendered as one complete bitmap, never as independently positioned
-/// tiles. The requested physical page size is computed from pageRect * DPR
-/// exactly once and then adaptively supersampled to improve low-zoom text.
-class Windows10PdfTileOverlay extends StatefulWidget {
+/// Despite the historical class name, this no longer renders Dart tiles,
+/// ui.Image objects, Flutter textures, RawImage, pdfrx page bitmaps, or PDFium
+/// pixels. The visible page is owned by Windows.Data.Pdf and a native child
+/// HWND created by the Win32 runner.
+class Windows10PdfTileOverlay extends StatelessWidget {
   const Windows10PdfTileOverlay({
     required this.page,
     required this.pageRect,
@@ -69,253 +55,25 @@ class Windows10PdfTileOverlay extends StatefulWidget {
   final PdfViewerController controller;
 
   @override
-  State<Windows10PdfTileOverlay> createState() =>
-      _Windows10PdfTileOverlayState();
-}
-
-class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
-  static const Duration _settleDelay = Duration(milliseconds: 55);
-  static const int _maxRasterDimension = 8192;
-  static const bool _showDiagnosticBadge = bool.fromEnvironment(
-    'LEXPDF_RENDER_DIAGNOSTICS',
-    defaultValue: true,
-  );
-
-  Timer? _settleTimer;
-  int _generation = 0;
-  ui.Image? _image;
-  int? _sourceWidth;
-  int? _sourceHeight;
-  int? _targetWidth;
-  int? _targetHeight;
-  double? _supersample;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_scheduleRefresh);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleRefresh());
-  }
-
-  @override
-  void didUpdateWidget(covariant Windows10PdfTileOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(_scheduleRefresh);
-      widget.controller.addListener(_scheduleRefresh);
-    }
-    if (oldWidget.page != widget.page) {
-      _generation++;
-      _disposeImage();
-      _sourceWidth = null;
-      _sourceHeight = null;
-      _targetWidth = null;
-      _targetHeight = null;
-      _supersample = null;
-      _error = null;
-    }
-    _scheduleRefresh();
-  }
-
-  @override
-  void dispose() {
-    _generation++;
-    _settleTimer?.cancel();
-    widget.controller.removeListener(_scheduleRefresh);
-    _disposeImage();
-    super.dispose();
-  }
-
-  void _scheduleRefresh() {
-    if (!mounted || !widget.controller.isReady) return;
-    _settleTimer?.cancel();
-    _settleTimer = Timer(_settleDelay, () => unawaited(_refreshFullPage()));
-  }
-
-  double _chooseSupersample(int targetWidth, int targetHeight) {
-    final longest = math.max(targetWidth, targetHeight);
-    if (longest <= 1800) return 2.0;
-    if (longest <= 3200) return 1.5;
-    return 1.0;
-  }
-
-  Future<void> _refreshFullPage() async {
-    if (!mounted || !widget.controller.isReady) return;
-
-    final pageRect = widget.pageRect;
-    if (pageRect.width <= 0 || pageRect.height <= 0) return;
-    if (!widget.controller.visibleRect.overlaps(pageRect)) return;
-
-    final dpr = View.of(context).devicePixelRatio;
-    final scaleModel = RenderCore2ScaleModel.fromViewerRect(
-      pageWidthPoints: widget.page.width,
-      pageHeightPoints: widget.page.height,
-      pageRectWidthLogical: pageRect.width,
-      pageRectHeightLogical: pageRect.height,
-      currentZoom: widget.controller.currentZoom,
-      devicePixelRatio: dpr,
-    );
-
-    final targetWidth = scaleModel.targetPixelWidth;
-    final targetHeight = scaleModel.targetPixelHeight;
-    if (targetWidth <= 0 || targetHeight <= 0) return;
-
-    var supersample = _chooseSupersample(targetWidth, targetHeight);
-    final longestTarget = math.max(targetWidth, targetHeight);
-    if (longestTarget * supersample > _maxRasterDimension) {
-      supersample = _maxRasterDimension / longestTarget;
-    }
-    supersample = supersample.clamp(1.0, 2.0);
-
-    final renderWidth = math.max(1, (targetWidth * supersample).ceil());
-    final renderHeight = math.max(1, (targetHeight * supersample).ceil());
-
-    if (_image != null &&
-        _sourceWidth == renderWidth &&
-        _sourceHeight == renderHeight &&
-        _targetWidth == targetWidth &&
-        _targetHeight == targetHeight &&
-        _error == null) {
-      return;
-    }
-
-    final generation = ++_generation;
-    PdfImage? rendered;
-    try {
-      await widget.page.ensureLoaded();
-      if (!mounted || generation != _generation) return;
-
-      rendered = await widget.page.render(
-        width: renderWidth,
-        height: renderHeight,
-        fullWidth: renderWidth.toDouble(),
-        fullHeight: renderHeight.toDouble(),
-        backgroundColor: 0xFFFFFFFF,
-        flags: PdfPageRenderFlags.none,
-      );
-      if (rendered == null || !mounted || generation != _generation) {
-        rendered?.dispose();
-        return;
-      }
-
-      final decoded = await _decodeBgra(rendered);
-      rendered.dispose();
-      rendered = null;
-      if (!mounted || generation != _generation) {
-        decoded.dispose();
-        return;
-      }
-
-      final previous = _image;
-      setState(() {
-        _image = decoded;
-        _sourceWidth = renderWidth;
-        _sourceHeight = renderHeight;
-        _targetWidth = targetWidth;
-        _targetHeight = targetHeight;
-        _supersample = supersample;
-        _error = null;
-      });
-      previous?.dispose();
-
-      debugPrint(
-        '[LexPDF][RenderCore2][fullpage] page=${widget.page.pageNumber} '
-        'zoom=${widget.controller.currentZoom.toStringAsFixed(4)} '
-        'dpr=${dpr.toStringAsFixed(3)} target=${targetWidth}x$targetHeight '
-        'render=${renderWidth}x$renderHeight ss=${supersample.toStringAsFixed(2)}',
-      );
-    } catch (error) {
-      rendered?.dispose();
-      debugPrint('[LexPDF][RenderCore2][fullpage] ERROR $error');
-      if (mounted && generation == _generation) {
-        setState(() => _error = '$error');
-      }
-    }
-  }
-
-  Future<ui.Image> _decodeBgra(PdfImage rendered) {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      rendered.pixels,
-      rendered.width,
-      rendered.height,
-      ui.PixelFormat.bgra8888,
-      completer.complete,
-      rowBytes: rendered.width * 4,
-    );
-    return completer.future;
-  }
-
-  void _disposeImage() {
-    _image?.dispose();
-    _image = null;
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final image = _image;
-    return IgnorePointer(
-      child: ColoredBox(
+    final path = page.document.sourceName;
+    if (path.isEmpty || path.startsWith('memory:') || path.startsWith('asset:')) {
+      return const ColoredBox(
         color: Colors.white,
-        child: _error != null
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    'Render Core 2 full-page: $_error',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-              )
-            : image == null
-                ? const Center(
-                    child: SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      RawImage(
-                        image: image,
-                        fit: BoxFit.fill,
-                        filterQuality: FilterQuality.high,
-                      ),
-                      if (_showDiagnosticBadge)
-                        Positioned(
-                          right: 4,
-                          top: 4,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.76),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 2,
-                              ),
-                              child: Text(
-                                'RC2 fullpage ${_sourceWidth ?? '-'}×${_sourceHeight ?? '-'} '
-                                '→ ${_targetWidth ?? '-'}×${_targetHeight ?? '-'} '
-                                '${(_supersample ?? 1).toStringAsFixed(2)}x',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-      ),
+        child: Center(
+          child: Text(
+            'WINPDF NATIVE requer um arquivo PDF local.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    return WindowsNativePdfSurface(
+      documentPath: path,
+      page: page,
+      pageRect: pageRect,
+      controller: controller,
     );
   }
 }

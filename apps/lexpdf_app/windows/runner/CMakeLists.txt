@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "render_core2_pdfium_channel.cpp"
   "render_core2_production_pdfium_channel_v2.cpp"
+  "windows_native_pdf_surface.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -46,7 +47,15 @@ target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_app
   flutter_wrapper_plugin
 )
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+
+# Windows.Data.Pdf is a system WinRT API. windowsapp resolves WinRT activation
+# and WindowsCodecs provides WIC decoding of the page stream before the native
+# child HWND paints the final BGRA pixels with GDI.
+target_link_libraries(${BINARY_NAME} PRIVATE
+  "dwmapi.lib"
+  "windowsapp.lib"
+  "windowscodecs.lib"
+)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
