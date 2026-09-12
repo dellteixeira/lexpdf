@@ -4,6 +4,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "render_core2_pdfium_channel.h"
+#include "render_core2_production_pdfium_channel.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -40,6 +41,9 @@ bool FlutterWindow::OnCreate() {
   render_core2_registrar_ =
       std::make_unique<flutter::PluginRegistrarWindows>(core_registrar);
   RegisterRenderCore2PdfiumChannel(
+      render_core2_registrar_->messenger(),
+      render_core2_registrar_->texture_registrar());
+  RegisterRenderCore2ProductionPdfiumChannel(
       render_core2_registrar_->messenger(),
       render_core2_registrar_->texture_registrar());
 
