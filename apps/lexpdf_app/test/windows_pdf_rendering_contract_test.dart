@@ -15,10 +15,19 @@ void main() {
       ),
     );
     expect(source, contains('useProgressiveLoading: true'));
+
+    // Windows 10 uses the manual tiled page renderer and keeps pdfrx at a
+    // lightweight backing resolution. Windows 11 retains the established
+    // high-resolution one-pass path; non-Windows stays at the bounded default.
     expect(
       source,
-      contains('onePassRenderingSizeThreshold: _windows ? 6000 : 1400'),
+      contains('onePassRenderingSizeThreshold: _windows10Tiles'),
     );
+    expect(source, contains('? 1000'));
+    expect(source, contains(': (_windows ? 6000 : 1400)'));
+    expect(source, contains('if (_windows10Tiles) return 1.0;'));
+    expect(source, contains('Windows10PdfTileOverlay('));
+
     expect(source, contains('loadPageDimensionsOnDemand: !_windows'));
     expect(source, contains('enableLowResolutionPagePreview: !_windows'));
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
