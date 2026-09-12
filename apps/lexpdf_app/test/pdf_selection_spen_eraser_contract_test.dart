@@ -33,7 +33,16 @@ void main() {
 
     expect(source, contains('buildContextMenu: _stylusMode == _StylusMode.selectText'));
     expect(source, contains('showContextMenuAutomatically: true'));
-    expect(source, contains('pagePaintCallbacks: [_selectionMenu.paint]'));
+
+    // Normal renderer keeps the pdfrx page paint callback. Windows 10 tiled
+    // rendering paints the same persisted markup above the manual page tiles,
+    // avoiding duplicate painting into the low-DPI backing page.
+    expect(source, contains('pagePaintCallbacks: _windows10Tiles'));
+    expect(source, contains('? const []'));
+    expect(source, contains(': [_selectionMenu.paint]'));
+    expect(source, contains('_SelectionMarkupOverlayPainter('));
+    expect(source, contains('menu: _selectionMenu'));
+
     expect(source, contains('_selectionMenu.load(document)'));
   });
 
