@@ -1,0 +1,41 @@
+{
+  "phase": 7,
+  "name": "Windows 10 physical validation",
+  "base_sha": "387ee71ce341374d9e9104f98974495822f0f601",
+  "approved": false,
+  "result": "FAIL",
+  "failure_class": "production-renderer-path-not-replaced",
+  "test_pdf": "tratado_leis_especiais_concursos_2026_atualizado_15-08-2026.pdf",
+  "reference_application": null,
+  "environment": {
+    "windows_version": "Windows 10 (physical host, exact build pending capture)",
+    "display_scaling_percent": null,
+    "device_pixel_ratio": null,
+    "gpu": null,
+    "display_resolution": null
+  },
+  "zoom_matrix": {
+    "75": {
+      "status": "fail",
+      "requested_px": null,
+      "returned_px": null,
+      "lexpdf_evidence": "2026-09-12 user-supplied physical screenshot: main workspace at 75% remains severely blurred/smeared while Flutter chrome and blue ink are sharp",
+      "reference_evidence": null,
+      "notes": "Physical evidence proves the production workspace is still using the legacy pdfrx/manual-tile visual path rather than the isolated Render Core 2 native Texture diagnostic path. Phase 7 is blocked and must not be approved."
+    },
+    "100": {"status": "blocked", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": "Blocked by 75% production-path failure"},
+    "125": {"status": "blocked", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": "Blocked by 75% production-path failure"},
+    "200": {"status": "blocked", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": "Blocked by 75% production-path failure"},
+    "300": {"status": "blocked", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": "Blocked by 75% production-path failure"},
+    "400": {"status": "blocked", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": "Blocked by 75% production-path failure"}
+  },
+  "interactions": {
+    "pan_200": "blocked",
+    "pan_400": "blocked",
+    "resize_100": "blocked",
+    "maximize_restore_maximize_100": "blocked",
+    "zoom_75_200_400_100": "blocked",
+    "page_navigation": "blocked"
+  },
+  "required_remediation": "Replace Windows 10 production workspace visual page path with Render Core 2 native PDFium Texture at exact physical pixels; do not approve Phase 7 until the physical matrix is rerun."
+}
