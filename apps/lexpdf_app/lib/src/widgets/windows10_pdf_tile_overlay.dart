@@ -27,27 +27,30 @@ int? parseWindowsBuildNumber(String version) {
 
 /// Historical name retained to avoid broad workspace churn.
 ///
-/// On Windows 10 this enables the Render Core 2 replacement surface. Phase 7C
-/// deliberately uses a single supersampled full-page raster rather than the
-/// failed external-texture path or the legacy tiled composition path.
+/// Phase 7D deliberately forces the replacement surface on every native
+/// Windows host. The previous build-number gate can silently fail if the
+/// runtime version string differs from the parser assumptions; that failure
+/// leaves the known-bad pdfrx backing raster visible and makes physical tests
+/// ambiguous. Explicit environment opt-out remains available.
 bool isWindows10ManualTileRenderingEnabled() {
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return false;
 
   final nativeOverride =
       Platform.environment['LEXPDF_WINDOWS10_NATIVE_TEXTURE'];
-  if (nativeOverride == '1') return true;
   if (nativeOverride == '0') return false;
+  if (nativeOverride == '1') return true;
 
   final legacyOverride =
       Platform.environment['LEXPDF_WINDOWS10_TILED_RENDERING'];
-  if (legacyOverride == '1') return true;
   if (legacyOverride == '0') return false;
+  if (legacyOverride == '1') return true;
 
-  final build = parseWindowsBuildNumber(Platform.operatingSystemVersion);
-  return build != null && build >= 10240 && build < 22000;
+  // Phase 7D: use the replacement renderer on all native Windows builds.
+  // Keep parseWindowsBuildNumber for diagnostics/regression tests only.
+  return true;
 }
 
-/// Windows 10 production PDF visual surface.
+/// Windows production PDF visual surface used by the Phase 7D diagnostic.
 ///
 /// pdfrx remains responsible for layout/navigation/text-selection. The visible
 /// page is rendered as one complete bitmap, never as independently positioned
