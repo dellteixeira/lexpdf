@@ -16,6 +16,9 @@ void main() {
     final window = File(
       'windows/runner/flutter_window.cpp',
     ).readAsStringSync();
+    final windowHeader = File(
+      'windows/runner/flutter_window.h',
+    ).readAsStringSync();
 
     expect(diagnostic, contains('renderPageToTexture'));
     expect(diagnostic, contains('child: Texture('));
@@ -35,6 +38,12 @@ void main() {
     expect(native, contains('target[offset] = source[offset + 2]'));
     expect(native, contains('release_callback'));
 
-    expect(window, contains('texture_registrar()'));
+    // FlutterEngine exposes a plugin registrar, while TextureRegistrar belongs
+    // to the client-wrapper PluginRegistrar. Keep that wrapper alive with the
+    // window so native texture callbacks never retain a dead registrar.
+    expect(window, contains('GetRegistrarForPlugin("LexPDFRenderCore2")'));
+    expect(window, contains('render_core2_registrar_->texture_registrar()'));
+    expect(window, isNot(contains('engine()->texture_registrar()')));
+    expect(windowHeader, contains('std::unique_ptr<flutter::PluginRegistrarWindows>'));
   });
 }
