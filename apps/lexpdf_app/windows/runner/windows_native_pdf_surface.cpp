@@ -191,7 +191,10 @@ bool RenderWithWindowsPdf(const std::string& path, int page_number, int width,
 
 class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
  public:
-  NativePdfSurface(HWND parent, int64_t key) : parent_(parent), key_(key) {}
+  NativePdfSurface(HWND parent, HWND coordinate_window, int64_t key)
+      : parent_(parent),
+        coordinate_window_(coordinate_window),
+        key_(key) {}
   ~NativePdfSurface() { Destroy(); }
 
   bool EnsureWindow(std::string* error) {
@@ -226,7 +229,21 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     width = std::clamp(width, 1, kMaxNativeDimension);
     height = std::clamp(height, 1, kMaxNativeDimension);
 
-    SetWindowPos(window_, HWND_TOP, x, y, width, height,
+    // Dart sends physical client coordinates relative to Flutter's render
+    // view. The native PDF HWND is intentionally a sibling of that view,
+    // parented by the top-level LexPDF window, so it is not trapped below
+    // Flutter's own compositor. Map the physical rectangle into the root
+    // client coordinate space before positioning the native surface.
+    POINT corners[2] = {
+        {x, y},
+        {x + width, y + height},
+    };
+    MapWindowPoints(coordinate_window_, parent_, corners, 2);
+
+    width = std::clamp(corners[1].x - corners[0].x, 1, kMaxNativeDimension);
+    height = std::clamp(corners[1].y - corners[0].y, 1, kMaxNativeDimension);
+
+    SetWindowPos(window_, HWND_TOP, corners[0].x, corners[0].y, width, height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
     const int64_t generation = ++generation_;
@@ -324,6 +341,9 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
       error = error_;
     }
 
+    const int client_width = client.right - client.left;
+    const int client_height = client.bottom - client.top;
+    bool geometry_mismatch = false;
     if (!frame.bgra.empty() && frame.width > 0 && frame.height > 0) {
       BITMAPINFO info = {};
       info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -332,10 +352,17 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
       info.bmiHeader.biPlanes = 1;
       info.bmiHeader.biBitCount = 32;
       info.bmiHeader.biCompression = BI_RGB;
-      SetStretchBltMode(dc, COLORONCOLOR);
-      StretchDIBits(dc, 0, 0, client.right - client.left,
-                    client.bottom - client.top, 0, 0, frame.width, frame.height,
-                    frame.bgra.data(), &info, DIB_RGB_COLORS, SRCCOPY);
+      if (frame.width == client_width && frame.height == client_height) {
+        // Exact 1:1 presentation. Never silently resample the PDF page in GDI.
+        // If Windows.Data.Pdf/WIC returns different dimensions, fail visibly
+        // instead of recreating the blur/vertical-smear failure mode.
+        SetDIBitsToDevice(dc, 0, 0, static_cast<DWORD>(frame.width),
+                          static_cast<DWORD>(frame.height), 0, 0, 0,
+                          static_cast<UINT>(frame.height), frame.bgra.data(),
+                          &info, DIB_RGB_COLORS);
+      } else {
+        geometry_mismatch = true;
+      }
     }
 
     const wchar_t* badge = L"WINPDF NATIVE";
@@ -347,7 +374,17 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     DrawTextW(dc, badge, -1, &badge_rect,
               DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-    if (loading) {
+    if (geometry_mismatch) {
+      const std::wstring geometry =
+          L"WINPDF SIZE MISMATCH frame=" + std::to_wstring(frame.width) +
+          L"x" + std::to_wstring(frame.height) + L" client=" +
+          std::to_wstring(client_width) + L"x" +
+          std::to_wstring(client_height);
+      RECT status = {12, 36, client.right - 12, 88};
+      SetTextColor(dc, RGB(180, 0, 0));
+      DrawTextW(dc, geometry.c_str(), -1, &status,
+                DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
+    } else if (loading) {
       RECT status = {12, 36, client.right - 12, 64};
       SetTextColor(dc, RGB(80, 80, 80));
       DrawTextW(dc, L"Windows.Data.Pdf rendering...", -1, &status,
@@ -364,6 +401,8 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
   }
 
   HWND parent_ = nullptr;
+  // The Flutter render-view HWND is only a coordinate source, never a parent.
+  HWND coordinate_window_ = nullptr;
   HWND window_ = nullptr;
   int64_t key_ = 0;
   std::atomic<int64_t> generation_{0};
@@ -375,7 +414,9 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
 
 class NativePdfSurfaceHost {
  public:
-  explicit NativePdfSurfaceHost(HWND parent) : parent_(parent) {}
+  NativePdfSurfaceHost(HWND parent, HWND coordinate_window)
+      : parent_(parent),
+        coordinate_window_(coordinate_window) {}
 
   bool Show(int64_t key, int x, int y, int width, int height,
             const std::string& path, int page_number, std::string* error) {
@@ -384,7 +425,8 @@ class NativePdfSurfaceHost {
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = surfaces_.find(key);
       if (it == surfaces_.end()) {
-        surface = std::make_shared<NativePdfSurface>(parent_, key);
+        surface = std::make_shared<NativePdfSurface>(
+            parent_, coordinate_window_, key);
         surfaces_.emplace(key, surface);
       } else {
         surface = it->second;
@@ -429,6 +471,7 @@ class NativePdfSurfaceHost {
   }
 
   HWND parent_ = nullptr;
+  HWND coordinate_window_ = nullptr;
   std::mutex mutex_;
   std::unordered_map<int64_t, std::shared_ptr<NativePdfSurface>> surfaces_;
 };
@@ -459,8 +502,10 @@ std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> g_channel;
 
 void RegisterWindowsNativePdfSurfaceChannel(
     flutter::BinaryMessenger* messenger,
+    HWND root_window,
     HWND flutter_view_window) {
-  g_host = std::make_shared<NativePdfSurfaceHost>(flutter_view_window);
+  g_host = std::make_shared<NativePdfSurfaceHost>(
+      root_window, flutter_view_window);
   g_channel = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "lexpdf/windows_native_pdf",
       &flutter::StandardMethodCodec::GetInstance());
