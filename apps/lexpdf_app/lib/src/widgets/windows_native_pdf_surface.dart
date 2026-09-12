@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -159,9 +158,6 @@ class _WindowsNativePdfSurfaceState extends State<WindowsNativePdfSurface> {
 
   @override
   Widget build(BuildContext context) {
-    // The native child HWND is the visible page. Keeping this Flutter widget
-    // transparent prevents any page-sized Flutter raster from participating in
-    // the proof-of-rendering path.
     return const IgnorePointer(child: SizedBox.expand());
   }
 }
