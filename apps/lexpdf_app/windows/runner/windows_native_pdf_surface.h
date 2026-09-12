@@ -10,6 +10,7 @@
 // through Flutter's image, texture, Skia, Impeller, or pdfrx presentation path.
 void RegisterWindowsNativePdfSurfaceChannel(
     flutter::BinaryMessenger* messenger,
+    HWND root_window,
     HWND flutter_view_window);
 
 // Destroys all native PDF child windows owned by the channel.
