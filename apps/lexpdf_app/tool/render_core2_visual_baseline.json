@@ -1,0 +1,86 @@
+{
+  "phase": 1,
+  "name": "Render Core 2 Visual Baseline",
+  "phase_1_approved": false,
+  "test_document": "tratado_leis_especiais_concursos_2026_atualizado_15-08-2026.pdf",
+  "lexpdf_source_sha": "58aa2ccd35a3b11c29ab102ec1a915edd5f72ce2",
+  "environment": {
+    "windows_edition": null,
+    "windows_version": null,
+    "windows_build": null,
+    "display_resolution": null,
+    "display_scaling_percent": null,
+    "monitor_model": null,
+    "lexpdf_version": null,
+    "reference_reader": null,
+    "reference_reader_version": null,
+    "window_maximized": null
+  },
+  "zoom_matrix": [
+    {
+      "zoom_percent": 75,
+      "lexpdf_status": "fail",
+      "lexpdf_observation": "PDF page content is severely blurred/deformed while application chrome and blue ink overlay remain sharp.",
+      "lexpdf_evidence": "user physical-test screenshot observed 2026-09-11",
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    },
+    {
+      "zoom_percent": 100,
+      "lexpdf_status": "pending",
+      "lexpdf_observation": null,
+      "lexpdf_evidence": null,
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    },
+    {
+      "zoom_percent": 125,
+      "lexpdf_status": "pending",
+      "lexpdf_observation": null,
+      "lexpdf_evidence": null,
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    },
+    {
+      "zoom_percent": 200,
+      "lexpdf_status": "pending",
+      "lexpdf_observation": null,
+      "lexpdf_evidence": null,
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    },
+    {
+      "zoom_percent": 300,
+      "lexpdf_status": "pending",
+      "lexpdf_observation": null,
+      "lexpdf_evidence": null,
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    },
+    {
+      "zoom_percent": 400,
+      "lexpdf_status": "pending",
+      "lexpdf_observation": null,
+      "lexpdf_evidence": null,
+      "reference_status": "pending",
+      "reference_observation": null,
+      "reference_evidence": null
+    }
+  ],
+  "interaction_matrix": [
+    {"case": "pan_200", "status": "pending", "observation": null, "evidence": null},
+    {"case": "pan_400", "status": "pending", "observation": null, "evidence": null},
+    {"case": "resize_100", "status": "pending", "observation": null, "evidence": null},
+    {"case": "maximize_restore_maximize_100", "status": "pending", "observation": null, "evidence": null},
+    {"case": "zoom_75_200_400_100", "status": "pending", "observation": null, "evidence": null}
+  ],
+  "notes": [
+    "Do not advance to Phase 2 until every pending field required by the validator is completed and phase_1_approved is true.",
+    "The current Windows 10 manual tile renderer is not accepted as the final architecture."
+  ]
+}
