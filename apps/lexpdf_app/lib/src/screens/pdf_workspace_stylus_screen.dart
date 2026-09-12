@@ -19,6 +19,7 @@ import '../core/storage/local_text_annotation_store.dart';
 import '../widgets/pdf_selection_action_menu.dart';
 import '../widgets/pdf_sticky_note_overlay.dart';
 import '../widgets/pdf_stylus_page_overlay.dart';
+import '../widgets/windows10_pdf_tile_overlay.dart';
 import 'pdf_export_screen.dart';
 import 'pdf_forms_screen.dart';
 import 'pdf_ocr_screen.dart';
@@ -98,6 +99,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       defaultTargetPlatform == TargetPlatform.iOS;
 
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
+
+  bool get _windows10Tiles => isWindows10ManualTileRenderingEnabled();
 
   bool get _inkMode => switch (_stylusMode) {
         _StylusMode.pen ||
@@ -220,9 +223,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                               : HugePdfPolicy.viewerImageCacheBytes,
                           horizontalCacheExtent: _windows ? 1.0 : 0.30,
                           verticalCacheExtent: _windows ? 1.0 : 0.30,
-                          onePassRenderingSizeThreshold: _windows ? 6000 : 1400,
+                          onePassRenderingSizeThreshold: _windows10Tiles
+                              ? 1000
+                              : (_windows ? 6000 : 1400),
                           getPageRenderingScale: _windows
                               ? (context, page, controller, estimatedScale) {
+                                  // The Win10 manual tile layer supplies the visible
+                                  // page pixels. Keep pdfrx's hidden backing page at
+                                  // 72 dpi so it never allocates the giant bitmap
+                                  // path that corrupts on affected Windows 10 PCs.
+                                  if (_windows10Tiles) return 1.0;
                                   const maxRenderPixels = 6000.0;
                                   final width = page.width * estimatedScale;
                                   final height = page.height * estimatedScale;
@@ -262,7 +272,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             enabled: _stylusMode == _StylusMode.selectText,
                             showContextMenuAutomatically: true,
                           ),
-                          pagePaintCallbacks: [_selectionMenu.paint],
+                          pagePaintCallbacks: _windows10Tiles
+                              ? const []
+                              : [_selectionMenu.paint],
                           layoutPages: switch (_viewMode) {
                             _PdfViewMode.continuous => null,
                             _PdfViewMode.horizontal => _horizontalLayout,
@@ -282,6 +294,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             },
                           ),
                           pageOverlaysBuilder: (context, pageRect, page) => [
+                            if (_windows10Tiles)
+                              Positioned.fill(
+                                child: Windows10PdfTileOverlay(
+                                  key: ValueKey(
+                                    'win10-tiles-${page.pageNumber}',
+                                  ),
+                                  page: page,
+                                  pageRect: pageRect,
+                                  controller: _controller,
+                                ),
+                              ),
+                            if (_windows10Tiles)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: CustomPaint(
+                                    painter: _SelectionMarkupOverlayPainter(
+                                      menu: _selectionMenu,
+                                      pageRect: pageRect,
+                                      page: page,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             Positioned.fill(
                               child: PdfStylusPageOverlay(
                                 key: ValueKey(
@@ -1218,6 +1253,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       documentSize: Size(params.margin * 3 + maxWidth * 2, y),
     );
   }
+}
+
+class _SelectionMarkupOverlayPainter extends CustomPainter {
+  const _SelectionMarkupOverlayPainter({
+    required this.menu,
+    required this.pageRect,
+    required this.page,
+  });
+
+  final PdfSelectionActionMenu menu;
+  final Rect pageRect;
+  final PdfPage page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.translate(-pageRect.left, -pageRect.top);
+    menu.paint(canvas, pageRect, page);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _SelectionMarkupOverlayPainter oldDelegate) => true;
 }
 
 class _CommandButton extends StatelessWidget {
