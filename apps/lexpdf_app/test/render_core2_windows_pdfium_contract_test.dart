@@ -29,7 +29,16 @@ void main() {
     expect(nativeBridge, contains('FPDF_RenderPageBitmap'));
     expect(nativeBridge, contains('FPDFBitmap_GetBuffer'));
     expect(nativeBridge, contains('pdfium.dll is missing required PDFium exports'));
-    expect(nativeBridge, contains('width > 32768 || height > 32768'));
+
+    // Phase 6 centralizes the physical-dimension guard in
+    // ReadRenderArguments and passes width/height by pointer. Keep the Phase 4
+    // contract focused on the invariant, not the previous local spelling.
+    expect(nativeBridge, contains('ReadRenderArguments'));
+    expect(nativeBridge, contains('*width > 32768 || *height > 32768'));
+    expect(
+      nativeBridge,
+      contains('method == "renderPage" || method == "renderPageToTexture"'),
+    );
 
     expect(flutterWindow, contains('RegisterRenderCore2PdfiumChannel'));
     expect(cmake, contains('render_core2_pdfium_channel.cpp'));
