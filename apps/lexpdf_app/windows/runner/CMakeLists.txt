@@ -33,7 +33,18 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
-target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
+#
+# Render Core 2 owns a PluginRegistrarWindows instance so it can safely retain
+# access to Flutter's BinaryMessenger and TextureRegistrar for the lifetime of
+# the hosted Flutter view. PluginRegistrar's constructor/destructor and plugin
+# cleanup symbols live in flutter_wrapper_plugin; without that target the
+# Windows runner compiles but fails at link time with LNK2019 unresolved
+# PluginRegistrar symbols.
+target_link_libraries(${BINARY_NAME} PRIVATE
+  flutter
+  flutter_wrapper_app
+  flutter_wrapper_plugin
+)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
