@@ -5,9 +5,11 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
+#include <flutter/texture_registrar.h>
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -223,6 +225,161 @@ class PdfiumRuntime {
   RenderPageBitmapFn render_page_bitmap_ = nullptr;
 };
 
+struct TextureFrame {
+  std::vector<uint8_t> rgba8888;
+  size_t width = 0;
+  size_t height = 0;
+  int64_t generation = 0;
+};
+
+struct PixelBufferLease {
+  std::shared_ptr<const TextureFrame> frame;
+  FlutterDesktopPixelBuffer pixel_buffer = {};
+};
+
+class PdfiumTexturePresenter {
+ public:
+  explicit PdfiumTexturePresenter(flutter::TextureRegistrar* registrar)
+      : registrar_(registrar) {}
+
+  ~PdfiumTexturePresenter() { Dispose(); }
+
+  int64_t EnsureRegistered(std::string* error) {
+    if (registrar_ == nullptr) {
+      *error = "Flutter texture registrar is unavailable";
+      return -1;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (texture_id_ >= 0) return texture_id_;
+    }
+
+    auto texture = std::make_shared<flutter::TextureVariant>(
+        flutter::PixelBufferTexture(
+            [this](size_t width, size_t height)
+                -> const FlutterDesktopPixelBuffer* {
+              return CopyPixelBuffer(width, height);
+            }));
+    const int64_t texture_id = registrar_->RegisterTexture(texture.get());
+    if (texture_id < 0) {
+      *error = "Flutter failed to register the Render Core 2 texture";
+      return -1;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      texture_ = std::move(texture);
+      texture_id_ = texture_id;
+    }
+    return texture_id;
+  }
+
+  bool Present(const std::vector<uint8_t>& bgra8888, int width, int height,
+               int stride, int64_t generation, int64_t* texture_id,
+               std::string* error) {
+    if (width <= 0 || height <= 0 || stride < width * 4) {
+      *error = "Invalid PDFium frame for native texture presentation";
+      return false;
+    }
+
+    const auto required_bytes = static_cast<size_t>(stride) *
+                                static_cast<size_t>(height);
+    if (bgra8888.size() < required_bytes) {
+      *error = "PDFium frame buffer is smaller than its declared stride";
+      return false;
+    }
+
+    const int64_t id = EnsureRegistered(error);
+    if (id < 0) return false;
+
+    auto frame = std::make_shared<TextureFrame>();
+    frame->width = static_cast<size_t>(width);
+    frame->height = static_cast<size_t>(height);
+    frame->generation = generation;
+    frame->rgba8888.resize(frame->width * frame->height * 4);
+
+    // Flutter's PixelBufferTexture path consumes tightly packed RGBA8888.
+    // PDFium exposes BGRA, so swizzle entirely in native memory. Dart never
+    // receives the page-sized pixel payload in the Texture path.
+    for (int y = 0; y < height; ++y) {
+      const uint8_t* source =
+          bgra8888.data() + static_cast<size_t>(y) * stride;
+      uint8_t* target = frame->rgba8888.data() +
+                        static_cast<size_t>(y) * frame->width * 4;
+      for (int x = 0; x < width; ++x) {
+        const size_t offset = static_cast<size_t>(x) * 4;
+        target[offset] = source[offset + 2];
+        target[offset + 1] = source[offset + 1];
+        target[offset + 2] = source[offset];
+        target[offset + 3] = source[offset + 3];
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      current_frame_ = std::move(frame);
+    }
+
+    if (!registrar_->MarkTextureFrameAvailable(id)) {
+      *error = "Flutter rejected the Render Core 2 texture frame notification";
+      return false;
+    }
+
+    *texture_id = id;
+    return true;
+  }
+
+  void Dispose() {
+    if (registrar_ == nullptr) return;
+
+    int64_t id = -1;
+    std::shared_ptr<flutter::TextureVariant> texture;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      id = texture_id_;
+      texture_id_ = -1;
+      texture = std::move(texture_);
+      current_frame_.reset();
+    }
+
+    if (id >= 0 && texture) {
+      registrar_->UnregisterTexture(id, [texture]() {});
+    }
+  }
+
+ private:
+  const FlutterDesktopPixelBuffer* CopyPixelBuffer(size_t requested_width,
+                                                    size_t requested_height) {
+    (void)requested_width;
+    (void)requested_height;
+
+    std::shared_ptr<const TextureFrame> frame;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      frame = current_frame_;
+    }
+    if (!frame || frame->rgba8888.empty()) return nullptr;
+
+    auto* lease = new PixelBufferLease();
+    lease->frame = std::move(frame);
+    lease->pixel_buffer.buffer = lease->frame->rgba8888.data();
+    lease->pixel_buffer.width = lease->frame->width;
+    lease->pixel_buffer.height = lease->frame->height;
+    lease->pixel_buffer.release_callback = [](void* context) {
+      delete static_cast<PixelBufferLease*>(context);
+    };
+    lease->pixel_buffer.release_context = lease;
+    return &lease->pixel_buffer;
+  }
+
+  flutter::TextureRegistrar* registrar_ = nullptr;
+  std::mutex mutex_;
+  int64_t texture_id_ = -1;
+  std::shared_ptr<flutter::TextureVariant> texture_;
+  std::shared_ptr<const TextureFrame> current_frame_;
+};
+
 const flutter::EncodableMap* AsMap(const flutter::EncodableValue* value) {
   return value == nullptr ? nullptr : std::get_if<flutter::EncodableMap>(value);
 }
@@ -243,16 +400,40 @@ int64_t GetInteger(const flutter::EncodableMap& map, const char* key,
   return fallback;
 }
 
+bool ReadRenderArguments(const flutter::EncodableMap* args, int64_t* page,
+                         int64_t* width, int64_t* height,
+                         int64_t* generation, std::string* error) {
+  if (args == nullptr) {
+    *error = "Expected argument map";
+    return false;
+  }
+
+  *page = GetInteger(*args, "pageNumber", -1);
+  *width = GetInteger(*args, "pixelWidth", -1);
+  *height = GetInteger(*args, "pixelHeight", -1);
+  *generation = GetInteger(*args, "generation", 0);
+  if (*page <= 0 || *width <= 0 || *height <= 0 ||
+      *width > 32768 || *height > 32768) {
+    *error = "Invalid page or dimensions";
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
-void RegisterRenderCore2PdfiumChannel(flutter::BinaryMessenger* messenger) {
+void RegisterRenderCore2PdfiumChannel(
+    flutter::BinaryMessenger* messenger,
+    flutter::TextureRegistrar* texture_registrar) {
   auto runtime = std::make_shared<PdfiumRuntime>();
+  auto texture_presenter =
+      std::make_shared<PdfiumTexturePresenter>(texture_registrar);
   auto channel = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "lexpdf/render_core2_pdfium",
       &flutter::StandardMethodCodec::GetInstance());
 
   channel->SetMethodCallHandler(
-      [runtime](const auto& call, auto result) {
+      [runtime, texture_presenter](const auto& call, auto result) {
         const std::string& method = call.method_name();
         const auto* args = AsMap(call.arguments());
 
@@ -309,24 +490,31 @@ void RegisterRenderCore2PdfiumChannel(flutter::BinaryMessenger* messenger) {
           return;
         }
 
-        if (method == "renderPage") {
-          if (args == nullptr) {
-            result->Error("invalid_arguments", "Expected argument map");
+        if (method == "createTexture") {
+          std::string error;
+          const int64_t texture_id = texture_presenter->EnsureRegistered(&error);
+          if (texture_id < 0) {
+            result->Error("texture_register_failed", error);
             return;
           }
-          const int64_t page = GetInteger(*args, "pageNumber", -1);
-          const int64_t width = GetInteger(*args, "pixelWidth", -1);
-          const int64_t height = GetInteger(*args, "pixelHeight", -1);
-          const int64_t generation = GetInteger(*args, "generation", 0);
-          if (page <= 0 || width <= 0 || height <= 0 ||
-              width > 32768 || height > 32768) {
-            result->Error("invalid_arguments", "Invalid page or dimensions");
+          result->Success(flutter::EncodableValue(texture_id));
+          return;
+        }
+
+        if (method == "renderPage" || method == "renderPageToTexture") {
+          int64_t page = -1;
+          int64_t width = -1;
+          int64_t height = -1;
+          int64_t generation = 0;
+          std::string error;
+          if (!ReadRenderArguments(args, &page, &width, &height, &generation,
+                                   &error)) {
+            result->Error("invalid_arguments", error);
             return;
           }
 
           std::vector<uint8_t> pixels;
           int stride = 0;
-          std::string error;
           if (!runtime->Render(static_cast<int>(page), static_cast<int>(width),
                                static_cast<int>(height), &pixels, &stride,
                                &error)) {
@@ -339,13 +527,34 @@ void RegisterRenderCore2PdfiumChannel(flutter::BinaryMessenger* messenger) {
               flutter::EncodableValue(static_cast<int32_t>(width));
           payload[flutter::EncodableValue("height")] =
               flutter::EncodableValue(static_cast<int32_t>(height));
-          payload[flutter::EncodableValue("rowBytes")] =
-              flutter::EncodableValue(static_cast<int32_t>(stride));
           payload[flutter::EncodableValue("generation")] =
               flutter::EncodableValue(generation);
+
+          if (method == "renderPageToTexture") {
+            int64_t texture_id = -1;
+            if (!texture_presenter->Present(
+                    pixels, static_cast<int>(width), static_cast<int>(height),
+                    stride, generation, &texture_id, &error)) {
+              result->Error("texture_present_failed", error);
+              return;
+            }
+            payload[flutter::EncodableValue("textureId")] =
+                flutter::EncodableValue(texture_id);
+            result->Success(flutter::EncodableValue(std::move(payload)));
+            return;
+          }
+
+          payload[flutter::EncodableValue("rowBytes")] =
+              flutter::EncodableValue(static_cast<int32_t>(stride));
           payload[flutter::EncodableValue("bgra8888")] =
               flutter::EncodableValue(std::move(pixels));
           result->Success(flutter::EncodableValue(std::move(payload)));
+          return;
+        }
+
+        if (method == "disposeTexture") {
+          texture_presenter->Dispose();
+          result->Success();
           return;
         }
 
@@ -359,6 +568,7 @@ void RegisterRenderCore2PdfiumChannel(flutter::BinaryMessenger* messenger) {
       });
 
   // Keep the channel alive for the lifetime of the process. The engine owns
-  // the messenger; the handler captures the shared PDFium runtime.
+  // the messenger; the handler captures the shared PDFium runtime and texture
+  // presenter. Texture buffers are ref-counted per frame by release callbacks.
   channel.release();
 }
