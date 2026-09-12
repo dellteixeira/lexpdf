@@ -19,6 +19,21 @@ void main() {
     expect(parseWindowsBuildNumber('unknown version'), isNull);
   });
 
+  test('Phase 7D forces the replacement renderer on native Windows', () {
+    final overlay = File(
+      'lib/src/widgets/windows10_pdf_tile_overlay.dart',
+    ).readAsStringSync();
+
+    expect(overlay, contains("if (nativeOverride == '0') return false;"));
+    expect(overlay, contains("if (legacyOverride == '0') return false;"));
+    expect(
+      overlay,
+      contains(
+        '// Phase 7D: use the replacement renderer on all native Windows builds.',
+      ),
+    );
+  });
+
   test('Win10 workspace uses one supersampled full-page raster', () {
     final workspace = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
@@ -32,7 +47,7 @@ void main() {
     expect(workspace, contains('if (_windows10Tiles) return 1.0;'));
     expect(workspace, contains('_SelectionMarkupOverlayPainter('));
 
-    // The 7C path deliberately abandons the failed external texture bridge
+    // The 7D path deliberately abandons the failed external texture bridge
     // and the old independently positioned tile composition.
     expect(overlay, contains('widget.page.render('));
     expect(overlay, contains('fullWidth: renderWidth.toDouble()'));
