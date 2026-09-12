@@ -6,6 +6,7 @@
 #include "render_core2_pdfium_channel.h"
 #include "render_core2_production_pdfium_channel.h"
 #include "windows_native_pdf_surface.h"
+#include "windows_pdf_compat_normalizer.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -47,6 +48,8 @@ bool FlutterWindow::OnCreate() {
   RegisterRenderCore2ProductionPdfiumChannel(
       render_core2_registrar_->messenger(),
       render_core2_registrar_->texture_registrar());
+  RegisterWindowsPdfCompatNormalizerChannel(
+      render_core2_registrar_->messenger());
 
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
@@ -72,6 +75,7 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   ShutdownWindowsNativePdfSurfaceChannel();
+  ShutdownWindowsPdfCompatNormalizerChannel();
 
   // The registrar wraps engine-owned messenger and texture APIs, so destroy it
   // before tearing down the Flutter engine/controller.
