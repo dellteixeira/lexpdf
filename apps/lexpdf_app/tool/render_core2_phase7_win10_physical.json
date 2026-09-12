@@ -1,0 +1,31 @@
+{
+  "phase": 7,
+  "name": "Windows 10 physical validation",
+  "base_sha": "387ee71ce341374d9e9104f98974495822f0f601",
+  "approved": false,
+  "test_pdf": "tratado_leis_especiais_concursos_2026_atualizado_15-08-2026.pdf",
+  "reference_application": null,
+  "environment": {
+    "windows_version": null,
+    "display_scaling_percent": null,
+    "device_pixel_ratio": null,
+    "gpu": null,
+    "display_resolution": null
+  },
+  "zoom_matrix": {
+    "75": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "100": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "125": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "200": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "300": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "400": {"status": "pending", "requested_px": null, "returned_px": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null}
+  },
+  "interactions": {
+    "pan_200": "pending",
+    "pan_400": "pending",
+    "resize_100": "pending",
+    "maximize_restore_maximize_100": "pending",
+    "zoom_75_200_400_100": "pending",
+    "page_navigation": "pending"
+  }
+}
