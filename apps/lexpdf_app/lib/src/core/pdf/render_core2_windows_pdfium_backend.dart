@@ -18,11 +18,25 @@ class RenderCore2PdfPageInfo {
   final double heightPoints;
 }
 
+class RenderCore2TextureFrameInfo {
+  const RenderCore2TextureFrameInfo({
+    required this.textureId,
+    required this.width,
+    required this.height,
+    required this.generation,
+  });
+
+  final int textureId;
+  final int width;
+  final int height;
+  final int generation;
+}
+
 /// Minimal Windows bridge for the Render Core 2 PDFium prototype.
 ///
-/// Phase 4 established the callable native boundary. Phase 5 adds page metrics
-/// so a standalone diagnostic view can request one page at exact physical-pixel
-/// dimensions without changing the production workspace renderer.
+/// Phase 4 established the callable native boundary. Phase 5 added page metrics
+/// and exact physical-pixel raster requests. Phase 6 adds a native Flutter
+/// Texture path so page-sized pixels can stay outside Dart/ui.Image.
 class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
   RenderCore2WindowsPdfiumBackend({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel(channelName);
@@ -31,12 +45,15 @@ class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
   final MethodChannel _channel;
 
   String? _openedDocumentPath;
+  int? _textureId;
 
   @override
   String get backendName => 'windows-pdfium-native-prototype';
 
   @override
   bool get isAvailable => Platform.isWindows;
+
+  int? get textureId => _textureId;
 
   @override
   Future<void> open(String documentPath) async {
@@ -95,29 +112,75 @@ class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
     );
   }
 
-  @override
-  Future<LexPdfRenderFrame> renderPage(LexPdfRenderRequest request) async {
+  Future<int> createTexture() async {
     if (!Platform.isWindows) {
       throw UnsupportedError('Render Core 2 PDFium backend is Windows-only.');
     }
-    if (_openedDocumentPath != request.documentPath) {
-      throw StateError('Requested document is not open in the native backend.');
+    final id = await _channel.invokeMethod<int>('createTexture');
+    if (id == null || id < 0) {
+      throw StateError('Native PDFium backend failed to register a texture.');
     }
-    if (request.pixelWidth <= 0 || request.pixelHeight <= 0) {
-      throw ArgumentError('Physical pixel dimensions must be positive.');
+    _textureId = id;
+    return id;
+  }
+
+  Future<RenderCore2TextureFrameInfo> renderPageToTexture(
+    LexPdfRenderRequest request,
+  ) async {
+    _validateRenderRequest(request);
+    _textureId ??= await createTexture();
+
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'renderPageToTexture',
+      _renderArguments(request),
+    );
+    if (result == null) {
+      throw StateError('Native PDFium texture renderer returned no payload.');
     }
+
+    final textureId = result['textureId'];
+    final width = result['width'];
+    final height = result['height'];
+    final generation = result['generation'];
+    if (textureId is! int ||
+        width is! int ||
+        height is! int ||
+        generation is! int ||
+        textureId < 0) {
+      throw StateError('Native PDFium texture renderer returned invalid metadata.');
+    }
+    if (width != request.pixelWidth || height != request.pixelHeight) {
+      throw StateError(
+        'Native texture renderer did not honor physical pixel dimensions.',
+      );
+    }
+    if (_textureId != textureId) {
+      throw StateError('Native texture ID changed unexpectedly during rendering.');
+    }
+
+    return RenderCore2TextureFrameInfo(
+      textureId: textureId,
+      width: width,
+      height: height,
+      generation: generation,
+    );
+  }
+
+  Future<void> disposeTexture() async {
+    if (!Platform.isWindows) return;
+    if (_textureId != null) {
+      await _channel.invokeMethod<void>('disposeTexture');
+      _textureId = null;
+    }
+  }
+
+  @override
+  Future<LexPdfRenderFrame> renderPage(LexPdfRenderRequest request) async {
+    _validateRenderRequest(request);
 
     final result = await _channel.invokeMapMethod<String, Object?>(
       'renderPage',
-      <String, Object?>{
-        'documentPath': request.documentPath,
-        'pageNumber': request.pageNumber,
-        'pixelWidth': request.pixelWidth,
-        'pixelHeight': request.pixelHeight,
-        'devicePixelRatio': request.devicePixelRatio,
-        'viewerZoom': request.viewerZoom,
-        'generation': request.generation,
-      },
+      _renderArguments(request),
     );
 
     if (result == null) {
@@ -152,6 +215,29 @@ class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
       generation: generation,
     );
   }
+
+  void _validateRenderRequest(LexPdfRenderRequest request) {
+    if (!Platform.isWindows) {
+      throw UnsupportedError('Render Core 2 PDFium backend is Windows-only.');
+    }
+    if (_openedDocumentPath != request.documentPath) {
+      throw StateError('Requested document is not open in the native backend.');
+    }
+    if (request.pixelWidth <= 0 || request.pixelHeight <= 0) {
+      throw ArgumentError('Physical pixel dimensions must be positive.');
+    }
+  }
+
+  Map<String, Object?> _renderArguments(LexPdfRenderRequest request) =>
+      <String, Object?>{
+        'documentPath': request.documentPath,
+        'pageNumber': request.pageNumber,
+        'pixelWidth': request.pixelWidth,
+        'pixelHeight': request.pixelHeight,
+        'devicePixelRatio': request.devicePixelRatio,
+        'viewerZoom': request.viewerZoom,
+        'generation': request.generation,
+      };
 
   @override
   Future<void> close() async {

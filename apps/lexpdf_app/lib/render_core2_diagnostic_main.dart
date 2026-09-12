@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -49,16 +48,15 @@ class _RenderCore2DiagnosticScreenState
 
   String? _documentPath;
   RenderCore2PdfPageInfo? _pageInfo;
-  ui.Image? _image;
   String? _error;
   int _pageNumber = 1;
   int _zoomPercent = 100;
   int _generation = 0;
+  int? _textureId;
   int? _requestedWidth;
   int? _requestedHeight;
   int? _returnedWidth;
   int? _returnedHeight;
-  int? _rowBytes;
   double? _lastDpr;
   bool _busy = false;
 
@@ -68,9 +66,13 @@ class _RenderCore2DiagnosticScreenState
   @override
   void dispose() {
     _generation++;
-    _image?.dispose();
-    unawaited(_backend.close());
+    unawaited(_disposeNativeResources());
     super.dispose();
+  }
+
+  Future<void> _disposeNativeResources() async {
+    await _backend.disposeTexture();
+    await _backend.close();
   }
 
   Future<void> _selectPdf() async {
@@ -155,8 +157,10 @@ class _RenderCore2DiagnosticScreenState
     final logicalHeight = info.heightPoints * viewerZoom;
     final pixelWidth = (logicalWidth * dpr).ceil();
     final pixelHeight = (logicalHeight * dpr).ceil();
-    if (pixelWidth <= 0 || pixelHeight <= 0 ||
-        pixelWidth > 32768 || pixelHeight > 32768) {
+    if (pixelWidth <= 0 ||
+        pixelHeight <= 0 ||
+        pixelWidth > 32768 ||
+        pixelHeight > 32768) {
       throw StateError(
         'Requested physical raster is outside the diagnostic safety limit: '
         '${pixelWidth}x$pixelHeight.',
@@ -172,7 +176,7 @@ class _RenderCore2DiagnosticScreenState
       });
     }
 
-    final frame = await _backend.renderPage(
+    final frame = await _backend.renderPageToTexture(
       LexPdfRenderRequest(
         documentPath: path,
         pageNumber: _pageNumber,
@@ -183,38 +187,18 @@ class _RenderCore2DiagnosticScreenState
         generation: generation,
       ),
     );
-    if (!mounted || generation != _generation || frame.generation != generation) {
+    if (!mounted ||
+        generation != _generation ||
+        frame.generation != generation) {
       return;
     }
 
-    final image = await _decode(frame);
-    if (!mounted || generation != _generation) {
-      image.dispose();
-      return;
-    }
-
-    final previous = _image;
     setState(() {
-      _image = image;
+      _textureId = frame.textureId;
       _returnedWidth = frame.width;
       _returnedHeight = frame.height;
-      _rowBytes = frame.rowBytes;
       _error = null;
     });
-    previous?.dispose();
-  }
-
-  Future<ui.Image> _decode(LexPdfRenderFrame frame) {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      frame.bgra8888,
-      frame.width,
-      frame.height,
-      ui.PixelFormat.bgra8888,
-      completer.complete,
-      rowBytes: frame.rowBytes,
-    );
-    return completer.future;
   }
 
   @override
@@ -251,7 +235,7 @@ class _RenderCore2DiagnosticScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Render Core 2 — PDFium Diagnostic'),
+        title: const Text('Render Core 2 — Native Texture Diagnostic'),
         actions: [
           TextButton.icon(
             onPressed: _busy ? null : _selectPdf,
@@ -320,7 +304,9 @@ class _RenderCore2DiagnosticScreenState
               ],
             ),
           Expanded(
-            child: _image == null || logicalWidth == null || logicalHeight == null
+            child: _textureId == null ||
+                    logicalWidth == null ||
+                    logicalHeight == null
                 ? const Center(
                     child: Text('Abra um PDF para iniciar o teste físico.'),
                   )
@@ -332,12 +318,13 @@ class _RenderCore2DiagnosticScreenState
                         child: SingleChildScrollView(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
-                            child: RawImage(
-                              image: _image,
+                            child: SizedBox(
                               width: logicalWidth,
                               height: logicalHeight,
-                              fit: BoxFit.fill,
-                              filterQuality: FilterQuality.none,
+                              child: Texture(
+                                textureId: _textureId!,
+                                filterQuality: FilterQuality.none,
+                              ),
                             ),
                           ),
                         ),
@@ -351,12 +338,12 @@ class _RenderCore2DiagnosticScreenState
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
               color: Theme.of(context).colorScheme.surface,
               child: SelectableText(
-                'backend=${_backend.backendName}  '
+                'backend=${_backend.backendName}  transport=native-texture  '
+                'texture=${_textureId ?? '-'}  '
                 'PDF=${info.widthPoints.toStringAsFixed(2)}x${info.heightPoints.toStringAsFixed(2)} pt  '
                 'zoom=$_zoomPercent%  DPR=${_lastDpr?.toStringAsFixed(3) ?? '-'}  '
                 'requested=${_requestedWidth ?? '-'}x${_requestedHeight ?? '-'} px  '
-                'returned=${_returnedWidth ?? '-'}x${_returnedHeight ?? '-'} px  '
-                'rowBytes=${_rowBytes ?? '-'}',
+                'returned=${_returnedWidth ?? '-'}x${_returnedHeight ?? '-'} px',
               ),
             ),
         ],

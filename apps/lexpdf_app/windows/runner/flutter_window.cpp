@@ -25,9 +25,24 @@ bool FlutterWindow::OnCreate() {
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
     return false;
   }
+
   RegisterPlugins(flutter_controller_->engine());
+
+  // FlutterEngine intentionally exposes plugin registrars, not the
+  // client-wrapper TextureRegistrar directly. Build and retain a Windows
+  // plugin registrar so Render Core 2 receives messenger/texture wrappers with
+  // the correct lifetime for the running engine.
+  const auto core_registrar =
+      flutter_controller_->engine()->GetRegistrarForPlugin("LexPDFRenderCore2");
+  if (core_registrar == nullptr) {
+    return false;
+  }
+  render_core2_registrar_ =
+      std::make_unique<flutter::PluginRegistrarWindows>(core_registrar);
   RegisterRenderCore2PdfiumChannel(
-      flutter_controller_->engine()->messenger());
+      render_core2_registrar_->messenger(),
+      render_core2_registrar_->texture_registrar());
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -43,6 +58,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // The registrar wraps engine-owned messenger and texture APIs, so destroy it
+  // before tearing down the Flutter engine/controller.
+  render_core2_registrar_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
