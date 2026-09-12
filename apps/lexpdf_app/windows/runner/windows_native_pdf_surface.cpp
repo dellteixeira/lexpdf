@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 
 #include <winrt/Windows.Data.Pdf.h>
+#include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/base.h>
@@ -143,7 +144,8 @@ bool RenderWithWindowsPdf(const std::string& path, int page_number, int width,
   try {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
-    const auto file = StorageFile::GetFileFromPathAsync(winrt::to_hstring(path)).get();
+    const auto file =
+        StorageFile::GetFileFromPathAsync(winrt::to_hstring(path)).get();
     const auto document = PdfDocument::LoadFromFileAsync(file).get();
     if (page_number <= 0 ||
         static_cast<uint32_t>(page_number) > document.PageCount()) {
@@ -338,7 +340,8 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
 
     const wchar_t* badge = L"WINPDF NATIVE";
     RECT badge_rect = {6, 6, 118, 28};
-    FillRect(dc, &badge_rect, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    FillRect(dc, &badge_rect,
+             reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(255, 255, 255));
     DrawTextW(dc, badge, -1, &badge_rect,
@@ -466,21 +469,26 @@ void RegisterWindowsNativePdfSurfaceChannel(
       [](const auto& call, auto result) {
         const auto* args = AsMap(call.arguments());
         if (!g_host || args == nullptr) {
-          result->Error("invalid_state", "Native Windows PDF host is unavailable");
+          result->Error("invalid_state",
+                        "Native Windows PDF host is unavailable");
           return;
         }
 
         if (call.method_name() == "showPage") {
           const auto* path = GetString(*args, "documentPath");
           const int64_t key = GetInteger(*args, "surfaceKey", -1);
-          const int page = static_cast<int>(GetInteger(*args, "pageNumber", -1));
+          const int page =
+              static_cast<int>(GetInteger(*args, "pageNumber", -1));
           const int x = static_cast<int>(GetInteger(*args, "x", 0));
           const int y = static_cast<int>(GetInteger(*args, "y", 0));
-          const int width = static_cast<int>(GetInteger(*args, "width", -1));
-          const int height = static_cast<int>(GetInteger(*args, "height", -1));
+          const int width =
+              static_cast<int>(GetInteger(*args, "width", -1));
+          const int height =
+              static_cast<int>(GetInteger(*args, "height", -1));
           if (path == nullptr || path->empty() || key < 0 || page <= 0 ||
               width <= 0 || height <= 0) {
-            result->Error("invalid_arguments", "Invalid native PDF surface request");
+            result->Error("invalid_arguments",
+                          "Invalid native PDF surface request");
             return;
           }
           std::string error;
