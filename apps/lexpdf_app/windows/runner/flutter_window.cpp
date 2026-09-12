@@ -5,6 +5,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "render_core2_pdfium_channel.h"
 #include "render_core2_production_pdfium_channel.h"
+#include "windows_native_pdf_surface.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -49,6 +50,13 @@ bool FlutterWindow::OnCreate() {
 
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Phase 7E: a completely separate Windows PDF path. Windows.Data.Pdf renders
+  // into a native child HWND painted by GDI/WIC, so the page pixels never pass
+  // through pdfrx, PDFium, ui.Image, Flutter Texture, Skia, or Impeller.
+  RegisterWindowsNativePdfSurfaceChannel(
+      render_core2_registrar_->messenger(),
+      flutter_controller_->view()->GetNativeWindow());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -62,6 +70,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  ShutdownWindowsNativePdfSurfaceChannel();
+
   // The registrar wraps engine-owned messenger and texture APIs, so destroy it
   // before tearing down the Flutter engine/controller.
   render_core2_registrar_.reset();
