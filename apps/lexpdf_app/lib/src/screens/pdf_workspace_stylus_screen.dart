@@ -100,6 +100,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
 
+  bool get _android => defaultTargetPlatform == TargetPlatform.android;
+
   bool get _windows10Tiles => isWindows10ManualTileRenderingEnabled();
 
   bool get _inkMode => switch (_stylusMode) {
@@ -247,7 +249,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 }
                               : null,
                           behaviorControlParams: PdfViewerBehaviorControlParams(
-                            loadPageDimensionsOnDemand: !_windows,
+                            // Android internal PDF destinations are resolved against the full
+                            // page layout. For very large indexed PDFs, lazy dimensions can
+                            // make a destination matrix point at a stale/partial layout.
+                            loadPageDimensionsOnDemand: !_windows && !_android,
                             enableLowResolutionPagePreview: !_windows,
                             trailingPageLoadingDelay: _windows
                                 ? const Duration(milliseconds: 100)
@@ -289,7 +294,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                               }
                               final dest = link.dest;
                               if (dest != null) {
-                                unawaited(_controller.goToDest(dest));
+                                unawaited(_goToInternalPdfDestination(dest));
                               }
                             },
                           ),
@@ -393,6 +398,62 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _goToInternalPdfDestination(PdfDest dest) async {
+    final document = _document;
+    final targetPage = dest.pageNumber;
+    if (document == null ||
+        targetPage < 1 ||
+        targetPage > document.pages.length ||
+        !_controller.isReady) {
+      return;
+    }
+
+    if (!_android) {
+      await _controller.goToDest(dest);
+      return;
+    }
+
+    // Android robust-link path: first establish the correct physical page on
+    // the fully measured layout. Only then apply the PDF destination matrix.
+    // This avoids a stale /Fit or /XYZ transform on large documents whose page
+    // dimensions were previously loaded on demand.
+    await _controller.goToPage(
+      pageNumber: targetPage,
+      anchor: PdfPageAnchor.top,
+      duration: Duration.zero,
+    );
+
+    // Give the viewer one frame to publish the new layout/viewport before
+    // resolving the exact destination. This retains intra-page links while
+    // making page-only index links deterministic.
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (!mounted || !_controller.isReady) return;
+
+    final moved = await _controller.goToDest(dest, duration: Duration.zero);
+    if (!moved) {
+      await _controller.goToPage(
+        pageNumber: targetPage,
+        anchor: PdfPageAnchor.top,
+        duration: Duration.zero,
+      );
+      return;
+    }
+
+    // A second-frame guard handles pdfrx/Android cases where a destination
+    // transform is accepted but resolves against the wrong page. Never apply
+    // numeric +1/-1 offsets: PdfDest.pageNumber is already the physical page.
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (!mounted || !_controller.isReady) return;
+    final currentPage = _controller.pageNumber;
+    if (currentPage != null && currentPage != targetPage) {
+      await _controller.goToPage(
+        pageNumber: targetPage,
+        anchor: PdfPageAnchor.top,
+        duration: Duration.zero,
+      );
+    }
   }
 
   Widget _buildCommandBar(String path) {
