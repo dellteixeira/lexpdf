@@ -240,8 +240,12 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     };
     MapWindowPoints(coordinate_window_, parent_, corners, 2);
 
-    width = std::clamp(corners[1].x - corners[0].x, 1, kMaxNativeDimension);
-    height = std::clamp(corners[1].y - corners[0].y, 1, kMaxNativeDimension);
+    const int mapped_width =
+        static_cast<int>(corners[1].x - corners[0].x);
+    const int mapped_height =
+        static_cast<int>(corners[1].y - corners[0].y);
+    width = std::clamp(mapped_width, 1, kMaxNativeDimension);
+    height = std::clamp(mapped_height, 1, kMaxNativeDimension);
 
     SetWindowPos(window_, HWND_TOP, corners[0].x, corners[0].y, width, height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
