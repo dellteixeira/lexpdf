@@ -27,7 +27,8 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   RegisterRenderCore2PdfiumChannel(
-      flutter_controller_->engine()->messenger());
+      flutter_controller_->engine()->messenger(),
+      flutter_controller_->engine()->texture_registrar());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
