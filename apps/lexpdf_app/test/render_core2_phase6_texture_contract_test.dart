@@ -19,6 +19,9 @@ void main() {
     final windowHeader = File(
       'windows/runner/flutter_window.h',
     ).readAsStringSync();
+    final cmake = File(
+      'windows/runner/CMakeLists.txt',
+    ).readAsStringSync();
 
     expect(diagnostic, contains('renderPageToTexture'));
     expect(diagnostic, contains('child: Texture('));
@@ -45,5 +48,10 @@ void main() {
     expect(window, contains('render_core2_registrar_->texture_registrar()'));
     expect(window, isNot(contains('engine()->texture_registrar()')));
     expect(windowHeader, contains('std::unique_ptr<flutter::PluginRegistrarWindows>'));
+
+    // PluginRegistrarWindows is not header-only. Its constructor, destructor,
+    // and ClearPlugins implementation are provided by flutter_wrapper_plugin.
+    // Keep this link dependency explicit so Windows cannot regress to LNK2019.
+    expect(cmake, contains('flutter_wrapper_plugin'));
   });
 }
