@@ -4,11 +4,25 @@ import 'package:flutter/services.dart';
 
 import 'lexpdf_render_surface.dart';
 
+class RenderCore2PdfPageInfo {
+  const RenderCore2PdfPageInfo({
+    required this.pageNumber,
+    required this.pageCount,
+    required this.widthPoints,
+    required this.heightPoints,
+  });
+
+  final int pageNumber;
+  final int pageCount;
+  final double widthPoints;
+  final double heightPoints;
+}
+
 /// Minimal Windows bridge for the Render Core 2 PDFium prototype.
 ///
-/// Phase 4 establishes the callable native boundary only. Production workspace
-/// rendering is intentionally not switched to this backend until the native
-/// implementation and physical-pixel output are validated.
+/// Phase 4 established the callable native boundary. Phase 5 adds page metrics
+/// so a standalone diagnostic view can request one page at exact physical-pixel
+/// dimensions without changing the production workspace renderer.
 class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
   RenderCore2WindowsPdfiumBackend({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel(channelName);
@@ -37,6 +51,48 @@ class RenderCore2WindowsPdfiumBackend implements LexPdfRenderSurface {
       throw StateError('Native PDFium backend failed to open the document.');
     }
     _openedDocumentPath = documentPath;
+  }
+
+  Future<RenderCore2PdfPageInfo> getPageInfo(int pageNumber) async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError('Render Core 2 PDFium backend is Windows-only.');
+    }
+    if (_openedDocumentPath == null) {
+      throw StateError('No document is open in the native backend.');
+    }
+    if (pageNumber <= 0) {
+      throw ArgumentError.value(pageNumber, 'pageNumber', 'Must be positive.');
+    }
+
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'getPageInfo',
+      <String, Object?>{'pageNumber': pageNumber},
+    );
+    if (result == null) {
+      throw StateError('Native PDFium backend returned no page metadata.');
+    }
+
+    final returnedPage = result['pageNumber'];
+    final pageCount = result['pageCount'];
+    final width = result['widthPoints'];
+    final height = result['heightPoints'];
+    if (returnedPage is! int ||
+        pageCount is! int ||
+        width is! double ||
+        height is! double ||
+        returnedPage != pageNumber ||
+        pageCount <= 0 ||
+        width <= 0 ||
+        height <= 0) {
+      throw StateError('Native PDFium backend returned invalid page metadata.');
+    }
+
+    return RenderCore2PdfPageInfo(
+      pageNumber: returnedPage,
+      pageCount: pageCount,
+      widthPoints: width,
+      heightPoints: height,
+    );
   }
 
   @override

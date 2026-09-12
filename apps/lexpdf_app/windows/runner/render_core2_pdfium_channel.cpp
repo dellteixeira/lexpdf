@@ -38,6 +38,8 @@ class PdfiumRuntime {
     get_page_count_ = Load<GetPageCountFn>("FPDF_GetPageCount");
     load_page_ = Load<LoadPageFn>("FPDF_LoadPage");
     close_page_ = Load<ClosePageFn>("FPDF_ClosePage");
+    get_page_width_ = Load<GetPageDimensionFn>("FPDF_GetPageWidth");
+    get_page_height_ = Load<GetPageDimensionFn>("FPDF_GetPageHeight");
     bitmap_create_ = Load<BitmapCreateFn>("FPDFBitmap_Create");
     bitmap_destroy_ = Load<BitmapDestroyFn>("FPDFBitmap_Destroy");
     bitmap_fill_rect_ = Load<BitmapFillRectFn>("FPDFBitmap_FillRect");
@@ -47,8 +49,9 @@ class PdfiumRuntime {
 
     if (!init_library_ || !destroy_library_ || !load_document_ ||
         !close_document_ || !get_page_count_ || !load_page_ || !close_page_ ||
-        !bitmap_create_ || !bitmap_destroy_ || !bitmap_fill_rect_ ||
-        !bitmap_get_buffer_ || !bitmap_get_stride_ || !render_page_bitmap_) {
+        !get_page_width_ || !get_page_height_ || !bitmap_create_ ||
+        !bitmap_destroy_ || !bitmap_fill_rect_ || !bitmap_get_buffer_ ||
+        !bitmap_get_stride_ || !render_page_bitmap_) {
       *error = "pdfium.dll is missing required PDFium exports";
       Reset();
       return false;
@@ -77,6 +80,40 @@ class PdfiumRuntime {
     }
     document_ = nullptr;
     document_path_.clear();
+  }
+
+  bool PageInfo(int page_number, int* page_count, double* width_points,
+                double* height_points, std::string* error) {
+    if (document_ == nullptr) {
+      *error = "No PDF document is open";
+      return false;
+    }
+
+    const int count = get_page_count_(document_);
+    const int page_index = page_number - 1;
+    if (page_index < 0 || page_index >= count) {
+      *error = "Requested page is outside the document range";
+      return false;
+    }
+
+    FPDF_PAGE page = load_page_(document_, page_index);
+    if (page == nullptr) {
+      *error = "FPDF_LoadPage failed";
+      return false;
+    }
+
+    const double width = get_page_width_(page);
+    const double height = get_page_height_(page);
+    close_page_(page);
+    if (width <= 0.0 || height <= 0.0) {
+      *error = "PDFium returned invalid page dimensions";
+      return false;
+    }
+
+    *page_count = count;
+    *width_points = width;
+    *height_points = height;
+    return true;
   }
 
   bool Render(int page_number, int width, int height,
@@ -142,6 +179,7 @@ class PdfiumRuntime {
   using GetPageCountFn = int (*)(FPDF_DOCUMENT);
   using LoadPageFn = FPDF_PAGE (*)(FPDF_DOCUMENT, int);
   using ClosePageFn = void (*)(FPDF_PAGE);
+  using GetPageDimensionFn = double (*)(FPDF_PAGE);
   using BitmapCreateFn = FPDF_BITMAP (*)(int, int, int);
   using BitmapDestroyFn = void (*)(FPDF_BITMAP);
   using BitmapFillRectFn = void (*)(FPDF_BITMAP, int, int, int, int, uint32_t);
@@ -175,6 +213,8 @@ class PdfiumRuntime {
   GetPageCountFn get_page_count_ = nullptr;
   LoadPageFn load_page_ = nullptr;
   ClosePageFn close_page_ = nullptr;
+  GetPageDimensionFn get_page_width_ = nullptr;
+  GetPageDimensionFn get_page_height_ = nullptr;
   BitmapCreateFn bitmap_create_ = nullptr;
   BitmapDestroyFn bitmap_destroy_ = nullptr;
   BitmapFillRectFn bitmap_fill_rect_ = nullptr;
@@ -192,12 +232,6 @@ const std::string* GetString(const flutter::EncodableMap& map,
   auto it = map.find(flutter::EncodableValue(key));
   if (it == map.end()) return nullptr;
   return std::get_if<std::string>(&it->second);
-}
-
-const int32_t* GetInt32(const flutter::EncodableMap& map, const char* key) {
-  auto it = map.find(flutter::EncodableValue(key));
-  if (it == map.end()) return nullptr;
-  return std::get_if<int32_t>(&it->second);
 }
 
 int64_t GetInteger(const flutter::EncodableMap& map, const char* key,
@@ -238,6 +272,40 @@ void RegisterRenderCore2PdfiumChannel(flutter::BinaryMessenger* messenger) {
             return;
           }
           result->Success(flutter::EncodableValue(true));
+          return;
+        }
+
+        if (method == "getPageInfo") {
+          if (args == nullptr) {
+            result->Error("invalid_arguments", "Expected argument map");
+            return;
+          }
+          const int64_t page = GetInteger(*args, "pageNumber", -1);
+          if (page <= 0) {
+            result->Error("invalid_arguments", "Invalid page number");
+            return;
+          }
+
+          int page_count = 0;
+          double width_points = 0.0;
+          double height_points = 0.0;
+          std::string error;
+          if (!runtime->PageInfo(static_cast<int>(page), &page_count,
+                                 &width_points, &height_points, &error)) {
+            result->Error("pdfium_page_info_failed", error);
+            return;
+          }
+
+          flutter::EncodableMap payload;
+          payload[flutter::EncodableValue("pageNumber")] =
+              flutter::EncodableValue(static_cast<int32_t>(page));
+          payload[flutter::EncodableValue("pageCount")] =
+              flutter::EncodableValue(static_cast<int32_t>(page_count));
+          payload[flutter::EncodableValue("widthPoints")] =
+              flutter::EncodableValue(width_points);
+          payload[flutter::EncodableValue("heightPoints")] =
+              flutter::EncodableValue(height_points);
+          result->Success(flutter::EncodableValue(std::move(payload)));
           return;
         }
 
