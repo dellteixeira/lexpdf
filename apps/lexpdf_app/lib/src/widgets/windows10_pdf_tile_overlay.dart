@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/pdf/render_core2_scale_model.dart';
@@ -26,9 +27,9 @@ int? parseWindowsBuildNumber(String version) {
 
 /// Historical name retained to avoid broad workspace churn.
 ///
-/// Since Render Core 2 production integration this gate no longer enables the
-/// old Dart/ui.Image tile renderer. It enables the native PDFium -> Flutter
-/// Texture surface on physical Windows 10 hosts.
+/// On Windows 10 this enables the Render Core 2 replacement surface. Phase 7C
+/// deliberately uses a single supersampled full-page raster rather than the
+/// failed external-texture path or the legacy tiled composition path.
 bool isWindows10ManualTileRenderingEnabled() {
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return false;
 
@@ -37,7 +38,6 @@ bool isWindows10ManualTileRenderingEnabled() {
   if (nativeOverride == '1') return true;
   if (nativeOverride == '0') return false;
 
-  // Keep the old override compatible for existing diagnostic scripts.
   final legacyOverride =
       Platform.environment['LEXPDF_WINDOWS10_TILED_RENDERING'];
   if (legacyOverride == '1') return true;
@@ -47,13 +47,12 @@ bool isWindows10ManualTileRenderingEnabled() {
   return build != null && build >= 10240 && build < 22000;
 }
 
-/// Production Windows 10 PDF visual surface.
+/// Windows 10 production PDF visual surface.
 ///
-/// pdfrx remains responsible for document layout, navigation, links and text
-/// selection. The visible page pixels are supplied by an independent native
-/// PDFium texture rendered at pageRect logical pixels * DPR exactly once.
-/// No page-sized byte array is decoded into ui.Image and no RawImage path is
-/// used here.
+/// pdfrx remains responsible for layout/navigation/text-selection. The visible
+/// page is rendered as one complete bitmap, never as independently positioned
+/// tiles. The requested physical page size is computed from pageRect * DPR
+/// exactly once and then adaptively supersampled to improve low-zoom text.
 class Windows10PdfTileOverlay extends StatefulWidget {
   const Windows10PdfTileOverlay({
     required this.page,
@@ -72,17 +71,21 @@ class Windows10PdfTileOverlay extends StatefulWidget {
 }
 
 class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
-  static const MethodChannel _channel =
-      MethodChannel('lexpdf/render_core2_production_pdfium');
-  static const Duration _settleDelay = Duration(milliseconds: 35);
-  static int _nextTextureKey = 1;
+  static const Duration _settleDelay = Duration(milliseconds: 55);
+  static const int _maxRasterDimension = 8192;
+  static const bool _showDiagnosticBadge = bool.fromEnvironment(
+    'LEXPDF_RENDER_DIAGNOSTICS',
+    defaultValue: true,
+  );
 
-  late final int _textureKey = _nextTextureKey++;
   Timer? _settleTimer;
   int _generation = 0;
-  int? _textureId;
-  int? _pixelWidth;
-  int? _pixelHeight;
+  ui.Image? _image;
+  int? _sourceWidth;
+  int? _sourceHeight;
+  int? _targetWidth;
+  int? _targetHeight;
+  double? _supersample;
   String? _error;
 
   @override
@@ -101,8 +104,12 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
     }
     if (oldWidget.page != widget.page) {
       _generation++;
-      _pixelWidth = null;
-      _pixelHeight = null;
+      _disposeImage();
+      _sourceWidth = null;
+      _sourceHeight = null;
+      _targetWidth = null;
+      _targetHeight = null;
+      _supersample = null;
       _error = null;
     }
     _scheduleRefresh();
@@ -113,35 +120,29 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
     _generation++;
     _settleTimer?.cancel();
     widget.controller.removeListener(_scheduleRefresh);
-    unawaited(
-      _channel.invokeMethod<void>(
-        'disposeTexture',
-        <String, Object?>{'textureKey': _textureKey},
-      ),
-    );
+    _disposeImage();
     super.dispose();
   }
 
   void _scheduleRefresh() {
     if (!mounted || !widget.controller.isReady) return;
     _settleTimer?.cancel();
-    _settleTimer = Timer(_settleDelay, () => unawaited(_refreshNativeTexture()));
+    _settleTimer = Timer(_settleDelay, () => unawaited(_refreshFullPage()));
   }
 
-  Future<void> _refreshNativeTexture() async {
+  double _chooseSupersample(int targetWidth, int targetHeight) {
+    final longest = math.max(targetWidth, targetHeight);
+    if (longest <= 1800) return 2.0;
+    if (longest <= 3200) return 1.5;
+    return 1.0;
+  }
+
+  Future<void> _refreshFullPage() async {
     if (!mounted || !widget.controller.isReady) return;
+
     final pageRect = widget.pageRect;
     if (pageRect.width <= 0 || pageRect.height <= 0) return;
     if (!widget.controller.visibleRect.overlaps(pageRect)) return;
-
-    final sourceName = widget.page.document.sourceName;
-    if (sourceName.isEmpty || sourceName.startsWith('memory:') ||
-        sourceName.startsWith('asset:')) {
-      if (mounted) {
-        setState(() => _error = 'Render Core 2 requires a local PDF file path.');
-      }
-      return;
-    }
 
     final dpr = View.of(context).devicePixelRatio;
     final scaleModel = RenderCore2ScaleModel.fromViewerRect(
@@ -152,100 +153,123 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
       currentZoom: widget.controller.currentZoom,
       devicePixelRatio: dpr,
     );
-    final width = scaleModel.targetPixelWidth;
-    final height = scaleModel.targetPixelHeight;
-    if (width <= 0 || height <= 0 || width > 32768 || height > 32768) {
-      if (mounted) {
-        setState(() => _error = 'Physical raster outside safety bounds: ${width}x$height.');
-      }
-      return;
-    }
 
-    // Panning does not require another raster when physical dimensions are
-    // unchanged. Zoom/DPI/layout changes do.
-    if (_textureId != null &&
-        _pixelWidth == width &&
-        _pixelHeight == height &&
+    final targetWidth = scaleModel.targetPixelWidth;
+    final targetHeight = scaleModel.targetPixelHeight;
+    if (targetWidth <= 0 || targetHeight <= 0) return;
+
+    var supersample = _chooseSupersample(targetWidth, targetHeight);
+    final longestTarget = math.max(targetWidth, targetHeight);
+    if (longestTarget * supersample > _maxRasterDimension) {
+      supersample = _maxRasterDimension / longestTarget;
+    }
+    supersample = supersample.clamp(1.0, 2.0);
+
+    final renderWidth = math.max(1, (targetWidth * supersample).ceil());
+    final renderHeight = math.max(1, (targetHeight * supersample).ceil());
+
+    if (_image != null &&
+        _sourceWidth == renderWidth &&
+        _sourceHeight == renderHeight &&
+        _targetWidth == targetWidth &&
+        _targetHeight == targetHeight &&
         _error == null) {
       return;
     }
 
     final generation = ++_generation;
+    PdfImage? rendered;
     try {
-      final opened = await _channel.invokeMethod<bool>(
-        'ensureDocument',
-        <String, Object?>{'documentPath': sourceName},
-      );
-      if (opened != true || !mounted || generation != _generation) return;
+      await widget.page.ensureLoaded();
+      if (!mounted || generation != _generation) return;
 
-      _textureId ??= await _channel.invokeMethod<int>(
-        'createTexture',
-        <String, Object?>{'textureKey': _textureKey},
+      rendered = await widget.page.render(
+        width: renderWidth,
+        height: renderHeight,
+        fullWidth: renderWidth.toDouble(),
+        fullHeight: renderHeight.toDouble(),
+        backgroundColor: 0xFFFFFFFF,
+        flags: PdfPageRenderFlags.none,
       );
-      if (_textureId == null || !mounted || generation != _generation) return;
-
-      final result = await _channel.invokeMapMethod<String, Object?>(
-        'renderPageToTexture',
-        <String, Object?>{
-          'textureKey': _textureKey,
-          'pageNumber': widget.page.pageNumber,
-          'pixelWidth': width,
-          'pixelHeight': height,
-          'generation': generation,
-        },
-      );
-      if (!mounted || generation != _generation || result == null) return;
-
-      final textureId = result['textureId'];
-      final returnedWidth = result['width'];
-      final returnedHeight = result['height'];
-      final returnedGeneration = result['generation'];
-      if (textureId is! int ||
-          returnedWidth != width ||
-          returnedHeight != height ||
-          returnedGeneration != generation) {
-        throw StateError('Native renderer did not honor the physical-pixel contract.');
+      if (rendered == null || !mounted || generation != _generation) {
+        rendered?.dispose();
+        return;
       }
 
-      debugPrint(
-        '[LexPDF][RenderCore2][production] page=${widget.page.pageNumber} '
-        'zoom=${widget.controller.currentZoom.toStringAsFixed(4)} '
-        'dpr=${dpr.toStringAsFixed(3)} requested=${width}x$height '
-        'returned=${returnedWidth}x$returnedHeight texture=$textureId',
-      );
+      final decoded = await _decodeBgra(rendered);
+      rendered.dispose();
+      rendered = null;
+      if (!mounted || generation != _generation) {
+        decoded.dispose();
+        return;
+      }
+
+      final previous = _image;
       setState(() {
-        _textureId = textureId;
-        _pixelWidth = width;
-        _pixelHeight = height;
+        _image = decoded;
+        _sourceWidth = renderWidth;
+        _sourceHeight = renderHeight;
+        _targetWidth = targetWidth;
+        _targetHeight = targetHeight;
+        _supersample = supersample;
         _error = null;
       });
+      previous?.dispose();
+
+      debugPrint(
+        '[LexPDF][RenderCore2][fullpage] page=${widget.page.pageNumber} '
+        'zoom=${widget.controller.currentZoom.toStringAsFixed(4)} '
+        'dpr=${dpr.toStringAsFixed(3)} target=${targetWidth}x$targetHeight '
+        'render=${renderWidth}x$renderHeight ss=${supersample.toStringAsFixed(2)}',
+      );
     } catch (error) {
-      debugPrint('[LexPDF][RenderCore2][production] ERROR $error');
+      rendered?.dispose();
+      debugPrint('[LexPDF][RenderCore2][fullpage] ERROR $error');
       if (mounted && generation == _generation) {
         setState(() => _error = '$error');
       }
     }
   }
 
+  Future<ui.Image> _decodeBgra(PdfImage rendered) {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      rendered.pixels,
+      rendered.width,
+      rendered.height,
+      ui.PixelFormat.bgra8888,
+      completer.complete,
+      rowBytes: rendered.width * 4,
+    );
+    return completer.future;
+  }
+
+  void _disposeImage() {
+    _image?.dispose();
+    _image = null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final image = _image;
     return IgnorePointer(
       child: ColoredBox(
-        // Fail closed: never reveal the known-bad pdfrx backing raster on
-        // Windows 10. If native rendering fails, show an explicit error.
         color: Colors.white,
         child: _error != null
             ? Center(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Text(
-                    'Render Core 2: $_error',
+                    'Render Core 2 full-page: $_error',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               )
-            : _textureId == null
+            : image == null
                 ? const Center(
                     child: SizedBox.square(
                       dimension: 18,
@@ -255,17 +279,18 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
                 : Stack(
                     fit: StackFit.expand,
                     children: [
-                      Texture(
-                        textureId: _textureId!,
-                        filterQuality: FilterQuality.none,
+                      RawImage(
+                        image: image,
+                        fit: BoxFit.fill,
+                        filterQuality: FilterQuality.high,
                       ),
-                      if (kDebugMode)
+                      if (_showDiagnosticBadge)
                         Positioned(
                           right: 4,
                           top: 4,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.72),
+                              color: Colors.black.withValues(alpha: 0.76),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Padding(
@@ -274,7 +299,9 @@ class _Windows10PdfTileOverlayState extends State<Windows10PdfTileOverlay> {
                                 vertical: 2,
                               ),
                               child: Text(
-                                'RC2 native ${_pixelWidth ?? '-'}×${_pixelHeight ?? '-'}',
+                                'RC2 fullpage ${_sourceWidth ?? '-'}×${_sourceHeight ?? '-'} '
+                                '→ ${_targetWidth ?? '-'}×${_targetHeight ?? '-'} '
+                                '${(_supersample ?? 1).toStringAsFixed(2)}x',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 9,
