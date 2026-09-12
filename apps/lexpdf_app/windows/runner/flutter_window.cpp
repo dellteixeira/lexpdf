@@ -55,6 +55,7 @@ bool FlutterWindow::OnCreate() {
   // through pdfrx, PDFium, ui.Image, Flutter Texture, Skia, or Impeller.
   RegisterWindowsNativePdfSurfaceChannel(
       render_core2_registrar_->messenger(),
+      GetHandle(),
       flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

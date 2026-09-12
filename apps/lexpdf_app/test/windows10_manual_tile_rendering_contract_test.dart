@@ -57,7 +57,9 @@ void main() {
     expect(nativeRunner, contains('Windows::Data::Pdf::PdfDocument'));
     expect(nativeRunner, contains('RenderToStreamAsync'));
     expect(nativeRunner, contains('GUID_WICPixelFormat32bppBGRA'));
-    expect(nativeRunner, contains('StretchDIBits'));
+    expect(nativeRunner, contains('SetDIBitsToDevice'));
+    expect(nativeRunner, isNot(contains('StretchDIBits')));
+    expect(nativeRunner, contains('MapWindowPoints'));
     expect(nativeRunner, contains('WINPDF NATIVE'));
     expect(nativeRunner, isNot(contains('FPDF_RenderPageBitmap')));
     expect(nativeRunner, isNot(contains('FlutterDesktopPixelBuffer')));
@@ -66,6 +68,7 @@ void main() {
       flutterWindow,
       contains('RegisterWindowsNativePdfSurfaceChannel'),
     );
+    expect(flutterWindow, contains('GetHandle()'));
     expect(cmake, contains('windows_native_pdf_surface.cpp'));
     expect(cmake, contains('windowsapp.lib'));
     expect(cmake, contains('windowscodecs.lib'));
