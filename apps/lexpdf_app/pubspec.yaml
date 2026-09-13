@@ -13,7 +13,8 @@ dependencies:
   crypto: ^3.0.7
   dart_pdf_reader: ^2.2.0
   file_selector: ^1.1.0
-  fluent_editor: 1.1.0
+  fluent_editor:
+    path: ../../third_party/fluent_editor
   flutter_secure_storage: 10.3.1
   flutter_web_auth_2: ^5.1.0
   google_mlkit_text_recognition: ^0.17.1
@@ -31,11 +32,6 @@ dependencies:
   url_launcher: ^6.3.2
 
 dependency_overrides:
-  # fluent_editor 1.1.0 still declares archive ^3.6.1, but its public ZIP
-  # usage remains source-compatible with archive 4. The rest of LexPDF's
-  # current PDF stack (pdf_cos/pdf_document 4.x) requires archive 4 APIs.
-  # Keep one archive runtime across the application and validate it in CI.
-  archive: 4.3.0
   pdfrx: ^2.6.1
 
 dev_dependencies:
