@@ -18,6 +18,7 @@ void main() {
     expect(screen, contains('TransformationController'));
     expect(screen, contains('NotebookZoomControls('));
     expect(screen, contains('NotebookEditorToolbar('));
+    expect(screen, contains('_buildTextFormattingToolbar()'));
     expect(chrome, contains("tooltip: 'Aumentar zoom'"));
     expect(chrome, contains("tooltip: 'Diminuir zoom'"));
     expect(chrome, contains("tooltip: 'Ajustar página'"));
@@ -34,15 +35,11 @@ void main() {
     expect(toolbar, isNot(contains('thumbVisibility: true')));
     expect(toolbar, isNot(contains('trackVisibility: true')));
 
-    // Selection is reserved for editable objects and is explicitly disabled
-    // while Hand mode owns page panning. These checks intentionally validate
-    // behavior tokens instead of depending on one-line source formatting.
-    expect(screen, contains('enabled: _pointerMode &&'));
-    expect(screen, contains('!_handMode &&'));
-    expect(screen, contains('_canEditActiveLayer,'));
-    expect(screen, contains('ignoring: !_canEditActiveLayer ||'));
-    expect(screen, contains('_pointerMode ||'));
-    expect(screen, contains('_handMode,'));
+    // Selection remains exclusive with Hand navigation. Text editing uses the
+    // same object layer and therefore keeps these ownership rules intact.
+    expect(screen, contains('_pointerMode && !_handMode && _canEditActiveLayer'));
+    expect(screen, contains('ignoring:'));
+    expect(screen, contains('!_canEditActiveLayer || _pointerMode || _handMode'));
     expect(screen, contains('panEnabled: _handMode'));
     expect(screen, contains('scaleEnabled: _handMode'));
   });

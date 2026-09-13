@@ -45,7 +45,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
   static const _sqliteHeader = <int>[
     0x53,
     0x51,
@@ -77,7 +77,8 @@ class LocalDatabase {
 
   static void _requireCipher(Database db) {
     final rows = db.select('PRAGMA cipher_version;');
-    if (rows.isEmpty || rows.first.values.first?.toString().trim().isEmpty != false) {
+    if (rows.isEmpty ||
+        rows.first.values.first?.toString().trim().isEmpty != false) {
       throw StateError(
         'SQLCipher não está disponível; o LexPDF se recusa a abrir o banco local sem criptografia.',
       );
@@ -91,7 +92,8 @@ class LocalDatabase {
 
   static bool _hasPlaintextHeader(String path) {
     final file = File(path);
-    if (!file.existsSync() || file.lengthSync() < _sqliteHeader.length) return false;
+    if (!file.existsSync() || file.lengthSync() < _sqliteHeader.length)
+      return false;
     final handle = file.openSync();
     try {
       final header = handle.readSync(_sqliteHeader.length);
@@ -127,7 +129,9 @@ class LocalDatabase {
       );
       try {
         source.select("SELECT sqlcipher_export('encrypted');");
-        source.execute('PRAGMA encrypted.user_version = ${source.userVersion};');
+        source.execute(
+          'PRAGMA encrypted.user_version = ${source.userVersion};',
+        );
       } finally {
         source.execute('DETACH DATABASE encrypted;');
       }
@@ -201,8 +205,12 @@ class LocalDatabase {
             last_opened_at TEXT
           );
         ''');
-        database.execute('CREATE INDEX documents_updated_idx ON documents(updated_at DESC);');
-        database.execute('CREATE INDEX documents_provider_idx ON documents(provider, provider_file_id);');
+        database.execute(
+          'CREATE INDEX documents_updated_idx ON documents(updated_at DESC);',
+        );
+        database.execute(
+          'CREATE INDEX documents_provider_idx ON documents(provider, provider_file_id);',
+        );
         database.execute('''
           CREATE TABLE reading_progress (
             document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
@@ -213,8 +221,13 @@ class LocalDatabase {
             updated_at TEXT NOT NULL
           );
         ''');
-        database.execute('CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
-        database.execute('INSERT INTO app_metadata(key, value) VALUES (?, ?);', ['schema_version', '1']);
+        database.execute(
+          'CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);',
+        );
+        database.execute(
+          'INSERT INTO app_metadata(key, value) VALUES (?, ?);',
+          ['schema_version', '1'],
+        );
         database.userVersion = 1;
         database.execute('COMMIT;');
         version = 1;
@@ -227,9 +240,16 @@ class LocalDatabase {
     if (version < 2) {
       database.execute('BEGIN IMMEDIATE;');
       try {
-        database.execute('ALTER TABLE documents ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;');
-        database.execute('CREATE INDEX documents_favorite_idx ON documents(is_favorite, COALESCE(last_opened_at, updated_at) DESC);');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['2', 'schema_version']);
+        database.execute(
+          'ALTER TABLE documents ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;',
+        );
+        database.execute(
+          'CREATE INDEX documents_favorite_idx ON documents(is_favorite, COALESCE(last_opened_at, updated_at) DESC);',
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '2',
+          'schema_version',
+        ]);
         database.userVersion = 2;
         database.execute('COMMIT;');
         version = 2;
@@ -257,8 +277,13 @@ class LocalDatabase {
             updated_at TEXT NOT NULL
           );
         ''');
-        database.execute('CREATE INDEX annotations_document_page_idx ON annotations(document_id, page_number);');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['3', 'schema_version']);
+        database.execute(
+          'CREATE INDEX annotations_document_page_idx ON annotations(document_id, page_number);',
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '3',
+          'schema_version',
+        ]);
         database.userVersion = 3;
         database.execute('COMMIT;');
         version = 3;
@@ -304,8 +329,13 @@ class LocalDatabase {
             created_at TEXT NOT NULL
           );
         ''');
-        database.execute('CREATE INDEX ink_strokes_page_idx ON ink_strokes(page_id, created_at);');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['4', 'schema_version']);
+        database.execute(
+          'CREATE INDEX ink_strokes_page_idx ON ink_strokes(page_id, created_at);',
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '4',
+          'schema_version',
+        ]);
         database.userVersion = 4;
         database.execute('COMMIT;');
         version = 4;
@@ -335,7 +365,10 @@ class LocalDatabase {
           CREATE INDEX pdf_ink_strokes_document_page_idx
           ON pdf_ink_strokes(document_id, page_number, created_at);
         ''');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['5', 'schema_version']);
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '5',
+          'schema_version',
+        ]);
         database.userVersion = 5;
         database.execute('COMMIT;');
         version = 5;
@@ -372,7 +405,10 @@ class LocalDatabase {
           CREATE INDEX notebook_objects_page_idx
           ON notebook_objects(page_id, created_at);
         ''');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['6', 'schema_version']);
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '6',
+          'schema_version',
+        ]);
         database.userVersion = 6;
         database.execute('COMMIT;');
         version = 6;
@@ -409,7 +445,10 @@ class LocalDatabase {
           CREATE INDEX pdf_annotation_objects_document_page_idx
           ON pdf_annotation_objects(document_id, page_number, created_at);
         ''');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['7', 'schema_version']);
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '7',
+          'schema_version',
+        ]);
         database.userVersion = 7;
         database.execute('COMMIT;');
         version = 7;
@@ -454,21 +493,30 @@ class LocalDatabase {
         ''');
 
         final now = DateTime.now().toUtc().toIso8601String();
-        database.execute('''
+        database.execute(
+          '''
           INSERT INTO notebook_layers(
             id, page_id, name, sort_order, is_visible, is_locked, created_at, updated_at
           )
           SELECT 'layer-' || id, id, 'Camada 1', 0, 1, 0, ?, ?
           FROM notebook_pages;
-        ''', [now, now]);
-        database.execute('''
+        ''',
+          [now, now],
+        );
+        database.execute(
+          '''
           INSERT INTO notebook_layer_items(layer_id, item_type, item_id, created_at)
           SELECT 'layer-' || page_id, 'stroke', id, ? FROM ink_strokes;
-        ''', [now]);
-        database.execute('''
+        ''',
+          [now],
+        );
+        database.execute(
+          '''
           INSERT INTO notebook_layer_items(layer_id, item_type, item_id, created_at)
           SELECT 'layer-' || page_id, 'object', id, ? FROM notebook_objects;
-        ''', [now]);
+        ''',
+          [now],
+        );
         database.execute('''
           CREATE TRIGGER notebook_layer_items_cleanup_stroke
           AFTER DELETE ON ink_strokes
@@ -485,8 +533,38 @@ class LocalDatabase {
             WHERE item_type = 'object' AND item_id = OLD.id;
           END;
         ''');
-        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', ['8', 'schema_version']);
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '8',
+          'schema_version',
+        ]);
         database.userVersion = 8;
+        database.execute('COMMIT;');
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 9) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute(
+          'ALTER TABLE notebook_objects ADD COLUMN font_family TEXT;',
+        );
+        database.execute(
+          'ALTER TABLE notebook_objects ADD COLUMN font_bold INTEGER NOT NULL DEFAULT 0 CHECK(font_bold IN (0, 1));',
+        );
+        database.execute(
+          'ALTER TABLE notebook_objects ADD COLUMN font_italic INTEGER NOT NULL DEFAULT 0 CHECK(font_italic IN (0, 1));',
+        );
+        database.execute(
+          'ALTER TABLE notebook_objects ADD COLUMN font_underline INTEGER NOT NULL DEFAULT 0 CHECK(font_underline IN (0, 1));',
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '9',
+          'schema_version',
+        ]);
+        database.userVersion = 9;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');

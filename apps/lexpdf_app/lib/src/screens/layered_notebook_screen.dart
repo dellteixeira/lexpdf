@@ -73,6 +73,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _rulerMode = false;
   double _zoom = 1.0;
   String? _selectedObjectId;
+  String? _editingTextObjectId;
   bool _suppressMutationHistory = false;
 
   static const _palette = <int>[
@@ -215,11 +216,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   NotebookPageSnapshot _captureSnapshot() => NotebookPageSnapshot.capture(
-        strokes: _snapshotStrokes(),
-        objects: _allObjects,
-        strokeLayerIds: _strokeLayerIds,
-        objectLayerIds: _objectLayerIds,
-      );
+    strokes: _snapshotStrokes(),
+    objects: _allObjects,
+    strokeLayerIds: _strokeLayerIds,
+    objectLayerIds: _objectLayerIds,
+  );
 
   void _recordHistory() {
     if (_suppressMutationHistory || _currentPage == null) return;
@@ -393,6 +394,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
               const Divider(height: 1),
               _buildLayerStatus(),
               _buildToolbar(),
+              if (_editingTextObjectId != null ||
+                  _selectedObject?.type == NotebookObjectType.text)
+                _buildTextFormattingToolbar(),
               const Divider(height: 1),
               Expanded(child: _buildPageViewport(page)),
             ],
@@ -417,8 +421,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
               scaleEnabled: _handMode,
               boundaryMargin: const EdgeInsets.all(220),
               onInteractionEnd: (_) {
-                final scale =
-                    _pageTransformController.value.getMaxScaleOnAxis();
+                final scale = _pageTransformController.value
+                    .getMaxScaleOnAxis();
                 if (mounted) {
                   setState(() => _zoom = scale.clamp(0.25, 4.0));
                 }
@@ -450,9 +454,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           onSelectionChanged: (_) {},
                         ),
                         IgnorePointer(
-                          ignoring: !_canEditActiveLayer ||
-                              _pointerMode ||
-                              _handMode,
+                          ignoring:
+                              !_canEditActiveLayer || _pointerMode || _handMode,
                           child: InkCanvas(
                             key: _canvasKey,
                             initialStrokes: _activeLayer?.isVisible == true
@@ -480,12 +483,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           objects: _activeLayer?.isVisible == true
                               ? _activeObjects
                               : const [],
-                          enabled: _pointerMode &&
-                              !_handMode &&
-                              _canEditActiveLayer,
+                          enabled:
+                              _pointerMode && !_handMode && _canEditActiveLayer,
                           selectedId: _selectedObjectId,
                           onObjectChanged: _onObjectChanged,
                           onObjectDoubleTap: _handleObjectDoubleTap,
+                          editingTextId: _editingTextObjectId,
+                          onTextChanged: _onTextObjectLiveChanged,
+                          onTextEditingComplete: _finishTextEditing,
                           onSelectionChanged: (id) {
                             if (!mounted) return;
                             setState(() => _selectedObjectId = id);
@@ -504,9 +509,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
               left: 16,
               bottom: 16,
               child: Material(
-                color: Theme.of(context).colorScheme.surface.withValues(
-                      alpha: 0.94,
-                    ),
+                color: Theme.of(context).colorScheme.surface
+                    .withValues(alpha: 0.94),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(
@@ -514,8 +518,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   ),
                 ),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
                   child: Text(
                     _selectedObjectId == null
                         ? 'Selecionar: clique em um objeto ou texto'
@@ -548,18 +554,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _setZoom(double value) {
     final next = value.clamp(0.25, 4.0);
-    final renderObject =
-        _pageViewportKey.currentContext?.findRenderObject();
+    final renderObject = _pageViewportKey.currentContext?.findRenderObject();
     if (renderObject is RenderBox && renderObject.hasSize) {
       final viewportCenter = renderObject.size.center(Offset.zero);
       final sceneCenter = _pageTransformController.toScene(viewportCenter);
       final matrix = Matrix4.identity()
         ..multiply(
-          Matrix4.translationValues(
-            viewportCenter.dx,
-            viewportCenter.dy,
-            0,
-          ),
+          Matrix4.translationValues(viewportCenter.dx, viewportCenter.dy, 0),
         )
         ..multiply(Matrix4.diagonal3Values(next, next, 1))
         ..multiply(
@@ -567,8 +568,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         );
       _pageTransformController.value = matrix;
     } else {
-      _pageTransformController.value =
-          Matrix4.diagonal3Values(next, next, 1);
+      _pageTransformController.value = Matrix4.diagonal3Values(next, next, 1);
     }
     if (mounted) setState(() => _zoom = next);
   }
@@ -599,10 +599,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(
-              context,
-              int.tryParse(controller.text.trim()),
-            ),
+            onPressed: () =>
+                Navigator.pop(context, int.tryParse(controller.text.trim())),
             child: const Text('Aplicar'),
           ),
         ],
@@ -643,15 +641,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onDuplicatePage: _currentPage == null
           ? null
           : () => unawaited(_duplicatePage()),
-      onMovePageLeft: pageIndex > 0
-          ? () => unawaited(_movePage(-1))
-          : null,
+      onMovePageLeft: pageIndex > 0 ? () => unawaited(_movePage(-1)) : null,
       onMovePageRight: pageIndex >= 0 && pageIndex < _pages.length - 1
           ? () => unawaited(_movePage(1))
           : null,
-      onDeletePage: _pages.length > 1
-          ? () => unawaited(_deletePage())
-          : null,
+      onDeletePage: _pages.length > 1 ? () => unawaited(_deletePage()) : null,
       onBackgroundChanged: (value) => unawaited(_setBackground(value)),
     );
   }
@@ -660,10 +654,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _pages.indexWhere((item) => item.id == _currentPage?.id);
 
   double get _effectiveWidth => switch (_tool) {
-        InkTool.pen => _width,
-        InkTool.pencil => _width * 0.8,
-        InkTool.highlighter => _width * 5,
-      };
+    InkTool.pen => _width,
+    InkTool.pencil => _width * 0.8,
+    InkTool.highlighter => _width * 5,
+  };
 
   NotebookObject? get _selectedObject {
     final id = _selectedObjectId;
@@ -762,7 +756,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onRotateObjectLeft: () => _rotateSelectedObject(-_rotationStep),
       onRotateObjectRight: () => _rotateSelectedObject(_rotationStep),
       onEditTextObject: () {
-        if (selectedObject != null) unawaited(_editTextObject(selectedObject));
+        if (selectedObject != null) _beginTextEditing(selectedObject);
       },
       onDeleteSelectedObject: () => unawaited(_deleteSelectedObject()),
       onRulerModeChanged: (value) => setState(() => _rulerMode = value),
@@ -814,8 +808,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     await widget.inkStore.deleteStroke(stroke.id);
     if (!mounted) return;
     setState(() {
-      _allStrokes =
-          _allStrokes.where((item) => item.id != stroke.id).toList();
+      _allStrokes = _allStrokes.where((item) => item.id != stroke.id).toList();
       _strokeLayerIds = {..._strokeLayerIds}..remove(stroke.id);
     });
   }
@@ -1174,13 +1167,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   String _backgroundLabel(InkPageBackground value) => switch (value) {
-        InkPageBackground.blank => 'Branco',
-        InkPageBackground.ruled => 'Pautado',
-        InkPageBackground.grid => 'Quadriculado',
-        InkPageBackground.dotted => 'Pontilhado',
-        InkPageBackground.cornell => 'Cornell',
-        InkPageBackground.planner => 'Planner',
-      };
+    InkPageBackground.blank => 'Branco',
+    InkPageBackground.ruled => 'Pautado',
+    InkPageBackground.grid => 'Quadriculado',
+    InkPageBackground.dotted => 'Pontilhado',
+    InkPageBackground.cornell => 'Cornell',
+    InkPageBackground.planner => 'Planner',
+  };
 
   Future<void> _persistNewObject(NotebookObject object) async {
     final layer = _activeLayer;
@@ -1223,58 +1216,34 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _addText() async {
     final page = _currentPage;
     if (page == null || !_canEditActiveLayer) return;
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Inserir texto'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 5,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Inserir'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (value == null || value.trim().isEmpty) return;
     _recordHistory();
     final now = DateTime.now().toUtc();
-    await _persistNewObject(
-      NotebookObject(
-        id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
-        pageId: page.id,
-        type: NotebookObjectType.text,
-        x: 80,
-        y: 80,
-        width: 260,
-        height: 100,
-        rotation: 0,
-        colorValue: _colorValue,
-        strokeWidth: 1,
-        textValue: value.trim(),
-        fontSize: 20,
-        createdAt: now,
-        updatedAt: now,
-      ),
+    final object = NotebookObject(
+      id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
+      pageId: page.id,
+      type: NotebookObjectType.text,
+      x: 80,
+      y: 80,
+      width: math.min(520.0, math.max(300.0, page.width - 160)),
+      height: 180,
+      rotation: 0,
+      colorValue: _colorValue,
+      strokeWidth: 1,
+      textValue: '',
+      fontSize: 20,
+      createdAt: now,
+      updatedAt: now,
     );
-    if (mounted) {
-      setState(() {
-        _pointerMode = true;
-        _handMode = false;
-        _eraserMode = false;
-        _lassoMode = false;
-      });
-    }
+    await _persistNewObject(object);
+    if (!mounted) return;
+    setState(() {
+      _pointerMode = true;
+      _handMode = false;
+      _eraserMode = false;
+      _lassoMode = false;
+      _selectedObjectId = object.id;
+      _editingTextObjectId = object.id;
+    });
   }
 
   Future<void> _addImage() async {
@@ -1320,37 +1289,235 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   void _handleObjectDoubleTap(NotebookObject object) {
     if (object.type == NotebookObjectType.text && _canEditActiveLayer) {
-      unawaited(_editTextObject(object));
+      _beginTextEditing(object);
     }
   }
 
-  Future<void> _editTextObject(NotebookObject object) async {
-    final controller = TextEditingController(text: object.textValue ?? '');
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar texto'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 5,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Salvar'),
-          ),
-        ],
+  void _beginTextEditing(NotebookObject object) {
+    if (!_canEditActiveLayer || object.type != NotebookObjectType.text) return;
+    if (_editingTextObjectId != object.id) _recordHistory();
+    setState(() {
+      _selectedObjectId = object.id;
+      _editingTextObjectId = object.id;
+      _pointerMode = true;
+      _handMode = false;
+      _eraserMode = false;
+      _lassoMode = false;
+    });
+  }
+
+  void _onTextObjectLiveChanged(NotebookObject object) {
+    final index = _allObjects.indexWhere((item) => item.id == object.id);
+    if (index < 0 || !_canEditActiveLayer) return;
+    final next = [..._allObjects]..[index] = object;
+    setState(() => _allObjects = next);
+    unawaited(_objectStore.upsert(object));
+  }
+
+  void _finishTextEditing(NotebookObject object) {
+    _onTextObjectLiveChanged(object);
+    if (!mounted) return;
+    setState(() => _editingTextObjectId = null);
+  }
+
+  void _setSelectedTextStyle({
+    bool? bold,
+    bool? italic,
+    bool? underline,
+    double? fontSize,
+    String? fontFamily,
+    bool clearFontFamily = false,
+    int? colorValue,
+  }) {
+    final object = _selectedObject;
+    if (object == null || object.type != NotebookObjectType.text) return;
+    _onObjectChanged(
+      object.copyWith(
+        fontBold: bold,
+        fontItalic: italic,
+        fontUnderline: underline,
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        clearFontFamily: clearFontFamily,
+        colorValue: colorValue,
+        updatedAt: DateTime.now().toUtc(),
       ),
     );
-    controller.dispose();
-    if (value == null) return;
-    _onObjectChanged(
-      object.copyWith(textValue: value, updatedAt: DateTime.now().toUtc()),
+  }
+
+  Widget _buildTextFormattingToolbar() {
+    final object = _selectedObject;
+    if (object == null || object.type != NotebookObjectType.text) {
+      return const SizedBox.shrink();
+    }
+    const fontSizes = <double>[12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
+    const fonts = <String, String?>{
+      'Padrão': null,
+      'Arial': 'Arial',
+      'Roboto': 'Roboto',
+      'Serif': 'serif',
+      'Monoespaçada': 'monospace',
+    };
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: SizedBox(
+        height: 52,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          children: [
+            IconButton(
+              tooltip: 'Editar texto na folha',
+              isSelected: _editingTextObjectId == object.id,
+              onPressed: () => _beginTextEditing(object),
+              icon: const Icon(Icons.text_fields),
+            ),
+            const VerticalDivider(width: 12),
+            SizedBox(
+              width: 150,
+              child: DropdownButtonFormField<String>(
+                key: ValueKey('font-${object.fontFamily}'),
+                initialValue: fonts.entries
+                    .firstWhere(
+                      (entry) => entry.value == object.fontFamily,
+                      orElse: () => fonts.entries.first,
+                    )
+                    .key,
+                decoration: const InputDecoration(
+                  labelText: 'Fonte',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                ),
+                items: fonts.keys
+                    .map(
+                      (label) =>
+                          DropdownMenuItem(value: label, child: Text(label)),
+                    )
+                    .toList(growable: false),
+                onChanged: (label) {
+                  if (label == null) return;
+                  final family = fonts[label];
+                  _setSelectedTextStyle(
+                    fontFamily: family,
+                    clearFontFamily: family == null,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 92,
+              child: DropdownButtonFormField<double>(
+                key: ValueKey('size-${object.fontSize}'),
+                initialValue: fontSizes.contains(object.fontSize ?? 20)
+                    ? (object.fontSize ?? 20)
+                    : 20,
+                decoration: const InputDecoration(
+                  labelText: 'Tamanho',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                ),
+                items: fontSizes
+                    .map(
+                      (size) => DropdownMenuItem(
+                        value: size,
+                        child: Text(size.toInt().toString()),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (size) {
+                  if (size != null) _setSelectedTextStyle(fontSize: size);
+                },
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Negrito',
+              isSelected: object.fontBold,
+              onPressed: () => _setSelectedTextStyle(bold: !object.fontBold),
+              icon: const Icon(Icons.format_bold),
+            ),
+            IconButton(
+              tooltip: 'Itálico',
+              isSelected: object.fontItalic,
+              onPressed: () =>
+                  _setSelectedTextStyle(italic: !object.fontItalic),
+              icon: const Icon(Icons.format_italic),
+            ),
+            IconButton(
+              tooltip: 'Sublinhado',
+              isSelected: object.fontUnderline,
+              onPressed: () =>
+                  _setSelectedTextStyle(underline: !object.fontUnderline),
+              icon: const Icon(Icons.format_underline),
+            ),
+            PopupMenuButton<int>(
+              tooltip: 'Cor da fonte',
+              icon: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  const Icon(Icons.format_color_text),
+                  Container(
+                    width: 22,
+                    height: 4,
+                    color: Color(object.colorValue),
+                  ),
+                ],
+              ),
+              itemBuilder: (_) => _palette
+                  .map(
+                    (value) => PopupMenuItem<int>(
+                      value: value,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: Color(value),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black26),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            value == object.colorValue
+                                ? 'Selecionada'
+                                : 'Usar cor',
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+              onSelected: (value) => _setSelectedTextStyle(colorValue: value),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: _editingTextObjectId == object.id
+                  ? () {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      setState(() => _editingTextObjectId = null);
+                    }
+                  : () => _beginTextEditing(object),
+              icon: Icon(
+                _editingTextObjectId == object.id ? Icons.check : Icons.edit,
+              ),
+              label: Text(
+                _editingTextObjectId == object.id ? 'Concluir' : 'Editar',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1499,12 +1666,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _runCanvasMutation(() => _canvasKey.currentState?.scaleSelected(factor));
 
   void _rotateSelection(double angleRadians) => _runCanvasMutation(
-        () => _canvasKey.currentState?.rotateSelected(angleRadians),
-      );
+    () => _canvasKey.currentState?.rotateSelected(angleRadians),
+  );
 
   void _adjustSelectionWidth(double factor) => _runCanvasMutation(
-        () => _canvasKey.currentState?.adjustSelectedWidth(factor),
-      );
+    () => _canvasKey.currentState?.adjustSelectedWidth(factor),
+  );
 
   void _setSelectionColor(int colorValue) {
     if (!_canEditActiveLayer) return;
@@ -1565,10 +1732,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _allStrokes =
-          _allStrokes.where((s) => !strokeIds.contains(s.id)).toList();
-      _allObjects =
-          _allObjects.where((o) => !objectIds.contains(o.id)).toList();
+      _allStrokes = _allStrokes
+          .where((s) => !strokeIds.contains(s.id))
+          .toList();
+      _allObjects = _allObjects
+          .where((o) => !objectIds.contains(o.id))
+          .toList();
       _strokeLayerIds = {..._strokeLayerIds}
         ..removeWhere((k, v) => v == layer.id);
       _objectLayerIds = {..._objectLayerIds}
