@@ -20,9 +20,27 @@ class NotebookRichDocumentSurface extends StatefulWidget {
 class _NotebookRichDocumentSurfaceState
     extends State<NotebookRichDocumentSurface> {
   @override
+  void initState() {
+    super.initState();
+    widget.document.registry.attach(widget.document);
+    if (widget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.document.requestEditorFocus();
+      });
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant NotebookRichDocumentSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.enabled == widget.enabled) return;
+    if (!identical(oldWidget.document, widget.document)) {
+      oldWidget.document.registry.detach(oldWidget.document);
+      widget.document.registry.attach(widget.document);
+    }
+    if (oldWidget.enabled == widget.enabled &&
+        identical(oldWidget.document, widget.document)) {
+      return;
+    }
     if (widget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) widget.document.requestEditorFocus();
@@ -30,6 +48,12 @@ class _NotebookRichDocumentSurfaceState
     } else {
       widget.document.editorFocusNode.unfocus();
     }
+  }
+
+  @override
+  void dispose() {
+    widget.document.registry.detach(widget.document);
+    super.dispose();
   }
 
   @override
