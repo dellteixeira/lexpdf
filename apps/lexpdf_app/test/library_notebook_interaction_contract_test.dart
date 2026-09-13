@@ -11,9 +11,15 @@ void main() {
     expect(library, contains('Documentos da biblioteca'));
     expect(library, contains("'Clique para abrir em Trabalhar com PDF'"));
     expect(library, contains('final canOpen = _hasLocalPath(document);'));
-    expect(library, contains('onTap: canOpen ? () => _openWorkspaceDocument(document) : null'));
+    expect(
+      library,
+      contains('onTap: canOpen ? () => _openWorkspaceDocument(document) : null'),
+    );
     expect(library, contains('builder: (_) => PdfWorkspaceScreen('));
-    expect(documentRef, contains('provider == DocumentProviderKind.local ? id : null'));
+    expect(
+      documentRef,
+      contains('provider == DocumentProviderKind.local ? id : null'),
+    );
   });
 
   test('notebook select exposes direct object editing actions', () {
@@ -34,12 +40,17 @@ void main() {
     expect(screen, contains('_setSelectedObjectWidth(value)'));
     expect(screen, contains('_setSelectedObjectColor(value)'));
     expect(screen, contains('_deleteSelectedObject()'));
-    expect(screen, contains('_editTextObject(selectedObject)'));
+    expect(screen, contains('_beginTextEditing(selectedObject)'));
+    expect(screen, contains('_buildTextFormattingToolbar()'));
     expect(toolbar, contains('objectSelected: selectedObject != null'));
     expect(toolbar, contains('onPointerModeChanged(true)'));
     expect(objectControls, contains("tooltip: 'Duplicar objeto selecionado'"));
     expect(objectControls, contains("label: const Text('Excluir')"));
-    expect(objectLayer, contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'));
+    expect(
+      objectLayer,
+      contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'),
+    );
+    expect(objectLayer, contains('_InlineNotebookTextEditor'));
     expect(objectLayer, contains('enum _ResizeHandle'));
     expect(styleControls, contains("'Espessura do objeto'"));
   });
@@ -49,8 +60,18 @@ void main() {
         .readAsStringSync();
 
     expect(objectLayer, contains('final y = size.height / 2;'));
-    expect(objectLayer, contains('canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke)'));
-    expect(objectLayer, isNot(contains('canvas.drawLine(Offset.zero, Offset(size.width, size.height), stroke)')));
+    expect(
+      objectLayer,
+      contains('canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke)'),
+    );
+    expect(
+      objectLayer,
+      isNot(
+        contains(
+          'canvas.drawLine(Offset.zero, Offset(size.width, size.height), stroke)',
+        ),
+      ),
+    );
   });
 
   test('notebook numeric zoom preserves the viewport center', () {
