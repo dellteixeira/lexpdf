@@ -45,7 +45,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
   static const _sqliteHeader = <int>[
     0x53,
     0x51,
@@ -583,6 +583,30 @@ class LocalDatabase {
           'schema_version',
         ]);
         database.userVersion = 10;
+        database.execute('COMMIT;');
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 11) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute('''
+          CREATE TABLE notebook_page_documents (
+            page_id TEXT PRIMARY KEY REFERENCES notebook_pages(id) ON DELETE CASCADE,
+            document_json TEXT NOT NULL,
+            migrated_legacy_text INTEGER NOT NULL DEFAULT 0 CHECK(migrated_legacy_text IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        ''');
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '11',
+          'schema_version',
+        ]);
+        database.userVersion = 11;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');

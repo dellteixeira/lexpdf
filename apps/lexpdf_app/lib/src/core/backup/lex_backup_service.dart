@@ -120,7 +120,8 @@ class LexBackupService {
         return _invalidBackup('Manifest or database snapshot is missing.');
       }
 
-      final manifest = jsonDecode(utf8.decode(manifestFile.content)) as Map<String, dynamic>;
+      final manifest =
+          jsonDecode(utf8.decode(manifestFile.content)) as Map<String, dynamic>;
       final version = (manifest['version'] as num?)?.toInt() ?? 0;
       if (manifest['format'] != 'lexbackup' || version != formatVersion) {
         return LexBackupValidation(
@@ -134,8 +135,13 @@ class LexBackupService {
       }
 
       final dbBytes = databaseFile.content;
-      if (manifest['databaseChecksum']?.toString() != sha256.convert(dbBytes).toString()) {
-        return _invalidBackup('Database snapshot checksum mismatch.', format: 'lexbackup', version: version);
+      if (manifest['databaseChecksum']?.toString() !=
+          sha256.convert(dbBytes).toString()) {
+        return _invalidBackup(
+          'Database snapshot checksum mismatch.',
+          format: 'lexbackup',
+          version: version,
+        );
       }
 
       final snapshot = jsonDecode(utf8.decode(dbBytes)) as Map<String, dynamic>;
@@ -149,12 +155,20 @@ class LexBackupService {
       }
       final rawTables = snapshot['tables'];
       if (rawTables is! Map) {
-        return _invalidBackup('Database tables payload is invalid.', format: 'lexbackup', version: version);
+        return _invalidBackup(
+          'Database tables payload is invalid.',
+          format: 'lexbackup',
+          version: version,
+        );
       }
       final tables = rawTables.cast<String, dynamic>();
       for (final entry in tables.entries) {
         if (entry.value is! List) {
-          return _invalidBackup('Table ${entry.key} has an invalid row payload.', format: 'lexbackup', version: version);
+          return _invalidBackup(
+            'Table ${entry.key} has an invalid row payload.',
+            format: 'lexbackup',
+            version: version,
+          );
         }
       }
 
@@ -162,20 +176,33 @@ class LexBackupService {
       final seenPaths = <String>{};
       for (final item in files) {
         if (item is! Map) {
-          return _invalidBackup('Backup file manifest is invalid.', format: 'lexbackup', version: version);
+          return _invalidBackup(
+            'Backup file manifest is invalid.',
+            format: 'lexbackup',
+            version: version,
+          );
         }
         final entry = item.cast<String, dynamic>();
         final archivePath = entry['archivePath']?.toString() ?? '';
         if (!_isSafeArchivePath(archivePath) || !seenPaths.add(archivePath)) {
-          return _invalidBackup('Unsafe or duplicate bundled document path.', format: 'lexbackup', version: version);
+          return _invalidBackup(
+            'Unsafe or duplicate bundled document path.',
+            format: 'lexbackup',
+            version: version,
+          );
         }
         final file = archive.findFile(archivePath);
         final expectedSize = (entry['size'] as num?)?.toInt();
         if (file == null ||
             expectedSize == null ||
             file.content.length != expectedSize ||
-            sha256.convert(file.content).toString() != entry['checksum']?.toString()) {
-          return _invalidBackup('A bundled document is missing or corrupted.', format: 'lexbackup', version: version);
+            sha256.convert(file.content).toString() !=
+                entry['checksum']?.toString()) {
+          return _invalidBackup(
+            'A bundled document is missing or corrupted.',
+            format: 'lexbackup',
+            version: version,
+          );
         }
       }
 
@@ -196,11 +223,16 @@ class LexBackupService {
     required Directory documentDirectory,
   }) async {
     final validation = await validate(bytes);
-    if (!validation.valid) throw FormatException(validation.error ?? 'Invalid backup.');
+    if (!validation.valid)
+      throw FormatException(validation.error ?? 'Invalid backup.');
 
     final archive = ZipDecoder().decodeBytes(bytes, verify: true);
-    final manifest = jsonDecode(utf8.decode(archive.findFile('manifest.json')!.content)) as Map<String, dynamic>;
-    final snapshot = jsonDecode(utf8.decode(archive.findFile('database.json')!.content)) as Map<String, dynamic>;
+    final manifest = jsonDecode(
+      utf8.decode(archive.findFile('manifest.json')!.content),
+    ) as Map<String, dynamic>;
+    final snapshot = jsonDecode(
+      utf8.decode(archive.findFile('database.json')!.content),
+    ) as Map<String, dynamic>;
     final tables = (snapshot['tables'] as Map).cast<String, dynamic>();
 
     await documentDirectory.create(recursive: true);
@@ -224,7 +256,9 @@ class LexBackupService {
       db.database.execute('BEGIN IMMEDIATE;');
       try {
         final existingTables = db.database
-            .select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%';")
+            .select(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%';",
+            )
             .map((row) => row['name'] as String)
             .toSet();
         for (final table in tables.keys) {
@@ -250,7 +284,9 @@ class LexBackupService {
         }
         final violations = db.database.select('PRAGMA foreign_key_check;');
         if (violations.isNotEmpty) {
-          throw StateError('Backup violates ${violations.length} foreign-key constraints.');
+          throw StateError(
+            'Backup violates ${violations.length} foreign-key constraints.',
+          );
         }
         db.database.execute('COMMIT;');
       } catch (_) {
@@ -272,13 +308,18 @@ class LexBackupService {
   }
 
   Uint8List exportNotebook(String notebookId) {
-    final notebookRows = db.database.select('SELECT * FROM notebooks WHERE id = ?;', [notebookId]);
+    final notebookRows = db.database.select(
+      'SELECT * FROM notebooks WHERE id = ?;',
+      [notebookId],
+    );
     if (notebookRows.isEmpty) throw StateError('Notebook not found.');
     final pages = db.database.select(
       'SELECT * FROM notebook_pages WHERE notebook_id = ? ORDER BY page_number;',
       [notebookId],
     );
-    final pageIds = pages.map((row) => row['id'].toString()).toList(growable: false);
+    final pageIds = pages
+        .map((row) => row['id'].toString())
+        .toList(growable: false);
     final strokes = <Map<String, dynamic>>[];
     final objects = <Map<String, dynamic>>[];
     final layers = <Map<String, dynamic>>[];
@@ -288,17 +329,35 @@ class LexBackupService {
     final hasLayerItems = _tableExists('notebook_layer_items');
 
     for (final pageId in pageIds) {
-      strokes.addAll(db.database.select('SELECT * FROM ink_strokes WHERE page_id = ?;', [pageId]).map(_rowToJson));
+      strokes.addAll(
+        db.database
+            .select('SELECT * FROM ink_strokes WHERE page_id = ?;', [pageId])
+            .map(_rowToJson),
+      );
       if (hasObjects) {
-        objects.addAll(db.database.select('SELECT * FROM notebook_objects WHERE page_id = ?;', [pageId]).map(_rowToJson));
+        objects.addAll(
+          db.database
+              .select('SELECT * FROM notebook_objects WHERE page_id = ?;', [
+                pageId,
+              ])
+              .map(_rowToJson),
+        );
       }
       if (hasLayers) {
-        final pageLayers = db.database.select('SELECT * FROM notebook_layers WHERE page_id = ? ORDER BY sort_order;', [pageId]);
+        final pageLayers = db.database.select(
+          'SELECT * FROM notebook_layers WHERE page_id = ? ORDER BY sort_order;',
+          [pageId],
+        );
         layers.addAll(pageLayers.map(_rowToJson));
         if (hasLayerItems) {
           for (final layer in pageLayers) {
             layerItems.addAll(
-              db.database.select('SELECT * FROM notebook_layer_items WHERE layer_id = ?;', [layer['id']]).map(_rowToJson),
+              db.database
+                  .select(
+                    'SELECT * FROM notebook_layer_items WHERE layer_id = ?;',
+                    [layer['id']],
+                  )
+                  .map(_rowToJson),
             );
           }
         }
@@ -329,12 +388,18 @@ class LexBackupService {
   LexNoteValidation validateNotebook(List<int> bytes) {
     try {
       final decoded = jsonDecode(utf8.decode(bytes));
-      if (decoded is! Map) return _invalidNote('Invalid .lexnote root payload.');
+      if (decoded is! Map)
+        return _invalidNote('Invalid .lexnote root payload.');
       final root = decoded.cast<String, dynamic>();
       final payload = _decodeLexNotePayload(root);
       final version = (payload['version'] as num?)?.toInt() ?? 0;
-      if (payload['format'] != 'lexnote' || version < 1 || version > lexNoteVersion) {
-        return _invalidNote('Unsupported .lexnote format/version.', version: version);
+      if (payload['format'] != 'lexnote' ||
+          version < 1 ||
+          version > lexNoteVersion) {
+        return _invalidNote(
+          'Unsupported .lexnote format/version.',
+          version: version,
+        );
       }
       final notebook = payload['notebook'];
       final pages = payload['pages'];
@@ -342,39 +407,69 @@ class LexBackupService {
       final objects = payload['objects'] ?? const [];
       final layers = payload['layers'] ?? const [];
       final layerItems = payload['layerItems'] ?? const [];
-      if (notebook is! Map || pages is! List || strokes is! List || objects is! List || layers is! List || layerItems is! List) {
-        return _invalidNote('Malformed .lexnote collections.', version: version);
+      if (notebook is! Map ||
+          pages is! List ||
+          strokes is! List ||
+          objects is! List ||
+          layers is! List ||
+          layerItems is! List) {
+        return _invalidNote(
+          'Malformed .lexnote collections.',
+          version: version,
+        );
       }
-      if ((notebook['id']?.toString() ?? '').isEmpty || (notebook['title']?.toString() ?? '').isEmpty) {
-        return _invalidNote('Notebook identity/title is missing.', version: version);
+      if ((notebook['id']?.toString() ?? '').isEmpty ||
+          (notebook['title']?.toString() ?? '').isEmpty) {
+        return _invalidNote(
+          'Notebook identity/title is missing.',
+          version: version,
+        );
       }
       final pageIds = <String>{};
       for (final raw in pages) {
-        if (raw is! Map) return _invalidNote('Malformed notebook page.', version: version);
+        if (raw is! Map)
+          return _invalidNote('Malformed notebook page.', version: version);
         final id = raw['id']?.toString() ?? '';
-        if (id.isEmpty || !pageIds.add(id)) return _invalidNote('Duplicate or empty notebook page id.', version: version);
+        if (id.isEmpty || !pageIds.add(id))
+          return _invalidNote(
+            'Duplicate or empty notebook page id.',
+            version: version,
+          );
       }
       for (final raw in strokes) {
         if (raw is! Map || !pageIds.contains(raw['page_id']?.toString())) {
-          return _invalidNote('Stroke references an unknown page.', version: version);
+          return _invalidNote(
+            'Stroke references an unknown page.',
+            version: version,
+          );
         }
       }
       for (final raw in objects) {
         if (raw is! Map || !pageIds.contains(raw['page_id']?.toString())) {
-          return _invalidNote('Object references an unknown page.', version: version);
+          return _invalidNote(
+            'Object references an unknown page.',
+            version: version,
+          );
         }
       }
       final layerIds = <String>{};
       for (final raw in layers) {
         if (raw is! Map || !pageIds.contains(raw['page_id']?.toString())) {
-          return _invalidNote('Layer references an unknown page.', version: version);
+          return _invalidNote(
+            'Layer references an unknown page.',
+            version: version,
+          );
         }
         final id = raw['id']?.toString() ?? '';
-        if (id.isEmpty || !layerIds.add(id)) return _invalidNote('Duplicate or empty layer id.', version: version);
+        if (id.isEmpty || !layerIds.add(id))
+          return _invalidNote('Duplicate or empty layer id.', version: version);
       }
       for (final raw in layerItems) {
         if (raw is! Map || !layerIds.contains(raw['layer_id']?.toString())) {
-          return _invalidNote('Layer item references an unknown layer.', version: version);
+          return _invalidNote(
+            'Layer item references an unknown layer.',
+            version: version,
+          );
         }
       }
       return LexNoteValidation(
@@ -393,16 +488,28 @@ class LexBackupService {
 
   LexNoteImportResult importNotebook(List<int> bytes) {
     final validation = validateNotebook(bytes);
-    if (!validation.valid) throw FormatException(validation.error ?? 'Invalid .lexnote file.');
+    if (!validation.valid)
+      throw FormatException(validation.error ?? 'Invalid .lexnote file.');
 
-    final root = (jsonDecode(utf8.decode(bytes)) as Map).cast<String, dynamic>();
+    final root = (jsonDecode(utf8.decode(bytes)) as Map)
+        .cast<String, dynamic>();
     final payload = _decodeLexNotePayload(root);
     final notebook = (payload['notebook'] as Map).cast<String, dynamic>();
-    final pages = (payload['pages'] as List).map((e) => (e as Map).cast<String, dynamic>()).toList();
-    final strokes = (payload['strokes'] as List).map((e) => (e as Map).cast<String, dynamic>()).toList();
-    final objects = ((payload['objects'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
-    final layers = ((payload['layers'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
-    final layerItems = ((payload['layerItems'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
+    final pages = (payload['pages'] as List)
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+    final strokes = (payload['strokes'] as List)
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+    final objects = ((payload['objects'] as List?) ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+    final layers = ((payload['layers'] as List?) ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+    final layerItems = ((payload['layerItems'] as List?) ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
 
     final importKey = '${DateTime.now().microsecondsSinceEpoch}';
     final notebookId = 'import-$importKey';
@@ -488,7 +595,9 @@ class LexBackupService {
             for (final item in layerItems) {
               final itemType = item['item_type'].toString();
               final originalItemId = item['item_id'].toString();
-              final mappedItemId = itemType == 'stroke' ? strokeMap[originalItemId] : objectMap[originalItemId];
+              final mappedItemId = itemType == 'stroke'
+                  ? strokeMap[originalItemId]
+                  : objectMap[originalItemId];
               if (mappedItemId == null) continue;
               _insertRow('notebook_layer_items', {
                 ...item,
@@ -503,7 +612,9 @@ class LexBackupService {
 
       final violations = db.database.select('PRAGMA foreign_key_check;');
       if (violations.isNotEmpty) {
-        throw StateError('Imported notebook violates ${violations.length} foreign-key constraints.');
+        throw StateError(
+          'Imported notebook violates ${violations.length} foreign-key constraints.',
+        );
       }
       db.database.execute('COMMIT;');
       return LexNoteImportResult(
@@ -526,7 +637,10 @@ class LexBackupService {
     );
     for (final row in names) {
       final name = row['name'] as String;
-      tables[name] = db.database.select('SELECT * FROM ${_quote(name)};').map(_rowToJson).toList(growable: false);
+      tables[name] = db.database
+          .select('SELECT * FROM ${_quote(name)};')
+          .map(_rowToJson)
+          .toList(growable: false);
     }
     return {'schemaVersion': LocalDatabase.schemaVersion, 'tables': tables};
   }
@@ -538,13 +652,15 @@ class LexBackupService {
     }
     final encoded = root['payload'];
     final checksum = root['checksum']?.toString();
-    if (encoded is! String || checksum == null) throw const FormatException('Malformed .lexnote envelope.');
+    if (encoded is! String || checksum == null)
+      throw const FormatException('Malformed .lexnote envelope.');
     final payloadBytes = base64Decode(encoded);
     if (sha256.convert(payloadBytes).toString() != checksum) {
       throw const FormatException('.lexnote checksum mismatch.');
     }
     final decoded = jsonDecode(utf8.decode(payloadBytes));
-    if (decoded is! Map) throw const FormatException('Malformed .lexnote payload.');
+    if (decoded is! Map)
+      throw const FormatException('Malformed .lexnote payload.');
     return decoded.cast<String, dynamic>();
   }
 
@@ -552,12 +668,16 @@ class LexBackupService {
     if (row.isEmpty) return;
     final columns = row.keys.toList(growable: false);
     final values = [for (final column in columns) _fromJsonValue(row[column])];
-    final sql = 'INSERT INTO ${_quote(table)} (${columns.map(_quote).join(', ')}) VALUES (${List.filled(columns.length, '?').join(', ')});';
+    final sql =
+        'INSERT INTO ${_quote(table)} (${columns.map(_quote).join(', ')}) VALUES (${List.filled(columns.length, '?').join(', ')});';
     db.database.execute(sql, values);
   }
 
   String _uniqueNotebookTitle(String base) {
-    final existing = db.database.select('SELECT title FROM notebooks;').map((row) => row['title'].toString()).toSet();
+    final existing = db.database
+        .select('SELECT title FROM notebooks;')
+        .map((row) => row['title'].toString())
+        .toSet();
     if (!existing.contains(base)) return base;
     var counter = 2;
     while (existing.contains('$base ($counter)')) {
@@ -566,9 +686,10 @@ class LexBackupService {
     return '$base ($counter)';
   }
 
-  bool _tableExists(String name) => db.database
-      .select("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1;", [name])
-      .isNotEmpty;
+  bool _tableExists(String name) => db.database.select(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1;",
+    [name],
+  ).isNotEmpty;
 
   static dynamic _fromJsonValue(dynamic value) {
     if (value is Map && value.length == 1 && value['\$blob'] is String) {
@@ -581,27 +702,38 @@ class LexBackupService {
     final result = <String, dynamic>{};
     for (final column in row.keys) {
       final value = row[column];
-      result[column.toString()] = value is Uint8List ? {'\$blob': base64Encode(value)} : value;
+      result[column.toString()] = value is Uint8List
+          ? {'\$blob': base64Encode(value)}
+          : value;
     }
     return result;
   }
 
   static bool _isSafeArchivePath(String path) {
-    if (!path.startsWith('documents/') || path.contains('..') || path.contains('\\') || path.startsWith('/')) return false;
+    if (!path.startsWith('documents/') ||
+        path.contains('..') ||
+        path.contains('\\') ||
+        path.startsWith('/'))
+      return false;
     final segments = path.split('/');
     return segments.length == 2 && segments.last.isNotEmpty;
   }
 
-  static LexBackupValidation _invalidBackup(String error, {String format = 'unknown', int version = 0}) => LexBackupValidation(
-        valid: false,
-        format: format,
-        version: version,
-        tableCount: 0,
-        fileCount: 0,
-        error: error,
-      );
+  static LexBackupValidation _invalidBackup(
+    String error, {
+    String format = 'unknown',
+    int version = 0,
+  }) => LexBackupValidation(
+    valid: false,
+    format: format,
+    version: version,
+    tableCount: 0,
+    fileCount: 0,
+    error: error,
+  );
 
-  static LexNoteValidation _invalidNote(String error, {int version = 0}) => LexNoteValidation(
+  static LexNoteValidation _invalidNote(String error, {int version = 0}) =>
+      LexNoteValidation(
         valid: false,
         version: version,
         pageCount: 0,
@@ -611,6 +743,8 @@ class LexBackupService {
         error: error,
       );
 
-  static String _quote(String identifier) => '"${identifier.replaceAll('"', '""')}"';
-  static String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  static String _quote(String identifier) =>
+      '"${identifier.replaceAll('"', '""')}"';
+  static String _safeName(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
 }

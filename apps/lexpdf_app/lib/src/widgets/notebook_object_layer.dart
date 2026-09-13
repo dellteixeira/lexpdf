@@ -7,13 +7,6 @@ import '../core/notebook/notebook_object_models.dart';
 
 enum _ResizeHandle { topLeft, topRight, bottomLeft, bottomRight }
 
-TextAlign _notebookFlutterTextAlign(NotebookTextAlign value) => switch (value) {
-  NotebookTextAlign.left => TextAlign.left,
-  NotebookTextAlign.center => TextAlign.center,
-  NotebookTextAlign.right => TextAlign.right,
-  NotebookTextAlign.justify => TextAlign.justify,
-};
-
 class NotebookObjectLayer extends StatefulWidget {
   const NotebookObjectLayer({
     required this.objects,
@@ -21,10 +14,6 @@ class NotebookObjectLayer extends StatefulWidget {
     required this.onObjectChanged,
     required this.onSelectionChanged,
     this.onObjectDoubleTap,
-    this.editingTextId,
-    this.onTextChanged,
-    this.onTextEditingComplete,
-    this.onEmptyTap,
     this.selectedId,
     super.key,
   });
@@ -35,10 +24,6 @@ class NotebookObjectLayer extends StatefulWidget {
   final ValueChanged<NotebookObject> onObjectChanged;
   final ValueChanged<String?> onSelectionChanged;
   final ValueChanged<NotebookObject>? onObjectDoubleTap;
-  final String? editingTextId;
-  final ValueChanged<NotebookObject>? onTextChanged;
-  final ValueChanged<NotebookObject>? onTextEditingComplete;
-  final VoidCallback? onEmptyTap;
 
   @override
   State<NotebookObjectLayer> createState() => _NotebookObjectLayerState();
@@ -62,10 +47,7 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: () {
-              widget.onSelectionChanged(null);
-              widget.onEmptyTap?.call();
-            },
+            onTap: () => widget.onSelectionChanged(null),
           ),
           for (final raw in widget.objects)
             _buildObject(_effective(raw), widget.selectedId == raw.id),
@@ -77,9 +59,6 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
   Widget _buildObject(NotebookObject object, bool selected) {
     final width = math.max(_minimumObjectExtent, object.width);
     final height = math.max(_minimumObjectExtent, object.height);
-    final editingText =
-        object.type == NotebookObjectType.text &&
-        widget.editingTextId == object.id;
 
     return Positioned(
       left: object.x,
@@ -93,9 +72,7 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
           children: [
             Positioned.fill(
               child: MouseRegion(
-                cursor: editingText
-                    ? SystemMouseCursors.text
-                    : SystemMouseCursors.move,
+                cursor: SystemMouseCursors.move,
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTapDown: (_) => widget.onSelectionChanged(object.id),
@@ -104,38 +81,27 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                     widget.onSelectionChanged(object.id);
                     widget.onObjectDoubleTap?.call(object);
                   },
-                  onPanStart: editingText
-                      ? null
-                      : (_) {
-                          widget.onSelectionChanged(object.id);
-                          _working = object;
-                        },
-                  onPanUpdate: editingText
-                      ? null
-                      : (details) {
-                          final current = _working ?? object;
-                          setState(() {
-                            _working = current.copyWith(
-                              x: current.x + details.delta.dx,
-                              y: current.y + details.delta.dy,
-                              updatedAt: DateTime.now().toUtc(),
-                            );
-                          });
-                        },
-                  onPanEnd: editingText ? null : (_) => _commitWorking(),
-                  onPanCancel: editingText ? null : _cancelWorking,
+                  onPanStart: (_) {
+                    widget.onSelectionChanged(object.id);
+                    _working = object;
+                  },
+                  onPanUpdate: (details) {
+                    final current = _working ?? object;
+                    setState(() {
+                      _working = current.copyWith(
+                        x: current.x + details.delta.dx,
+                        y: current.y + details.delta.dy,
+                        updatedAt: DateTime.now().toUtc(),
+                      );
+                    });
+                  },
+                  onPanEnd: (_) => _commitWorking(),
+                  onPanCancel: _cancelWorking,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (editingText)
-                        _InlineNotebookTextEditor(
-                          object: object,
-                          onChanged: widget.onTextChanged,
-                          onEditingComplete: widget.onTextEditingComplete,
-                        )
-                      else
-                        _ObjectVisual(object: object),
-                      if (selected && widget.editingTextId != object.id)
+                      _ObjectVisual(object: object),
+                      if (selected)
                         IgnorePointer(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
@@ -151,7 +117,7 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                 ),
               ),
             ),
-            if (selected && !editingText) ...[
+            if (selected) ...[
               _buildResizeHandle(object, _ResizeHandle.topLeft),
               _buildResizeHandle(object, _ResizeHandle.topRight),
               _buildResizeHandle(object, _ResizeHandle.bottomLeft),
@@ -287,21 +253,9 @@ class _ObjectVisual extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (object.type == NotebookObjectType.text) {
-      return SizedBox.expand(
-        child: Text(
-          object.textValue ?? '',
-          maxLines: null,
-          textAlign: _notebookFlutterTextAlign(object.textAlign),
-          style: TextStyle(
-            color: Color(object.colorValue),
-            fontSize: object.fontSize ?? 12,
-            fontFamily: object.fontFamily ?? 'Arial',
-            fontWeight: object.fontBold ? FontWeight.bold : FontWeight.normal,
-            fontStyle: object.fontItalic ? FontStyle.italic : FontStyle.normal,
-            decoration: object.fontUnderline ? TextDecoration.underline : null,
-          ),
-        ),
-      );
+      // Kept only for backward-compatible database rows. Canonical notebook
+      // text is rendered by NotebookRichDocumentSurface, never as an object.
+      return const SizedBox.shrink();
     }
     if (object.type == NotebookObjectType.image) {
       final path = object.imagePath;
@@ -318,116 +272,6 @@ class _ObjectVisual extends StatelessWidget {
     return CustomPaint(
       painter: _NotebookShapePainter(object),
       child: const SizedBox.expand(),
-    );
-  }
-}
-
-class _InlineNotebookTextEditor extends StatefulWidget {
-  const _InlineNotebookTextEditor({
-    required this.object,
-    this.onChanged,
-    this.onEditingComplete,
-  });
-
-  final NotebookObject object;
-  final ValueChanged<NotebookObject>? onChanged;
-  final ValueChanged<NotebookObject>? onEditingComplete;
-
-  @override
-  State<_InlineNotebookTextEditor> createState() =>
-      _InlineNotebookTextEditorState();
-}
-
-class _InlineNotebookTextEditorState extends State<_InlineNotebookTextEditor> {
-  late final TextEditingController _controller;
-  late final FocusNode _focusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.object.textValue ?? '');
-    _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
-    );
-    _focusNode = FocusNode(debugLabel: 'notebook-inline-text');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _InlineNotebookTextEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final external = widget.object.textValue ?? '';
-    if (!_focusNode.hasFocus && external != _controller.text) {
-      _controller.value = TextEditingValue(
-        text: external,
-        selection: TextSelection.collapsed(offset: external.length),
-      );
-    }
-  }
-
-  TextStyle get _style => TextStyle(
-    color: Color(widget.object.colorValue),
-    fontSize: widget.object.fontSize ?? 12,
-    fontFamily: widget.object.fontFamily ?? 'Arial',
-    fontWeight: widget.object.fontBold ? FontWeight.bold : FontWeight.normal,
-    fontStyle: widget.object.fontItalic ? FontStyle.italic : FontStyle.normal,
-    decoration: widget.object.fontUnderline ? TextDecoration.underline : null,
-    height: 1.25,
-  );
-
-  void _emit() {
-    widget.onChanged?.call(
-      widget.object.copyWith(
-        textValue: _controller.text,
-        updatedAt: DateTime.now().toUtc(),
-      ),
-    );
-  }
-
-  void _finish() {
-    _emit();
-    widget.onEditingComplete?.call(
-      widget.object.copyWith(
-        textValue: _controller.text,
-        updatedAt: DateTime.now().toUtc(),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: _controller,
-      focusNode: _focusNode,
-      autofocus: true,
-      expands: true,
-      minLines: null,
-      maxLines: null,
-      keyboardType: TextInputType.multiline,
-      textAlign: _notebookFlutterTextAlign(widget.object.textAlign),
-      textAlignVertical: TextAlignVertical.top,
-      style: _style,
-      cursorColor: Theme.of(context).colorScheme.primary,
-      decoration: const InputDecoration(
-        isCollapsed: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-        border: InputBorder.none,
-      ),
-      onChanged: (_) => _emit(),
-      onEditingComplete: _finish,
-      onTapOutside: (_) {
-        _focusNode.unfocus();
-        _finish();
-      },
     );
   }
 }

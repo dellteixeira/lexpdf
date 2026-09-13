@@ -1,0 +1,219 @@
+import 'package:fluent_editor/core/types.dart';
+import 'package:fluent_editor/factories.dart';
+import 'package:fluent_editor/handlers/event_handler.dart';
+import 'package:fluent_editor/renderers/render_fluent_node.dart';
+import 'package:fluent_editor/renderers/render_fragment.dart';
+import 'package:fluent_editor/renderers/render_paragraph.dart';
+import 'package:fluent_editor/widgets/nodes/fluent_paragraph_widget.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
+
+FNodeRange? findDirectParent(FNode root, FNode target) {
+  if (root is InlineContainerNode) {
+    for (final child in (root as InlineContainerNode).getChildren()) {
+      if (child.id == target.id) return FNodeRange(node: root, parent: null);
+      if (child is InlineContainerNode) {
+        final found = findDirectParent(child, target);
+        if (found != null) {
+          return FNodeRange(
+            node: found.node,
+            parent: found.parent ?? root,
+          );
+        }
+      }
+    }
+  }
+  return null;
+}
+
+RenderFluentNode? _findTopLevelRenderNodeRecursive(RenderFluentLeaf start) {
+  RenderObject? current = start;
+  RenderFluentNode? lastNode;
+  while (current != null) {
+    if (current is RenderFluentNode) {
+      lastNode = current;
+    }
+    current = current.parent;
+  }
+  return lastNode;
+}
+
+int _computeGlobalOffset(FNode container, FNode fragmentNode, int localOffset) {
+  final flat = flattenFragmentsSimple(container);
+  for (final (f, start, _) in flat) {
+    if (f.id == fragmentNode.id) {
+      return start + localOffset;
+    }
+  }
+  return localOffset;
+}
+
+List<(Fragment, int, int)> flattenFragmentsSimple(FNode node) {
+  final result = <(Fragment, int, int)>[];
+  _flattenSimple(node, 0, result);
+  return result;
+}
+
+int _flattenSimple(FNode node, int currentOffset, List<(Fragment, int, int)> result) {
+  if (node is InlineContainerNode) {
+    for (final child in (node as InlineContainerNode).getChildren()) {
+      currentOffset = _flattenSimple(child, currentOffset, result);
+    }
+    return currentOffset;
+  }
+  if (node is Fragment) {
+    final len = node.text.length;
+    result.add((node, currentOffset, currentOffset + len));
+    return currentOffset + len;
+  }
+  return currentOffset;
+}
+
+CursorOffset? resolvePositionGestureDetails(PositionedGestureDetails details, BuildContext context, Widget widget) {
+  final renderBox = context.findRenderObject() as RenderBox;
+  final result = BoxHitTestResult();
+  final localPosition = renderBox.globalToLocal(details.globalPosition);
+  renderBox.hitTest(result, position: localPosition);
+  
+  RenderFluentParagraph? foundParagraph;
+  for (final entry in result.path) {
+    if (entry.target is RenderFluentParagraph) {
+      foundParagraph = entry.target as RenderFluentParagraph;
+      final fragmentResult = foundParagraph.getFragmentAtPosition(localPosition);
+      if (fragmentResult != null) {
+        return CursorOffset(
+          id: fragmentResult.fragmentId,
+          offset: fragmentResult.localOffset,
+        );
+      }
+    }
+  }
+  
+  for (final entry in result.path) {
+    if (entry.target is RenderFluentFragment) {
+      if ((entry.target as RenderFluentFragment).node is! InlineContainerNode) {
+        return detectOffsetOnRenderFluentFragment(entry.target as RenderFluentFragment, renderBox, localPosition, context, widget);
+      }
+    }
+  }
+  return null;
+}
+
+CursorOffset? detectOffsetOnRenderFluentFragment(RenderFluentFragment fragment, RenderBox renderBox, Offset localPosition, BuildContext context, Widget widget) {
+    final fragmentBox = fragment;
+    final localInFragment = fragmentBox.globalToLocal(
+      renderBox.localToGlobal(localPosition),
+    );
+    final localOffset = fragment.getOffsetForPosition(localInFragment);
+    final topLevel = _findTopLevelRenderNodeRecursive(fragment);
+    if (topLevel != null) {
+      final globalOffset = _computeGlobalOffset(topLevel.node, fragment.node, localOffset);
+      return CursorOffset(
+        id: topLevel.id,
+        offset: globalOffset,
+      );
+    }
+    return CursorOffset(
+      id: (widget as FluentParagraphWidget).node.id,
+      offset: absoluteOffset(fragment, localOffset, widget),
+    );
+}
+
+int absoluteOffset(RenderFluentFragment targetRender, int localOffset, Widget widget) {
+  int absolute = 0;
+  
+  for (final child in ((widget as FluentParagraphWidget).node as InlineContainerNode).getChildren()) {
+    final result = _walkNode(child, targetRender, localOffset, absolute);
+    if (result.$1) return result.$2;
+    absolute = result.$2;
+  }
+  
+  return absolute;
+}
+
+(bool, int) _walkNode(FNode node, RenderFluentFragment targetRender, int localOffset, int currentOffset) {
+  if (node is InlineContainerNode) {
+    int offset = currentOffset;
+    for (final child in (node as InlineContainerNode).fragments) {
+      final result = _walkNode(child, targetRender, localOffset, offset);
+      if (result.$1) return result;
+      offset = result.$2;
+    }
+    return (false, offset);
+  }
+  if (node is Fragment) {
+    if (node.id == targetRender.id) {
+      return (true, currentOffset + localOffset);
+    }
+    return (false, currentOffset + node.text.length);
+  }
+  return (false, currentOffset);
+}
+
+Fragment? getFirstFragmentRecursive(InlineContainerNode node) {
+  var children = node.getChildren();
+  children = children.where((child) => child is InlineContainerNode || (child is Fragment && child.text.isNotEmpty)).toList();
+  if (children.isEmpty) return null;
+  final firstChild = children.first;
+  if (firstChild is InlineContainerNode) {
+    return getFirstFragmentRecursive(firstChild as InlineContainerNode);
+  }
+  return firstChild as Fragment;
+}
+
+Fragment? getLastFragmentRecursive(InlineContainerNode node) {
+  var children = node.getChildren();
+  children = children.where((child) => child is InlineContainerNode || (child is Fragment && child.text.isNotEmpty)).toList();
+  if (children.isEmpty) return null;
+  final lastChildren = children.last;
+  if (lastChildren is InlineContainerNode) {
+    return getLastFragmentRecursive(lastChildren as InlineContainerNode);
+  }
+  return lastChildren as Fragment;
+}
+
+FragmentRange? getFragmentAtCursor(EventHandler eventHandler) {
+  final cursor = eventHandler.document.cursor;
+  final targetId = cursor.anchorId;
+  final node = eventHandler.document.nodeById(targetId);
+  if (node == null) {
+    return null;
+  }
+  final flat = eventHandler.document.flattenContainer(node);
+  for (int i = 0; i < flat.length; i++) {
+    final (fragment, startOffset, endOffset) = flat[i];
+    if (cursor.anchorOffset >= startOffset && cursor.anchorOffset <= endOffset) {
+      final parent = findDirectParent(node, fragment);
+      final localOffset = cursor.anchorOffset - startOffset;
+      return FragmentRange(
+        fragment: fragment,
+        parent: parent?.node ?? node,
+        offset: localOffset,
+        focus: localOffset,
+      );
+    }
+  }
+  return null;
+}
+
+FNode? getNodeAtCursor(EventHandler eventHandler) {
+  final targetId = eventHandler.document.cursor.anchorId;
+  return eventHandler.document.nodeById(targetId);
+}
+
+/// Parses a string text-align value into a Flutter [TextAlign].
+TextAlign parseTextAlign(String value) => switch (value) {
+  'center' => TextAlign.center,
+  'right' => TextAlign.right,
+  'justify' => TextAlign.justify,
+  _ => TextAlign.left,
+};
+
+/// Serializes a Flutter [TextAlign] into its string representation.
+String serializeTextAlign(TextAlign value) => switch (value) {
+  TextAlign.center => 'center',
+  TextAlign.right => 'right',
+  TextAlign.justify => 'justify',
+  _ => 'left',
+};

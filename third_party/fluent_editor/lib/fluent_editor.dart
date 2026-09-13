@@ -1,0 +1,82 @@
+import 'package:fluent_editor/fluent_document.dart';
+import 'package:fluent_editor/widgets/fluent_document_widget.dart';
+import 'package:fluent_editor/localization/fluent_editor_labels.dart';
+import 'package:fluent_editor/plugins/builtin_plugin.dart';
+import 'package:fluent_editor/plugins/plugin_api.dart';
+import 'package:flutter/material.dart';
+
+export 'package:fluent_editor/widgets/editor/fluent_positioned_sidebar.dart';
+export 'package:fluent_editor/widgets/editor/fluent_unified_sidebar.dart';
+
+class FluentEditor extends StatefulWidget {
+  final FluentDocument? document;
+  final FluentEditorLabels? labels;
+  final Widget? sidebar;
+  final List<FluentEditorPlugin> plugins;
+  final FluentToolbarMode toolbarMode;
+  final List<Widget> bubbleActions;
+  const FluentEditor({
+    super.key,
+    this.document,
+    this.labels,
+    this.sidebar,
+    this.plugins = const [],
+    this.toolbarMode = FluentToolbarMode.fixed,
+    this.bubbleActions = const [],
+  });
+  @override
+  State<FluentEditor> createState() => _FluentEditorState();
+}
+
+class _FluentEditorState extends State<FluentEditor> {
+  late FluentDocument _document;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.document != null && widget.plugins.isNotEmpty) {
+      final existing = widget.document!.registry;
+      final allPlugins = [
+        ...existing.plugins,
+        ...widget.plugins.where(
+          (p) => !existing.plugins.any((e) => e.id == p.id),
+        ),
+      ];
+      widget.document!.replaceRegistry(FluentPluginRegistry(allPlugins));
+    }
+    _document =
+        widget.document ??
+        FluentDocument(
+          registry: createDefaultFluentPluginRegistry(widget.plugins),
+        );
+    _document.labels = widget.labels;
+    _document.registry.attach(_document);
+  }
+
+  @override
+  void dispose() {
+    _document.registry.detach(_document);
+    _document.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.inverseSurface,
+      body: Column(
+        children: [
+          Expanded(
+            child: FluentDocumentWidget(
+              document: _document,
+              labels: widget.labels,
+              sidebar: widget.sidebar,
+              toolbarMode: widget.toolbarMode,
+              bubbleActions: widget.bubbleActions,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

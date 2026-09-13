@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 enum NotebookRibbonTab { home, drawing, view }
 
 enum _NotebookFileAction {
+  openDocument,
+  saveDocx,
+  saveTxt,
+  exportPdf,
+  saveDoc,
+  saveRtf,
   newNotebook,
   renameNotebook,
   deleteNotebook,
@@ -24,6 +30,12 @@ class NotebookWordPadScaffold extends StatefulWidget {
     required this.layerName,
     required this.zoom,
     required this.showDocumentRuler,
+    required this.onOpenDocument,
+    required this.onSaveDocx,
+    required this.onSaveTxt,
+    required this.onExportPdf,
+    required this.onSaveDoc,
+    required this.onSaveRtf,
     required this.onNewNotebook,
     required this.onRenameNotebook,
     required this.onDeleteNotebook,
@@ -37,6 +49,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
     required this.onRedo,
     required this.onZoomChanged,
     required this.onFitPage,
+    this.onRibbonTabChanged,
     super.key,
   });
 
@@ -51,6 +64,12 @@ class NotebookWordPadScaffold extends StatefulWidget {
   final String layerName;
   final double zoom;
   final bool showDocumentRuler;
+  final VoidCallback onOpenDocument;
+  final VoidCallback onSaveDocx;
+  final VoidCallback onSaveTxt;
+  final VoidCallback onExportPdf;
+  final VoidCallback onSaveDoc;
+  final VoidCallback onSaveRtf;
   final VoidCallback onNewNotebook;
   final VoidCallback onRenameNotebook;
   final VoidCallback? onDeleteNotebook;
@@ -64,6 +83,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
   final VoidCallback? onRedo;
   final ValueChanged<double> onZoomChanged;
   final VoidCallback onFitPage;
+  final ValueChanged<NotebookRibbonTab>? onRibbonTabChanged;
 
   @override
   State<NotebookWordPadScaffold> createState() =>
@@ -87,7 +107,10 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
           ),
           _WordPadTabStrip(
             activeTab: _tab,
-            onTabChanged: (value) => setState(() => _tab = value),
+            onTabChanged: (value) {
+              setState(() => _tab = value);
+              widget.onRibbonTabChanged?.call(value);
+            },
             onFileAction: _handleFileAction,
             canDeleteNotebook: widget.onDeleteNotebook != null,
             canDuplicatePage: widget.onDuplicatePage != null,
@@ -125,6 +148,18 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
 
   void _handleFileAction(_NotebookFileAction action) {
     switch (action) {
+      case _NotebookFileAction.openDocument:
+        widget.onOpenDocument();
+      case _NotebookFileAction.saveDocx:
+        widget.onSaveDocx();
+      case _NotebookFileAction.saveTxt:
+        widget.onSaveTxt();
+      case _NotebookFileAction.exportPdf:
+        widget.onExportPdf();
+      case _NotebookFileAction.saveDoc:
+        widget.onSaveDoc();
+      case _NotebookFileAction.saveRtf:
+        widget.onSaveRtf();
       case _NotebookFileAction.newNotebook:
         widget.onNewNotebook();
       case _NotebookFileAction.renameNotebook:
@@ -239,6 +274,49 @@ class _WordPadTabStrip extends StatelessWidget {
             position: PopupMenuPosition.under,
             onSelected: onFileAction,
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: _NotebookFileAction.openDocument,
+                child: _FileMenuLabel(
+                  icon: Icons.folder_open_outlined,
+                  label: 'Abrir documento',
+                ),
+              ),
+              const PopupMenuItem(
+                value: _NotebookFileAction.saveDocx,
+                child: _FileMenuLabel(
+                  icon: Icons.save_outlined,
+                  label: 'Salvar como DOCX',
+                ),
+              ),
+              const PopupMenuItem(
+                value: _NotebookFileAction.saveTxt,
+                child: _FileMenuLabel(
+                  icon: Icons.text_snippet_outlined,
+                  label: 'Salvar como TXT',
+                ),
+              ),
+              const PopupMenuItem(
+                value: _NotebookFileAction.exportPdf,
+                child: _FileMenuLabel(
+                  icon: Icons.picture_as_pdf_outlined,
+                  label: 'Exportar PDF',
+                ),
+              ),
+              const PopupMenuItem(
+                value: _NotebookFileAction.saveDoc,
+                child: _FileMenuLabel(
+                  icon: Icons.description_outlined,
+                  label: 'Salvar como DOC',
+                ),
+              ),
+              const PopupMenuItem(
+                value: _NotebookFileAction.saveRtf,
+                child: _FileMenuLabel(
+                  icon: Icons.description_outlined,
+                  label: 'Salvar como RTF',
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: _NotebookFileAction.newNotebook,
                 child: _FileMenuLabel(

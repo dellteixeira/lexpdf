@@ -36,7 +36,8 @@ class LexBackupStreamingRestoreService {
         if (!manifestFile.isFile || manifestFile.size > maxManifestBytes) {
           return _invalid('Backup manifest exceeds the safety limit.');
         }
-        if (!databaseFile.isFile || databaseFile.size > maxDatabaseSnapshotBytes) {
+        if (!databaseFile.isFile ||
+            databaseFile.size > maxDatabaseSnapshotBytes) {
           return _invalid('Database snapshot exceeds the safety limit.');
         }
 
@@ -45,7 +46,8 @@ class LexBackupStreamingRestoreService {
         if (manifestBytes == null || databaseBytes == null) {
           return _invalid('Backup metadata could not be decoded.');
         }
-        final manifest = jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
+        final manifest =
+            jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
         final version = (manifest['version'] as num?)?.toInt() ?? 0;
         if (manifest['format'] != 'lexbackup' || version != formatVersion) {
           return LexBackupValidation(
@@ -57,11 +59,16 @@ class LexBackupStreamingRestoreService {
             error: 'Unsupported backup format/version.',
           );
         }
-        if (manifest['databaseChecksum']?.toString() != sha256.convert(databaseBytes).toString()) {
-          return _invalid('Database snapshot checksum mismatch.', version: version);
+        if (manifest['databaseChecksum']?.toString() !=
+            sha256.convert(databaseBytes).toString()) {
+          return _invalid(
+            'Database snapshot checksum mismatch.',
+            version: version,
+          );
         }
 
-        final snapshot = jsonDecode(utf8.decode(databaseBytes)) as Map<String, dynamic>;
+        final snapshot =
+            jsonDecode(utf8.decode(databaseBytes)) as Map<String, dynamic>;
         final schemaVersion = (snapshot['schemaVersion'] as num?)?.toInt() ?? 0;
         if (schemaVersion < 1 || schemaVersion > LocalDatabase.schemaVersion) {
           return _invalid(
@@ -71,30 +78,45 @@ class LexBackupStreamingRestoreService {
         }
         final rawTables = snapshot['tables'];
         if (rawTables is! Map) {
-          return _invalid('Database tables payload is invalid.', version: version);
+          return _invalid(
+            'Database tables payload is invalid.',
+            version: version,
+          );
         }
         final tables = rawTables.cast<String, dynamic>();
         for (final entry in tables.entries) {
           if (entry.value is! List) {
-            return _invalid('Table ${entry.key} has an invalid row payload.', version: version);
+            return _invalid(
+              'Table ${entry.key} has an invalid row payload.',
+              version: version,
+            );
           }
         }
 
         final files = (manifest['files'] as List?) ?? const [];
         if (files.length > LexBackupArchiveGuard.maxEntries - 2) {
-          return _invalid('Backup contains too many bundled documents.', version: version);
+          return _invalid(
+            'Backup contains too many bundled documents.',
+            version: version,
+          );
         }
         final seen = <String>{};
         for (final raw in files) {
           if (raw is! Map) {
-            return _invalid('Backup file manifest is invalid.', version: version);
+            return _invalid(
+              'Backup file manifest is invalid.',
+              version: version,
+            );
           }
           final item = raw.cast<String, dynamic>();
           final path = item['archivePath']?.toString() ?? '';
           final expectedSize = (item['size'] as num?)?.toInt();
           final expectedChecksum = item['checksum']?.toString() ?? '';
           if (!_isSafeDocumentPath(path) || !seen.add(path)) {
-            return _invalid('Unsafe or duplicate bundled document path.', version: version);
+            return _invalid(
+              'Unsafe or duplicate bundled document path.',
+              version: version,
+            );
           }
           final entry = archive.findFile(path);
           if (entry == null ||
@@ -104,7 +126,10 @@ class LexBackupStreamingRestoreService {
               expectedSize != entry.size ||
               expectedSize > LexBackupArchiveGuard.maxEntryUncompressedBytes ||
               expectedChecksum.length != 64) {
-            return _invalid('A bundled document is missing or invalid.', version: version);
+            return _invalid(
+              'A bundled document is missing or invalid.',
+              version: version,
+            );
           }
         }
 
@@ -143,15 +168,18 @@ class LexBackupStreamingRestoreService {
       final databaseEntry = archive.findFile('database.json')!;
       final manifestBytes = manifestEntry.readBytes()!;
       final databaseBytes = databaseEntry.readBytes()!;
-      final manifest = jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
-      final snapshot = jsonDecode(utf8.decode(databaseBytes)) as Map<String, dynamic>;
+      final manifest =
+          jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
+      final snapshot =
+          jsonDecode(utf8.decode(databaseBytes)) as Map<String, dynamic>;
       final tables = (snapshot['tables'] as Map).cast<String, dynamic>();
       final files = (manifest['files'] as List? ?? const []);
 
       await documentDirectory.create(recursive: true);
       final restoredPaths = <String, String>{};
       for (var index = 0; index < files.length; index++) {
-        if (isCancelled?.call() == true) throw StateError('Restauração cancelada.');
+        if (isCancelled?.call() == true)
+          throw StateError('Restauração cancelada.');
         final item = (files[index] as Map).cast<String, dynamic>();
         final documentId = item['documentId'].toString();
         final archivePath = item['archivePath'].toString();
@@ -189,7 +217,9 @@ class LexBackupStreamingRestoreService {
       db.database.execute('BEGIN IMMEDIATE;');
       try {
         final existingTables = db.database
-            .select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%';")
+            .select(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%';",
+            )
             .map((row) => row['name'] as String)
             .toSet();
         for (final table in tables.keys) {
@@ -213,7 +243,9 @@ class LexBackupStreamingRestoreService {
         }
         final violations = db.database.select('PRAGMA foreign_key_check;');
         if (violations.isNotEmpty) {
-          throw StateError('Backup violates ${violations.length} foreign-key constraints.');
+          throw StateError(
+            'Backup violates ${violations.length} foreign-key constraints.',
+          );
         }
         db.database.execute('COMMIT;');
       } catch (_) {
@@ -240,7 +272,8 @@ class LexBackupStreamingRestoreService {
     if (row.isEmpty) return;
     final columns = row.keys.toList(growable: false);
     final values = [for (final column in columns) _fromJsonValue(row[column])];
-    final sql = 'INSERT INTO ${_quote(table)} (${columns.map(_quote).join(', ')}) VALUES (${List.filled(columns.length, '?').join(', ')});';
+    final sql =
+        'INSERT INTO ${_quote(table)} (${columns.map(_quote).join(', ')}) VALUES (${List.filled(columns.length, '?').join(', ')});';
     db.database.execute(sql, values);
   }
 
@@ -252,14 +285,18 @@ class LexBackupStreamingRestoreService {
   }
 
   static bool _isSafeDocumentPath(String path) {
-    if (!path.startsWith('documents/') || path.contains('..') || path.contains('\\') || path.startsWith('/')) {
+    if (!path.startsWith('documents/') ||
+        path.contains('..') ||
+        path.contains('\\') ||
+        path.startsWith('/')) {
       return false;
     }
     final segments = path.split('/');
     return segments.length == 2 && segments.last.isNotEmpty;
   }
 
-  static LexBackupValidation _invalid(String error, {int version = 0}) => LexBackupValidation(
+  static LexBackupValidation _invalid(String error, {int version = 0}) =>
+      LexBackupValidation(
         valid: false,
         format: version == 0 ? 'unknown' : 'lexbackup',
         version: version,
@@ -268,6 +305,8 @@ class LexBackupStreamingRestoreService {
         error: error,
       );
 
-  static String _quote(String identifier) => '"${identifier.replaceAll('"', '""')}"';
-  static String _safeName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  static String _quote(String identifier) =>
+      '"${identifier.replaceAll('"', '""')}"';
+  static String _safeName(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
 }

@@ -35,11 +35,16 @@ void main() {
     expect(toolbar, isNot(contains('thumbVisibility: true')));
     expect(toolbar, isNot(contains('trackVisibility: true')));
 
-    // Selection remains exclusive with Hand navigation. Text editing uses the
-    // same object layer and therefore keeps these ownership rules intact.
-    expect(screen, contains('_pointerMode && !_handMode && _canEditActiveLayer'));
+    // FluentDocument owns text editing. Object selection and Hand navigation
+    // remain mutually exclusive, while drawing ignores input during text mode.
+    expect(screen, contains('_textMode = true'));
+    expect(screen, contains('enabled: _textMode && !_handMode'));
+    expect(screen, contains('!_textMode &&'));
+    expect(screen, contains('_pointerMode &&'));
+    expect(screen, contains('!_handMode &&'));
     expect(screen, contains('ignoring:'));
-    expect(screen, contains('!_canEditActiveLayer || _pointerMode || _handMode'));
+    expect(screen, contains('!_canEditActiveLayer ||'));
+    expect(screen, contains('_textMode ||'));
     expect(screen, contains('panEnabled: _handMode'));
     expect(screen, contains('scaleEnabled: _handMode'));
   });

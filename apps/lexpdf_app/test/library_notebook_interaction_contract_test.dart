@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('library documents open directly in the unified PDF workspace', () {
-    final library = File('lib/src/screens/library_screen.dart').readAsStringSync();
+    final library = File('lib/src/screens/library_screen.dart')
+        .readAsStringSync();
     final documentRef = File('lib/src/core/documents/document_provider.dart')
         .readAsStringSync();
 
@@ -13,7 +14,9 @@ void main() {
     expect(library, contains('final canOpen = _hasLocalPath(document);'));
     expect(
       library,
-      contains('onTap: canOpen ? () => _openWorkspaceDocument(document) : null'),
+      contains(
+        'onTap: canOpen ? () => _openWorkspaceDocument(document) : null',
+      ),
     );
     expect(library, contains('builder: (_) => PdfWorkspaceScreen('));
     expect(
@@ -31,8 +34,9 @@ void main() {
         .readAsStringSync();
     final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
         .readAsStringSync();
-    final styleControls = File('lib/src/widgets/notebook_editor_toolbar_groups.dart')
-        .readAsStringSync();
+    final styleControls = File(
+      'lib/src/widgets/notebook_editor_toolbar_groups.dart',
+    ).readAsStringSync();
 
     expect(screen, contains('onScaleObjectDown:'));
     expect(screen, contains('onScaleObjectUp:'));
@@ -40,8 +44,9 @@ void main() {
     expect(screen, contains('_setSelectedObjectWidth(value)'));
     expect(screen, contains('_setSelectedObjectColor(value)'));
     expect(screen, contains('_deleteSelectedObject()'));
-    expect(screen, contains('_beginTextEditing(selectedObject)'));
+    expect(screen, contains('onEditTextObject: _activateTextMode'));
     expect(screen, contains('_buildTextFormattingToolbar()'));
+    expect(screen, contains('NotebookRichDocumentSurface('));
     expect(toolbar, contains('objectSelected: selectedObject != null'));
     expect(toolbar, contains('onPointerModeChanged(true)'));
     expect(
@@ -56,7 +61,7 @@ void main() {
       objectLayer,
       contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'),
     );
-    expect(objectLayer, contains('_InlineNotebookTextEditor'));
+    expect(objectLayer, isNot(contains('_InlineNotebookTextEditor')));
     expect(objectLayer, contains('enum _ResizeHandle'));
     expect(styleControls, contains('width.toStringAsFixed(1)'));
   });
@@ -85,7 +90,10 @@ void main() {
         .readAsStringSync();
 
     expect(screen, contains('final GlobalKey _pageViewportKey = GlobalKey();'));
-    expect(screen, contains('_pageTransformController.toScene(viewportCenter)'));
+    expect(
+      screen,
+      contains('_pageTransformController.toScene(viewportCenter)'),
+    );
     expect(screen, contains('Matrix4.translationValues('));
     expect(screen, contains('Matrix4.diagonal3Values(next, next, 1)'));
   });
