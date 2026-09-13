@@ -48,7 +48,7 @@ void main() {
 
     expect(screen, contains('bool _handMode = false'));
     expect(screen, contains('panEnabled: _handMode'));
-    expect(screen, contains('enabled: _pointerMode &&'));
+    expect(screen, contains('_pointerMode && !_handMode && _canEditActiveLayer'));
     expect(screen, contains('onHandModeChanged'));
     expect(controls, contains("label: const Text('Selecionar')"));
     expect(controls, contains("label: const Text('Mão')"));
