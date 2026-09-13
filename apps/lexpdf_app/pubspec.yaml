@@ -19,7 +19,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.17.1
   image: ^4.9.2
   path_provider: ^2.1.5
-  pdf: ^3.13.0
+  pdf: 3.11.3
   pdf_cos: 4.0.0
   pdf_document: 4.0.0
   pdfrx: ^2.6.1
