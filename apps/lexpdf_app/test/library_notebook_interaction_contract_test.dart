@@ -52,7 +52,7 @@ void main() {
     );
     expect(objectLayer, contains('_InlineNotebookTextEditor'));
     expect(objectLayer, contains('enum _ResizeHandle'));
-    expect(styleControls, contains("'Espessura do objeto'"));
+    expect(styleControls, contains('width.toStringAsFixed(1)'));
   });
 
   test('notebook inserted lines are horizontal until explicitly rotated', () {
