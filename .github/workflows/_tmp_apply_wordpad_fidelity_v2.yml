@@ -6,12 +6,16 @@ on:
       - fix/notebook-wordpad-fidelity-v2
     paths:
       - .github/scripts/apply_wordpad_fidelity_v2.py
+  pull_request:
+    branches:
+      - develop
 
 permissions:
   contents: write
 
 jobs:
   apply-and-validate:
+    if: github.event_name == 'push' || github.head_ref == 'fix/notebook-wordpad-fidelity-v2'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
