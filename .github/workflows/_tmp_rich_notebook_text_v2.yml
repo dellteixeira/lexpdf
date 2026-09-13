@@ -1,0 +1,28 @@
+name: Apply rich notebook text editor v2
+on:
+  push:
+    branches:
+      - feat/notebook-inline-rich-text
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/notebook-inline-rich-text
+      - name: Apply patch
+        run: python .github/scripts/apply_rich_notebook_text.py
+      - name: Format Dart
+        run: |
+          cd apps/lexpdf_app
+          dart format lib/src/core/notebook/notebook_object_models.dart lib/src/core/storage/local_database.dart lib/src/core/storage/local_notebook_object_store.dart lib/src/widgets/notebook_object_layer.dart lib/src/screens/layered_notebook_screen.dart test/notebook_rich_text_contract_test.dart
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "feat: edit notebook text inline with rich formatting"
+          git push origin HEAD:feat/notebook-inline-rich-text
