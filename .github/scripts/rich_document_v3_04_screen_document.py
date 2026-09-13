@@ -20,7 +20,13 @@ def replace_once(text, old, new, label):
 
 
 def sub_once(text, pattern, replacement, label, flags=0):
-    result, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+    result, count = re.subn(
+        pattern,
+        lambda _match: replacement,
+        text,
+        count=1,
+        flags=flags,
+    )
     if count != 1:
         raise RuntimeError(f'{label}: expected exactly 1 regex match, found {count}')
     return result
@@ -147,7 +153,7 @@ text = replace_once(text, '''  List<InkStroke> _snapshotStrokes() {''', rich_met
 text = sub_once(text, r"  int get _wordCount \{.*?\n  \}\n\n  Widget _buildViewRibbon", '''  int get _wordCount {
     final combined = _richDocument?.content.text.trim() ?? '';
     if (combined.isEmpty) return 0;
-    return RegExp(r'\\S+').allMatches(combined).length;
+    return RegExp(r'\S+').allMatches(combined).length;
   }
 
   Widget _buildViewRibbon''', 'word count from rich document', re.S)
