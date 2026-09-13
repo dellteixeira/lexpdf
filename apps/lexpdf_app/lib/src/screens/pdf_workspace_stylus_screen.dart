@@ -128,9 +128,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void initState() {
     super.initState();
     _page = math.max(1, widget.initialPage);
-    _stylusMode = defaultTargetPlatform == TargetPlatform.android
-        ? _StylusMode.pen
-        : _StylusMode.hand;
+    // Open every PDF in navigation mode. Drawing tools are opt-in so
+    // touch/drag gestures immediately move through pages on mobile and desktop.
+    _stylusMode = _StylusMode.hand;
     _controller.addListener(_syncZoomFromController);
     unawaited(_reloadBookmarks());
     unawaited(_loadInkCount());
