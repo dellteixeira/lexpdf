@@ -30,6 +30,51 @@ jobs:
           python .github/scripts/rich_document_v3_06_screen_commands_files.py
           python .github/scripts/rich_document_v3_07_tests.py
           python .github/scripts/rich_document_v3_08_contract_fixes.py
+      - name: Vendor Fluent Editor archive 4 compatibility patch
+        run: |
+          rm -rf third_party/fluent_editor
+          mkdir -p third_party/fluent_editor
+          git -C third_party/fluent_editor init
+          git -C third_party/fluent_editor remote add origin https://github.com/exusr/fluent-editor.git
+          git -C third_party/fluent_editor fetch --depth 1 origin 5676354889f7d5554458c9e97a85cfe640c4a133
+          git -C third_party/fluent_editor checkout --detach FETCH_HEAD
+          rm -rf third_party/fluent_editor/.git
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('third_party/fluent_editor')
+          exporter = root / 'lib/services/odt_exporter.dart'
+          text = exporter.read_text(encoding='utf-8')
+          old = """    final mimeFile = ArchiveFile('mimetype', mimeBytes.length, mimeBytes);\n    mimeFile.compress = false;"""
+          new = """    final mimeFile = ArchiveFile.noCompress(\n      'mimetype',\n      mimeBytes.length,\n      mimeBytes,\n    );"""
+          if text.count(old) != 1:
+              raise SystemExit('Unexpected fluent_editor ODT compression source; refusing an unsafe patch.')
+          exporter.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          pubspec = root / 'pubspec.yaml'
+          spec = pubspec.read_text(encoding='utf-8')
+          old_constraint = '  archive: ^3.6.1\n'
+          if spec.count(old_constraint) != 1:
+              raise SystemExit('Unexpected fluent_editor archive constraint; refusing an unsafe patch.')
+          pubspec.write_text(
+              spec.replace(old_constraint, '  archive: ^4.0.5\n', 1),
+              encoding='utf-8',
+          )
+
+          (root / 'LEXPDF_PATCH.md').write_text(
+              '''# LexPDF compatibility patch\n\n'
+              'Vendored from `exusr/fluent-editor` at commit '
+              '`5676354889f7d5554458c9e97a85cfe640c4a133` (version 1.1.0).\n\n'
+              'LexPDF uses `archive` 4.x because its PDF document stack requires it. '
+              'The upstream editor still declares `archive ^3.6.1` and uses the removed '
+              '`ArchiveFile.compress` setter for the ODT mimetype entry. This vendor patch '\n'
+              'updates the constraint to `archive ^4.0.5` and uses '
+              '`ArchiveFile.noCompress`, preserving the ODT requirement that `mimetype` '
+              'is stored uncompressed. No other upstream behavior is changed.\n\n'
+              'The upstream MIT LICENSE is retained in this directory.\n''',
+              encoding='utf-8',
+          )
+          PY
       - name: Resolve dependencies
         working-directory: apps/lexpdf_app
         run: flutter pub get
@@ -59,6 +104,7 @@ jobs:
             test/notebook_wordpad_chrome_widget_test.dart \
             test/notebook_wordpad_editor_contract_test.dart \
             test/squid_import_service_test.dart
+          dart format ../../third_party/fluent_editor/lib/services/odt_exporter.dart
       - name: Analyze
         working-directory: apps/lexpdf_app
         run: flutter analyze
