@@ -11,8 +11,8 @@ void main() {
     expect(screen, contains('_defaultNotebookFontSize = 12'));
     expect(screen, contains('_buildTextFormattingToolbar(),'));
     expect(screen, isNot(contains("if (_editingTextObjectId != null ||")));
-    expect(screen, contains("labelText: 'Fonte'"));
-    expect(screen, contains("labelText: 'Tamanho'"));
+    expect(screen, contains("label: 'Fonte'"));
+    expect(screen, contains('DropdownButton<double>('));
     expect(screen, contains("tooltip: 'Negrito'"));
     expect(screen, contains("tooltip: 'Itálico'"));
     expect(screen, contains("tooltip: 'Sublinhado'"));

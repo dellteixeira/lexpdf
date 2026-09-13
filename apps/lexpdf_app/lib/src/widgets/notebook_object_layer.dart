@@ -7,6 +7,13 @@ import '../core/notebook/notebook_object_models.dart';
 
 enum _ResizeHandle { topLeft, topRight, bottomLeft, bottomRight }
 
+TextAlign _notebookFlutterTextAlign(NotebookTextAlign value) => switch (value) {
+  NotebookTextAlign.left => TextAlign.left,
+  NotebookTextAlign.center => TextAlign.center,
+  NotebookTextAlign.right => TextAlign.right,
+  NotebookTextAlign.justify => TextAlign.justify,
+};
+
 class NotebookObjectLayer extends StatefulWidget {
   const NotebookObjectLayer({
     required this.objects,
@@ -280,11 +287,11 @@ class _ObjectVisual extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (object.type == NotebookObjectType.text) {
-      return Align(
-        alignment: Alignment.centerLeft,
+      return SizedBox.expand(
         child: Text(
           object.textValue ?? '',
           maxLines: null,
+          textAlign: _notebookFlutterTextAlign(object.textAlign),
           style: TextStyle(
             color: Color(object.colorValue),
             fontSize: object.fontSize ?? 12,
@@ -406,6 +413,7 @@ class _InlineNotebookTextEditorState extends State<_InlineNotebookTextEditor> {
       minLines: null,
       maxLines: null,
       keyboardType: TextInputType.multiline,
+      textAlign: _notebookFlutterTextAlign(widget.object.textAlign),
       textAlignVertical: TextAlignVertical.top,
       style: _style,
       cursorColor: Theme.of(context).colorScheme.primary,

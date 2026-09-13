@@ -97,9 +97,7 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
             height: 96,
             decoration: const BoxDecoration(
               color: Color(0xFFF9FAFC),
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFC9CDD4)),
-              ),
+              border: Border(bottom: BorderSide(color: Color(0xFFC9CDD4))),
             ),
             child: switch (_tab) {
               NotebookRibbonTab.home => widget.homeRibbon,
@@ -167,7 +165,11 @@ class _WordPadTitleBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.description_outlined, size: 17, color: Color(0xFF3465A4)),
+          const Icon(
+            Icons.description_outlined,
+            size: 17,
+            color: Color(0xFF3465A4),
+          ),
           const SizedBox(width: 4),
           WordPadCompactIconButton(
             tooltip: 'Desfazer',
@@ -239,31 +241,49 @@ class _WordPadTabStrip extends StatelessWidget {
             itemBuilder: (_) => [
               const PopupMenuItem(
                 value: _NotebookFileAction.newNotebook,
-                child: _FileMenuLabel(icon: Icons.note_add_outlined, label: 'Novo caderno'),
+                child: _FileMenuLabel(
+                  icon: Icons.note_add_outlined,
+                  label: 'Novo caderno',
+                ),
               ),
               const PopupMenuItem(
                 value: _NotebookFileAction.renameNotebook,
-                child: _FileMenuLabel(icon: Icons.drive_file_rename_outline, label: 'Renomear caderno'),
+                child: _FileMenuLabel(
+                  icon: Icons.drive_file_rename_outline,
+                  label: 'Renomear caderno',
+                ),
               ),
               PopupMenuItem(
                 value: _NotebookFileAction.deleteNotebook,
                 enabled: canDeleteNotebook,
-                child: const _FileMenuLabel(icon: Icons.delete_outline, label: 'Excluir caderno'),
+                child: const _FileMenuLabel(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir caderno',
+                ),
               ),
               const PopupMenuDivider(),
               const PopupMenuItem(
                 value: _NotebookFileAction.newPage,
-                child: _FileMenuLabel(icon: Icons.post_add_outlined, label: 'Nova página'),
+                child: _FileMenuLabel(
+                  icon: Icons.post_add_outlined,
+                  label: 'Nova página',
+                ),
               ),
               PopupMenuItem(
                 value: _NotebookFileAction.duplicatePage,
                 enabled: canDuplicatePage,
-                child: const _FileMenuLabel(icon: Icons.copy_all_outlined, label: 'Duplicar página'),
+                child: const _FileMenuLabel(
+                  icon: Icons.copy_all_outlined,
+                  label: 'Duplicar página',
+                ),
               ),
               PopupMenuItem(
                 value: _NotebookFileAction.deletePage,
                 enabled: canDeletePage,
-                child: const _FileMenuLabel(icon: Icons.delete_sweep_outlined, label: 'Excluir página'),
+                child: const _FileMenuLabel(
+                  icon: Icons.delete_sweep_outlined,
+                  label: 'Excluir página',
+                ),
               ),
             ],
             child: Container(
@@ -370,10 +390,7 @@ class WordPadRibbonGroup extends StatelessWidget {
               child: Text(
                 label,
                 maxLines: 1,
-                style: const TextStyle(
-                  fontSize: 9.5,
-                  color: Color(0xFF676B72),
-                ),
+                style: const TextStyle(fontSize: 9.5, color: Color(0xFF676B72)),
               ),
             ),
           ),
@@ -414,12 +431,16 @@ class WordPadCompactIconButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? const Color(0xFFDCEAFB) : Colors.transparent,
             borderRadius: BorderRadius.circular(2),
-            border: selected ? Border.all(color: const Color(0xFF8CB3E0)) : null,
+            border: selected
+                ? Border.all(color: const Color(0xFF8CB3E0))
+                : null,
           ),
           child: Icon(
             icon,
             size: 17,
-            color: onPressed == null ? const Color(0xFFA7AAB0) : const Color(0xFF34373B),
+            color: onPressed == null
+                ? const Color(0xFFA7AAB0)
+                : const Color(0xFF34373B),
           ),
         ),
       ),
@@ -460,7 +481,9 @@ class WordPadLabeledCommand extends StatelessWidget {
             Icon(
               icon,
               size: 22,
-              color: onPressed == null ? const Color(0xFFA7AAB0) : const Color(0xFF34373B),
+              color: onPressed == null
+                  ? const Color(0xFFA7AAB0)
+                  : const Color(0xFF34373B),
             ),
             const SizedBox(height: 2),
             Text(
@@ -469,7 +492,9 @@ class WordPadLabeledCommand extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 9.5,
-                color: onPressed == null ? const Color(0xFFA7AAB0) : const Color(0xFF34373B),
+                color: onPressed == null
+                    ? const Color(0xFFA7AAB0)
+                    : const Color(0xFF34373B),
               ),
             ),
           ],
@@ -515,7 +540,8 @@ class NotebookWordPadViewRibbon extends StatelessWidget {
                 Checkbox(
                   value: showDocumentRuler,
                   visualDensity: VisualDensity.compact,
-                  onChanged: (value) => onShowDocumentRulerChanged(value ?? true),
+                  onChanged: (value) =>
+                      onShowDocumentRulerChanged(value ?? true),
                 ),
                 const Text('Régua', style: TextStyle(fontSize: 11)),
                 const SizedBox(width: 8),
@@ -533,10 +559,26 @@ class NotebookWordPadViewRibbon extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                WordPadLabeledCommand(label: 'Menos', icon: Icons.zoom_out, onPressed: onZoomOut),
-                WordPadLabeledCommand(label: '100%', icon: Icons.filter_1_outlined, onPressed: onActualSize),
-                WordPadLabeledCommand(label: 'Mais', icon: Icons.zoom_in, onPressed: onZoomIn),
-                WordPadLabeledCommand(label: 'Página', icon: Icons.fit_screen_outlined, onPressed: onFitPage),
+                WordPadLabeledCommand(
+                  label: 'Menos',
+                  icon: Icons.zoom_out,
+                  onPressed: onZoomOut,
+                ),
+                WordPadLabeledCommand(
+                  label: '100%',
+                  icon: Icons.filter_1_outlined,
+                  onPressed: onActualSize,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Mais',
+                  icon: Icons.zoom_in,
+                  onPressed: onZoomIn,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Página',
+                  icon: Icons.fit_screen_outlined,
+                  onPressed: onFitPage,
+                ),
               ],
             ),
           ),
@@ -729,11 +771,7 @@ class _FileMenuLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
-        Icon(icon, size: 18),
-        const SizedBox(width: 10),
-        Text(label),
-      ],
+      children: [Icon(icon, size: 18), const SizedBox(width: 10), Text(label)],
     );
   }
 }

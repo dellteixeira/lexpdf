@@ -44,8 +44,14 @@ void main() {
     expect(screen, contains('_buildTextFormattingToolbar()'));
     expect(toolbar, contains('objectSelected: selectedObject != null'));
     expect(toolbar, contains('onPointerModeChanged(true)'));
-    expect(objectControls, contains("tooltip: 'Duplicar objeto selecionado'"));
-    expect(objectControls, contains("label: const Text('Excluir')"));
+    expect(
+      objectControls,
+      contains("tooltip: 'Duplicar \${_selectionLabel(selected.type)}'"),
+    );
+    expect(
+      objectControls,
+      contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"),
+    );
     expect(
       objectLayer,
       contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'),

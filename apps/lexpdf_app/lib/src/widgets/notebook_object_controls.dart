@@ -48,11 +48,23 @@ class NotebookObjectControls extends StatelessWidget {
           tooltip: 'Inserir forma',
           onSelected: onAddShape,
           itemBuilder: (_) => const [
-            PopupMenuItem(value: NotebookObjectType.line, child: Text('Linha reta')),
+            PopupMenuItem(
+              value: NotebookObjectType.line,
+              child: Text('Linha reta'),
+            ),
             PopupMenuItem(value: NotebookObjectType.arrow, child: Text('Seta')),
-            PopupMenuItem(value: NotebookObjectType.rectangle, child: Text('Retângulo')),
-            PopupMenuItem(value: NotebookObjectType.ellipse, child: Text('Elipse')),
-            PopupMenuItem(value: NotebookObjectType.triangle, child: Text('Triângulo')),
+            PopupMenuItem(
+              value: NotebookObjectType.rectangle,
+              child: Text('Retângulo'),
+            ),
+            PopupMenuItem(
+              value: NotebookObjectType.ellipse,
+              child: Text('Elipse'),
+            ),
+            PopupMenuItem(
+              value: NotebookObjectType.triangle,
+              child: Text('Triângulo'),
+            ),
           ],
           child: const SizedBox(
             width: 54,
@@ -117,12 +129,12 @@ class NotebookObjectControls extends StatelessWidget {
   }
 
   static String _selectionLabel(NotebookObjectType type) => switch (type) {
-        NotebookObjectType.text => 'texto',
-        NotebookObjectType.image => 'imagem',
-        NotebookObjectType.line => 'linha',
-        NotebookObjectType.arrow => 'seta',
-        NotebookObjectType.rectangle => 'retângulo',
-        NotebookObjectType.ellipse => 'elipse',
-        NotebookObjectType.triangle => 'triângulo',
-      };
+    NotebookObjectType.text => 'texto',
+    NotebookObjectType.image => 'imagem',
+    NotebookObjectType.line => 'linha',
+    NotebookObjectType.arrow => 'seta',
+    NotebookObjectType.rectangle => 'retângulo',
+    NotebookObjectType.ellipse => 'elipse',
+    NotebookObjectType.triangle => 'triângulo',
+  };
 }

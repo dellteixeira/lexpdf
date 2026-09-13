@@ -15,11 +15,11 @@ void main() {
     expect(toolbar, contains('NotebookObjectControls('));
     expect(toolbar, contains('onPointerModeChanged(true)'));
     expect(controls, contains('class NotebookObjectControls'));
-    expect(controls, contains("label: const Text('Texto')"));
-    expect(controls, contains("tooltip: 'Inserir forma e selecionar'"));
-    expect(controls, contains("tooltip: 'Inserir imagem e selecionar'"));
-    expect(controls, contains("tooltip: 'Editar texto selecionado'"));
-    expect(controls, contains("label: const Text('Excluir')"));
+    expect(controls, contains("label: 'Texto'"));
+    expect(controls, contains("tooltip: 'Inserir forma'"));
+    expect(controls, contains("label: 'Imagem'"));
+    expect(controls, contains("tooltip: 'Editar texto'"));
+    expect(controls, contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"));
     expect(objectLayer, contains('enum _ResizeHandle'));
     expect(objectLayer, contains('_ResizeHandle.topLeft'));
     expect(objectLayer, contains('_ResizeHandle.topRight'));

@@ -11,11 +11,11 @@ void main() {
 
     expect(toolbar, contains("import 'notebook_ink_controls.dart';"));
     expect(toolbar, contains('NotebookInkControls('));
-    expect(controls, contains("label: const Text('Selecionar')"));
-    expect(controls, contains("label: Text('Caneta')"));
-    expect(controls, contains("label: Text('Lápis')"));
-    expect(controls, contains("label: Text('Marca-texto')"));
-    expect(controls, contains("label: const Text('Borracha')"));
-    expect(controls, contains("? 'Laço (\$selectionCount)' : 'Laço'"));
+    expect(controls, contains("label: 'Selecionar'"));
+    expect(controls, contains("label: 'Caneta'"));
+    expect(controls, contains("label: 'Lápis'"));
+    expect(controls, contains("label: 'Marca-texto'"));
+    expect(controls, contains("label: 'Borracha'"));
+    expect(controls, contains("label: selectionCount > 0 ? 'Laço \$selectionCount' : 'Laço'"));
   });
 }

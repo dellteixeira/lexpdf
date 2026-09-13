@@ -40,24 +40,25 @@ void main() {
     );
   }
 
-  testWidgets('uses desktop WordPad chrome and fixed ruler/status proportions', (
-    tester,
-  ) async {
-    await tester.pumpWidget(buildSubject());
+  testWidgets(
+    'uses desktop WordPad chrome and fixed ruler/status proportions',
+    (tester) async {
+      await tester.pumpWidget(buildSubject());
 
-    expect(find.text('Arquivo'), findsOneWidget);
-    expect(find.text('Início'), findsOneWidget);
-    expect(find.text('Desenho'), findsOneWidget);
-    expect(find.text('Exibir'), findsOneWidget);
-    expect(find.text('Caderno de teste — LexPDF'), findsOneWidget);
-    expect(find.text('HOME-RIBBON'), findsOneWidget);
-    expect(find.byType(NotebookDocumentRuler), findsOneWidget);
-    expect(find.byType(NotebookWordPadStatusBar), findsOneWidget);
-    expect(tester.getSize(find.byType(NotebookDocumentRuler)).height, 25);
-    expect(tester.getSize(find.byType(NotebookWordPadStatusBar)).height, 29);
-    expect(find.text('Página 1 de 3'), findsOneWidget);
-    expect(find.text('Palavras: 42'), findsOneWidget);
-  });
+      expect(find.text('Arquivo'), findsOneWidget);
+      expect(find.text('Início'), findsOneWidget);
+      expect(find.text('Desenho'), findsOneWidget);
+      expect(find.text('Exibir'), findsOneWidget);
+      expect(find.text('Caderno de teste — LexPDF'), findsOneWidget);
+      expect(find.text('HOME-RIBBON'), findsOneWidget);
+      expect(find.byType(NotebookDocumentRuler), findsOneWidget);
+      expect(find.byType(NotebookWordPadStatusBar), findsOneWidget);
+      expect(tester.getSize(find.byType(NotebookDocumentRuler)).height, 25);
+      expect(tester.getSize(find.byType(NotebookWordPadStatusBar)).height, 29);
+      expect(find.text('Página 1 de 3'), findsOneWidget);
+      expect(find.text('Palavras: 42'), findsOneWidget);
+    },
+  );
 
   testWidgets('switches ribbon content without stacking mobile toolbars', (
     tester,

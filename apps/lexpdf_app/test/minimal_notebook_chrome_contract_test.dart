@@ -44,11 +44,13 @@ void main() {
       'lib/src/widgets/notebook_editor_toolbar.dart',
     ).readAsStringSync();
 
-    expect(source, contains('height: 54'));
+    expect(source, contains('WordPadRibbonGroup('));
     expect(source, contains('SingleChildScrollView('));
     expect(source, isNot(contains('thumbVisibility: true')));
     expect(source, isNot(contains('trackVisibility: true')));
     expect(source, isNot(contains('border: Border.all')));
-    expect(source, contains('surfaceContainerLow.withValues(alpha: 0.72)'));
+    expect(source, contains("label: 'Ferramentas'"));
+    expect(source, contains("label: 'Inserir e objeto'"));
+    expect(source, contains("label: 'Estilo'"));
   });
 }

@@ -43,17 +43,17 @@ void main() {
       'lib/src/widgets/notebook_ink_controls.dart',
     ).readAsStringSync();
     final zoom = File(
-      'lib/src/widgets/notebook_editor_chrome.dart',
+      'lib/src/widgets/notebook_wordpad_chrome.dart',
     ).readAsStringSync();
 
     expect(screen, contains('bool _handMode = false'));
     expect(screen, contains('panEnabled: _handMode'));
     expect(screen, contains('_pointerMode && !_handMode && _canEditActiveLayer'));
     expect(screen, contains('onHandModeChanged'));
-    expect(controls, contains("label: const Text('Selecionar')"));
-    expect(controls, contains("label: const Text('Mão')"));
-    expect(zoom, contains('NotebookZoomControls'));
-    expect(zoom, contains('onZoomSelected'));
-    expect(zoom, contains('Personalizado…'));
+    expect(controls, contains("label: 'Selecionar'"));
+    expect(controls, contains("label: 'Mão'"));
+    expect(zoom, contains('class NotebookWordPadStatusBar'));
+    expect(zoom, contains('onZoomChanged'));
+    expect(zoom, contains("tooltip: 'Ajustar à página'"));
   });
 }

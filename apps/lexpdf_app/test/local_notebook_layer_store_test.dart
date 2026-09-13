@@ -7,10 +7,10 @@ import 'package:lexpdf_app/src/core/storage/local_ink_store.dart';
 import 'package:lexpdf_app/src/core/storage/local_notebook_layer_store.dart';
 
 void main() {
-  test('schema 9 creates and persists ordered notebook layers', () async {
+  test('schema 10 creates and persists ordered notebook layers', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);
-    expect(database.database.userVersion, 9);
+    expect(database.database.userVersion, 10);
 
     final inkStore = LocalInkStore(database);
     final page = await inkStore.ensureDefaultPage();

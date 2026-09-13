@@ -43,23 +43,71 @@ class NotebookLassoTools extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            WordPadCompactIconButton(tooltip: 'Mover à esquerda', icon: Icons.arrow_left, onPressed: enabled(onMoveLeft)),
-            WordPadCompactIconButton(tooltip: 'Mover à direita', icon: Icons.arrow_right, onPressed: enabled(onMoveRight)),
-            WordPadCompactIconButton(tooltip: 'Reduzir seleção', icon: Icons.zoom_in_map, onPressed: enabled(onScaleDown)),
-            WordPadCompactIconButton(tooltip: 'Ampliar seleção', icon: Icons.zoom_out_map, onPressed: enabled(onScaleUp)),
-            WordPadCompactIconButton(tooltip: 'Girar à esquerda', icon: Icons.rotate_left, onPressed: enabled(onRotateLeft)),
-            WordPadCompactIconButton(tooltip: 'Girar à direita', icon: Icons.rotate_right, onPressed: enabled(onRotateRight)),
+            WordPadCompactIconButton(
+              tooltip: 'Mover à esquerda',
+              icon: Icons.arrow_left,
+              onPressed: enabled(onMoveLeft),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Mover à direita',
+              icon: Icons.arrow_right,
+              onPressed: enabled(onMoveRight),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Reduzir seleção',
+              icon: Icons.zoom_in_map,
+              onPressed: enabled(onScaleDown),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Ampliar seleção',
+              icon: Icons.zoom_out_map,
+              onPressed: enabled(onScaleUp),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Girar à esquerda',
+              icon: Icons.rotate_left,
+              onPressed: enabled(onRotateLeft),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Girar à direita',
+              icon: Icons.rotate_right,
+              onPressed: enabled(onRotateRight),
+            ),
           ],
         ),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            WordPadCompactIconButton(tooltip: 'Traço mais fino', icon: Icons.remove, onPressed: enabled(onDecreaseWidth)),
-            WordPadCompactIconButton(tooltip: 'Traço mais grosso', icon: Icons.add, onPressed: enabled(onIncreaseWidth)),
-            WordPadCompactIconButton(tooltip: 'Copiar', icon: Icons.content_copy, onPressed: onCopy),
-            WordPadCompactIconButton(tooltip: 'Duplicar', icon: Icons.copy_all_outlined, onPressed: enabled(onDuplicate)),
-            WordPadCompactIconButton(tooltip: 'Recortar', icon: Icons.content_cut, onPressed: enabled(onCut)),
-            WordPadCompactIconButton(tooltip: 'Reconhecer forma', icon: Icons.auto_awesome_outlined, onPressed: enabled(onRecognize)),
+            WordPadCompactIconButton(
+              tooltip: 'Traço mais fino',
+              icon: Icons.remove,
+              onPressed: enabled(onDecreaseWidth),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Traço mais grosso',
+              icon: Icons.add,
+              onPressed: enabled(onIncreaseWidth),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Copiar',
+              icon: Icons.content_copy,
+              onPressed: onCopy,
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Duplicar',
+              icon: Icons.copy_all_outlined,
+              onPressed: enabled(onDuplicate),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Recortar',
+              icon: Icons.content_cut,
+              onPressed: enabled(onCut),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Reconhecer forma',
+              icon: Icons.auto_awesome_outlined,
+              onPressed: enabled(onRecognize),
+            ),
           ],
         ),
       ],
@@ -107,7 +155,8 @@ class NotebookStyleControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canStyle = editable &&
+    final canStyle =
+        editable &&
         !eraserMode &&
         (!lassoMode || selectionCount > 0) &&
         (!pointerMode || objectSelected);
@@ -155,14 +204,19 @@ class NotebookStyleControls extends StatelessWidget {
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Espessura ${width.toStringAsFixed(1)}', style: const TextStyle(fontSize: 9.5)),
+            Text(
+              'Espessura ${width.toStringAsFixed(1)}',
+              style: const TextStyle(fontSize: 9.5),
+            ),
             SizedBox(
               width: 105,
               height: 28,
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 2,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 5,
+                  ),
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 9),
                 ),
                 child: Slider(
@@ -187,7 +241,9 @@ class NotebookStyleControls extends StatelessWidget {
                   Checkbox(
                     value: stylusOnly,
                     visualDensity: VisualDensity.compact,
-                    onChanged: editable ? (value) => onStylusOnlyChanged(value ?? false) : null,
+                    onChanged: editable
+                        ? (value) => onStylusOnlyChanged(value ?? false)
+                        : null,
                   ),
                   const Text('Só caneta', style: TextStyle(fontSize: 9.5)),
                 ],
@@ -230,7 +286,9 @@ class _ColorSwatch extends StatelessWidget {
           decoration: BoxDecoration(
             color: Color(value),
             border: Border.all(
-              color: selected ? const Color(0xFF2F66B3) : const Color(0xFF8B8F96),
+              color: selected
+                  ? const Color(0xFF2F66B3)
+                  : const Color(0xFF8B8F96),
               width: selected ? 2 : 1,
             ),
           ),

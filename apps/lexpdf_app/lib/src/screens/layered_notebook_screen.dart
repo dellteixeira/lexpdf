@@ -20,6 +20,7 @@ import '../widgets/notebook_layer_ink_view.dart';
 import '../widgets/notebook_object_layer.dart';
 import '../widgets/notebook_page_background.dart';
 import '../widgets/notebook_ruler_overlay.dart';
+import '../widgets/notebook_wordpad_chrome.dart';
 
 class NotebookScreen extends StatefulWidget {
   const NotebookScreen({required this.inkStore, super.key});
@@ -73,6 +74,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _pointerMode = true;
   bool _handMode = false;
   bool _rulerMode = false;
+  bool _showDocumentRuler = true;
   double _zoom = 1.0;
   String? _selectedObjectId;
   String? _editingTextObjectId;
@@ -81,6 +83,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _defaultTextBold = false;
   bool _defaultTextItalic = false;
   bool _defaultTextUnderline = false;
+  NotebookTextAlign _defaultTextAlign = NotebookTextAlign.left;
   int _defaultTextColorValue = 0xFF000000;
   bool _suppressMutationHistory = false;
 
@@ -340,45 +343,32 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _history.clear();
   }
 
+  int get _wordCount {
+    final combined = _allObjects
+        .where((object) => object.type == NotebookObjectType.text)
+        .map((object) => object.textValue ?? '')
+        .join(' ')
+        .trim();
+    if (combined.isEmpty) return 0;
+    return RegExp(r'\S+').allMatches(combined).length;
+  }
+
+  Widget _buildViewRibbon() {
+    return NotebookWordPadViewRibbon(
+      showDocumentRuler: _showDocumentRuler,
+      onShowDocumentRulerChanged: (value) =>
+          setState(() => _showDocumentRuler = value),
+      onLayers: () => unawaited(_showLayers()),
+      onZoomOut: () => _zoomBy(0.85),
+      onZoomIn: () => _zoomBy(1.15),
+      onActualSize: () => _setZoom(1),
+      onFitPage: _resetZoom,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentNotebook?.title ?? 'Cadernos'),
-        actions: [
-          IconButton(
-            tooltip: 'Camadas',
-            onPressed: _currentPage == null ? null : _showLayers,
-            icon: const Icon(Icons.layers_outlined),
-          ),
-          IconButton(
-            tooltip: 'Novo caderno',
-            onPressed: _createNotebook,
-            icon: const Icon(Icons.create_new_folder_outlined),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Opções do caderno',
-            onSelected: (value) {
-              if (value == 'rename') unawaited(_renameNotebook());
-              if (value == 'delete') unawaited(_deleteNotebook());
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'rename', child: Text('Renomear caderno')),
-              PopupMenuItem(value: 'delete', child: Text('Excluir caderno')),
-            ],
-          ),
-          IconButton(
-            tooltip: 'Desfazer',
-            onPressed: _history.canUndo ? _undoHistory : null,
-            icon: const Icon(Icons.undo),
-          ),
-          IconButton(
-            tooltip: 'Refazer',
-            onPressed: _history.canRedo ? _redoHistory : null,
-            icon: const Icon(Icons.redo),
-          ),
-        ],
-      ),
       body: FutureBuilder<void>(
         future: _loadFuture,
         builder: (context, snapshot) {
@@ -396,16 +386,40 @@ class _NotebookScreenState extends State<NotebookScreen> {
           if (page == null) {
             return const Center(child: Text('Nenhuma página disponível.'));
           }
-          return Column(
-            children: [
-              _buildNotebookNavigation(),
-              const Divider(height: 1),
-              _buildLayerStatus(),
-              _buildTextFormattingToolbar(),
-              _buildToolbar(),
-              const Divider(height: 1),
-              Expanded(child: _buildPageViewport(page)),
-            ],
+          final pageIndex = _pageIndex;
+          return NotebookWordPadScaffold(
+            title: _currentNotebook?.title ?? 'Cadernos',
+            homeRibbon: _buildTextFormattingToolbar(),
+            drawingRibbon: _buildToolbar(),
+            viewRibbon: _buildViewRibbon(),
+            document: _buildPageViewport(page),
+            pageIndex: pageIndex < 0 ? 0 : pageIndex,
+            pageCount: _pages.length,
+            wordCount: _wordCount,
+            layerName: _activeLayer?.name ?? 'Camada 1',
+            zoom: _zoom,
+            showDocumentRuler: _showDocumentRuler,
+            onNewNotebook: () => unawaited(_createNotebook()),
+            onRenameNotebook: () => unawaited(_renameNotebook()),
+            onDeleteNotebook: _notebooks.length > 1
+                ? () => unawaited(_deleteNotebook())
+                : null,
+            onNewPage: () => unawaited(_addPage()),
+            onDuplicatePage: () => unawaited(_duplicatePage()),
+            onDeletePage: _pages.length > 1
+                ? () => unawaited(_deletePage())
+                : null,
+            onLayers: () => unawaited(_showLayers()),
+            onPreviousPage: pageIndex > 0
+                ? () => unawaited(_openPageAt(pageIndex - 1))
+                : null,
+            onNextPage: pageIndex >= 0 && pageIndex < _pages.length - 1
+                ? () => unawaited(_openPageAt(pageIndex + 1))
+                : null,
+            onUndo: _history.canUndo ? () => unawaited(_undoHistory()) : null,
+            onRedo: _history.canRedo ? () => unawaited(_redoHistory()) : null,
+            onZoomChanged: _setZoom,
+            onFitPage: _resetZoom,
           );
         },
       ),
@@ -415,7 +429,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Widget _buildPageViewport(InkNotebookPage page) {
     return ColoredBox(
       key: _pageViewportKey,
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      color: const Color(0xFFD9DDE2),
       child: Stack(
         children: [
           Positioned.fill(
@@ -440,9 +454,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     margin: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(1),
+                      border: Border.all(color: const Color(0xFFC6C9CE)),
                       boxShadow: const [
-                        BoxShadow(blurRadius: 12, color: Color(0x22000000)),
+                        BoxShadow(
+                          blurRadius: 5,
+                          offset: Offset(0, 2),
+                          color: Color(0x26000000),
+                        ),
                       ],
                     ),
                     clipBehavior: Clip.antiAlias,
@@ -541,18 +560,6 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 ),
               ),
             ),
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: NotebookZoomControls(
-              zoom: _zoom,
-              onZoomOut: () => _zoomBy(0.85),
-              onZoomIn: () => _zoomBy(1.15),
-              onReset: _resetZoom,
-              onZoomSelected: _setZoom,
-              onCustomZoom: _showCustomZoomDialog,
-            ),
-          ),
         ],
       ),
     );
@@ -589,6 +596,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (mounted) setState(() => _zoom = 1.0);
   }
 
+  // Retained for callers that may reintroduce a custom zoom command.
+  // ignore: unused_element
   Future<void> _showCustomZoomDialog() async {
     final controller = TextEditingController(text: '${(_zoom * 100).round()}');
     final percent = await showDialog<int>(
@@ -622,6 +631,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _setZoom(percent / 100);
   }
 
+  // Kept for the legacy compact navigation path.
+  // ignore: unused_element
   Widget _buildLayerStatus() {
     final layer = _activeLayer;
     if (layer == null) return const SizedBox.shrink();
@@ -632,6 +643,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
+  // Kept for compatibility with the previous notebook chrome.
+  // ignore: unused_element
   Widget _buildNotebookNavigation() {
     final pageIndex = _pageIndex;
     return NotebookNavigationBar(
@@ -1256,6 +1269,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       fontBold: _defaultTextBold,
       fontItalic: _defaultTextItalic,
       fontUnderline: _defaultTextUnderline,
+      textAlign: _defaultTextAlign,
       createdAt: now,
       updatedAt: now,
     );
@@ -1353,6 +1367,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     String? fontFamily,
     bool clearFontFamily = false,
     int? colorValue,
+    NotebookTextAlign? textAlign,
   }) {
     final object = _selectedObject;
     if (object == null || object.type != NotebookObjectType.text) {
@@ -1360,6 +1375,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         if (bold != null) _defaultTextBold = bold;
         if (italic != null) _defaultTextItalic = italic;
         if (underline != null) _defaultTextUnderline = underline;
+        if (textAlign != null) _defaultTextAlign = textAlign;
         if (fontSize != null) _defaultTextFontSize = fontSize;
         if (fontFamily != null) _defaultTextFontFamily = fontFamily;
         if (clearFontFamily) {
@@ -1374,6 +1390,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
         fontBold: bold,
         fontItalic: italic,
         fontUnderline: underline,
+        textAlign: textAlign,
         fontSize: fontSize,
         fontFamily: fontFamily,
         clearFontFamily: clearFontFamily,
@@ -1398,151 +1415,294 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final currentBold = object?.fontBold ?? _defaultTextBold;
     final currentItalic = object?.fontItalic ?? _defaultTextItalic;
     final currentUnderline = object?.fontUnderline ?? _defaultTextUnderline;
+    final currentAlign = object?.textAlign ?? _defaultTextAlign;
     final currentColor = object?.colorValue ?? _defaultTextColorValue;
 
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: SizedBox(
-        height: 56,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: _canEditActiveLayer
-                  ? () => unawaited(_addText())
-                  : null,
-              icon: const Icon(Icons.edit_note),
-              label: Text(object == null ? 'Escrever' : 'Editar texto'),
-            ),
-            const VerticalDivider(width: 16),
-            SizedBox(
-              width: 148,
-              child: DropdownButtonFormField<String>(
-                key: ValueKey('font-$currentFamily'),
-                initialValue: fonts.containsValue(currentFamily)
-                    ? currentFamily
-                    : _defaultNotebookFontFamily,
-                decoration: const InputDecoration(
-                  labelText: 'Fonte',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                ),
-                items: fonts.entries
-                    .map(
-                      (entry) => DropdownMenuItem(
-                        value: entry.value,
-                        child: Text(entry.key),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: (family) {
-                  if (family != null) _setSelectedTextStyle(fontFamily: family);
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 90,
-              child: DropdownButtonFormField<double>(
-                key: ValueKey('size-$currentSize'),
-                initialValue: fontSizes.contains(currentSize)
-                    ? currentSize
-                    : _defaultNotebookFontSize,
-                decoration: const InputDecoration(
-                  labelText: 'Tamanho',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                ),
-                items: fontSizes
-                    .map(
-                      (size) => DropdownMenuItem(
-                        value: size,
-                        child: Text(size.toInt().toString()),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: (size) {
-                  if (size != null) _setSelectedTextStyle(fontSize: size);
-                },
-              ),
-            ),
-            const SizedBox(width: 4),
-            IconButton(
-              tooltip: 'Negrito',
-              isSelected: currentBold,
-              onPressed: () => _setSelectedTextStyle(bold: !currentBold),
-              icon: const Icon(Icons.format_bold),
-            ),
-            IconButton(
-              tooltip: 'Itálico',
-              isSelected: currentItalic,
-              onPressed: () => _setSelectedTextStyle(italic: !currentItalic),
-              icon: const Icon(Icons.format_italic),
-            ),
-            IconButton(
-              tooltip: 'Sublinhado',
-              isSelected: currentUnderline,
-              onPressed: () =>
-                  _setSelectedTextStyle(underline: !currentUnderline),
-              icon: const Icon(Icons.format_underline),
-            ),
-            PopupMenuButton<int>(
-              tooltip: 'Cor da fonte',
-              icon: Stack(
-                alignment: Alignment.bottomCenter,
-                children: [
-                  const Icon(Icons.format_color_text),
-                  Container(width: 22, height: 4, color: Color(currentColor)),
-                ],
-              ),
-              itemBuilder: (_) => _palette
-                  .map(
-                    (value) => PopupMenuItem<int>(
-                      value: value,
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: Color(value),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.black26),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            value == currentColor ? 'Selecionada' : 'Usar cor',
-                          ),
-                        ],
+    Widget alignButton(
+      String tooltip,
+      IconData icon,
+      NotebookTextAlign alignment,
+    ) {
+      return WordPadCompactIconButton(
+        tooltip: tooltip,
+        icon: icon,
+        selected: currentAlign == alignment,
+        onPressed: _canEditActiveLayer
+            ? () => _setSelectedTextStyle(textAlign: alignment)
+            : null,
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WordPadRibbonGroup(
+            label: 'Fonte',
+            minWidth: 265,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 136,
+                      height: 27,
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: fonts.containsValue(currentFamily)
+                              ? currentFamily
+                              : _defaultNotebookFontFamily,
+                          isDense: true,
+                          isExpanded: true,
+                          items: fonts.entries
+                              .map(
+                                (entry) => DropdownMenuItem(
+                                  value: entry.value,
+                                  child: Text(
+                                    entry.key,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: _canEditActiveLayer
+                              ? (family) {
+                                  if (family != null) {
+                                    _setSelectedTextStyle(fontFamily: family);
+                                  }
+                                }
+                              : null,
+                        ),
                       ),
                     ),
-                  )
-                  .toList(growable: false),
-              onSelected: (value) => _setSelectedTextStyle(colorValue: value),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 48,
+                      height: 27,
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<double>(
+                          value: fontSizes.contains(currentSize)
+                              ? currentSize
+                              : _defaultNotebookFontSize,
+                          isDense: true,
+                          isExpanded: true,
+                          items: fontSizes
+                              .map(
+                                (size) => DropdownMenuItem(
+                                  value: size,
+                                  child: Text(
+                                    size.toInt().toString(),
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: _canEditActiveLayer
+                              ? (size) {
+                                  if (size != null) {
+                                    _setSelectedTextStyle(fontSize: size);
+                                  }
+                                }
+                              : null,
+                        ),
+                      ),
+                    ),
+                    WordPadCompactIconButton(
+                      tooltip: 'Aumentar fonte',
+                      icon: Icons.text_increase,
+                      onPressed: _canEditActiveLayer
+                          ? () => _setSelectedTextStyle(
+                              fontSize: (currentSize + 2)
+                                  .clamp(8, 72)
+                                  .toDouble(),
+                            )
+                          : null,
+                    ),
+                    WordPadCompactIconButton(
+                      tooltip: 'Diminuir fonte',
+                      icon: Icons.text_decrease,
+                      onPressed: _canEditActiveLayer
+                          ? () => _setSelectedTextStyle(
+                              fontSize: (currentSize - 2)
+                                  .clamp(8, 72)
+                                  .toDouble(),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    WordPadCompactIconButton(
+                      tooltip: 'Negrito',
+                      icon: Icons.format_bold,
+                      selected: currentBold,
+                      onPressed: _canEditActiveLayer
+                          ? () => _setSelectedTextStyle(bold: !currentBold)
+                          : null,
+                    ),
+                    WordPadCompactIconButton(
+                      tooltip: 'Itálico',
+                      icon: Icons.format_italic,
+                      selected: currentItalic,
+                      onPressed: _canEditActiveLayer
+                          ? () => _setSelectedTextStyle(italic: !currentItalic)
+                          : null,
+                    ),
+                    WordPadCompactIconButton(
+                      tooltip: 'Sublinhado',
+                      icon: Icons.format_underline,
+                      selected: currentUnderline,
+                      onPressed: _canEditActiveLayer
+                          ? () => _setSelectedTextStyle(
+                              underline: !currentUnderline,
+                            )
+                          : null,
+                    ),
+                    PopupMenuButton<int>(
+                      tooltip: 'Cor da fonte',
+                      onSelected: (value) =>
+                          _setSelectedTextStyle(colorValue: value),
+                      itemBuilder: (_) => _palette
+                          .map(
+                            (value) => PopupMenuItem<int>(
+                              value: value,
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 18,
+                                    height: 18,
+                                    color: Color(value),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    value == currentColor
+                                        ? 'Cor selecionada'
+                                        : 'Usar cor',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                      child: SizedBox(
+                        width: 32,
+                        height: 27,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            const Icon(Icons.format_color_text, size: 17),
+                            Positioned(
+                              left: 5,
+                              right: 5,
+                              bottom: 2,
+                              child: Container(
+                                height: 3,
+                                color: Color(currentColor),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const VerticalDivider(width: 16),
-            IconButton(
-              tooltip: 'Desfazer',
-              onPressed: _history.canUndo ? _undoHistory : null,
-              icon: const Icon(Icons.undo),
+          ),
+          WordPadRibbonGroup(
+            label: 'Parágrafo',
+            minWidth: 135,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                alignButton(
+                  'Alinhar à esquerda',
+                  Icons.format_align_left,
+                  NotebookTextAlign.left,
+                ),
+                alignButton(
+                  'Centralizar',
+                  Icons.format_align_center,
+                  NotebookTextAlign.center,
+                ),
+                alignButton(
+                  'Alinhar à direita',
+                  Icons.format_align_right,
+                  NotebookTextAlign.right,
+                ),
+                alignButton(
+                  'Justificar',
+                  Icons.format_align_justify,
+                  NotebookTextAlign.justify,
+                ),
+              ],
             ),
-            IconButton(
-              tooltip: 'Refazer',
-              onPressed: _history.canRedo ? _redoHistory : null,
-              icon: const Icon(Icons.redo),
+          ),
+          WordPadRibbonGroup(
+            label: 'Inserir',
+            minWidth: 220,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: object == null ? 'Texto' : 'Editar',
+                  icon: Icons.text_fields,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(_addText())
+                      : null,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Imagem',
+                  icon: Icons.image_outlined,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(_addImage())
+                      : null,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Página',
+                  icon: Icons.note_add_outlined,
+                  onPressed: () => unawaited(_addPage()),
+                ),
+                WordPadLabeledCommand(
+                  label: 'Objeto',
+                  icon: Icons.crop_square_outlined,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(_addShape(NotebookObjectType.rectangle))
+                      : null,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          WordPadRibbonGroup(
+            label: 'Edição',
+            minWidth: 125,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: 'Desfazer',
+                  icon: Icons.undo,
+                  onPressed: _history.canUndo
+                      ? () => unawaited(_undoHistory())
+                      : null,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Refazer',
+                  icon: Icons.redo,
+                  onPressed: _history.canRedo
+                      ? () => unawaited(_redoHistory())
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
