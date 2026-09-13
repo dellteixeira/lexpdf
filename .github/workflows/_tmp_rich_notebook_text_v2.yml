@@ -12,6 +12,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feat/notebook-inline-rich-text
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
       - name: Apply patch
         run: python .github/scripts/apply_rich_notebook_text.py
       - name: Format Dart
