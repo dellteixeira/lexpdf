@@ -37,6 +37,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
   static const double _rotationStep = math.pi / 12;
   static const double _widthDown = 0.85;
   static const double _widthUp = 1.15;
+  static const String _defaultNotebookFontFamily = 'Arial';
+  static const double _defaultNotebookFontSize = 12;
   static const InkShapeRecognizer _shapeRecognizer = InkShapeRecognizer();
 
   final GlobalKey<InkCanvasState> _canvasKey = GlobalKey<InkCanvasState>();
@@ -68,12 +70,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _lassoMode = false;
   bool _clipboardAvailable = false;
   int _selectionCount = 0;
-  bool _pointerMode = false;
+  bool _pointerMode = true;
   bool _handMode = false;
   bool _rulerMode = false;
   double _zoom = 1.0;
   String? _selectedObjectId;
   String? _editingTextObjectId;
+  String _defaultTextFontFamily = _defaultNotebookFontFamily;
+  double _defaultTextFontSize = _defaultNotebookFontSize;
+  bool _defaultTextBold = false;
+  bool _defaultTextItalic = false;
+  bool _defaultTextUnderline = false;
+  int _defaultTextColorValue = 0xFF000000;
   bool _suppressMutationHistory = false;
 
   static const _palette = <int>[
@@ -326,7 +334,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _eraserMode = false;
       _clipboardAvailable = false;
       _selectedObjectId = null;
-      _pointerMode = false;
+      _pointerMode = true;
       _handMode = false;
     });
     _history.clear();
@@ -393,10 +401,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
               _buildNotebookNavigation(),
               const Divider(height: 1),
               _buildLayerStatus(),
+              _buildTextFormattingToolbar(),
               _buildToolbar(),
-              if (_editingTextObjectId != null ||
-                  _selectedObject?.type == NotebookObjectType.text)
-                _buildTextFormattingToolbar(),
               const Divider(height: 1),
               Expanded(child: _buildPageViewport(page)),
             ],
@@ -434,7 +440,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     margin: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(4),
                       boxShadow: const [
                         BoxShadow(blurRadius: 12, color: Color(0x22000000)),
                       ],
@@ -491,6 +497,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           editingTextId: _editingTextObjectId,
                           onTextChanged: _onTextObjectLiveChanged,
                           onTextEditingComplete: _finishTextEditing,
+                          onEmptyTap: () {
+                            if (_pointerMode && _canEditActiveLayer) {
+                              unawaited(_addText());
+                            }
+                          },
                           onSelectionChanged: (id) {
                             if (!mounted) return;
                             setState(() => _selectedObjectId = id);
@@ -1216,21 +1227,35 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _addText() async {
     final page = _currentPage;
     if (page == null || !_canEditActiveLayer) return;
+
+    for (final existing in _activeObjects) {
+      if (existing.type == NotebookObjectType.text) {
+        _beginTextEditing(existing);
+        return;
+      }
+    }
+
     _recordHistory();
     final now = DateTime.now().toUtc();
+    const marginX = 56.0;
+    const marginY = 56.0;
     final object = NotebookObject(
       id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
       pageId: page.id,
       type: NotebookObjectType.text,
-      x: 80,
-      y: 80,
-      width: math.min(520.0, math.max(300.0, page.width - 160)),
-      height: 180,
+      x: marginX,
+      y: marginY,
+      width: math.max(120.0, page.width - (marginX * 2)),
+      height: math.max(120.0, page.height - (marginY * 2)),
       rotation: 0,
-      colorValue: _colorValue,
+      colorValue: _defaultTextColorValue,
       strokeWidth: 1,
       textValue: '',
-      fontSize: 20,
+      fontSize: _defaultTextFontSize,
+      fontFamily: _defaultTextFontFamily,
+      fontBold: _defaultTextBold,
+      fontItalic: _defaultTextItalic,
+      fontUnderline: _defaultTextUnderline,
       createdAt: now,
       updatedAt: now,
     );
@@ -1330,7 +1355,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
     int? colorValue,
   }) {
     final object = _selectedObject;
-    if (object == null || object.type != NotebookObjectType.text) return;
+    if (object == null || object.type != NotebookObjectType.text) {
+      setState(() {
+        if (bold != null) _defaultTextBold = bold;
+        if (italic != null) _defaultTextItalic = italic;
+        if (underline != null) _defaultTextUnderline = underline;
+        if (fontSize != null) _defaultTextFontSize = fontSize;
+        if (fontFamily != null) _defaultTextFontFamily = fontFamily;
+        if (clearFontFamily) {
+          _defaultTextFontFamily = _defaultNotebookFontFamily;
+        }
+        if (colorValue != null) _defaultTextColorValue = colorValue;
+      });
+      return;
+    }
     _onObjectChanged(
       object.copyWith(
         fontBold: bold,
@@ -1346,43 +1384,45 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   Widget _buildTextFormattingToolbar() {
-    final object = _selectedObject;
-    if (object == null || object.type != NotebookObjectType.text) {
-      return const SizedBox.shrink();
-    }
-    const fontSizes = <double>[12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
-    const fonts = <String, String?>{
-      'Padrão': null,
+    final selected = _selectedObject;
+    final object = selected?.type == NotebookObjectType.text ? selected : null;
+    const fontSizes = <double>[10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
+    const fonts = <String, String>{
       'Arial': 'Arial',
       'Roboto': 'Roboto',
       'Serif': 'serif',
       'Monoespaçada': 'monospace',
     };
+    final currentFamily = object?.fontFamily ?? _defaultTextFontFamily;
+    final currentSize = object?.fontSize ?? _defaultTextFontSize;
+    final currentBold = object?.fontBold ?? _defaultTextBold;
+    final currentItalic = object?.fontItalic ?? _defaultTextItalic;
+    final currentUnderline = object?.fontUnderline ?? _defaultTextUnderline;
+    final currentColor = object?.colorValue ?? _defaultTextColorValue;
+
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
       child: SizedBox(
-        height: 52,
+        height: 56,
         child: ListView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           children: [
-            IconButton(
-              tooltip: 'Editar texto na folha',
-              isSelected: _editingTextObjectId == object.id,
-              onPressed: () => _beginTextEditing(object),
-              icon: const Icon(Icons.text_fields),
+            FilledButton.tonalIcon(
+              onPressed: _canEditActiveLayer
+                  ? () => unawaited(_addText())
+                  : null,
+              icon: const Icon(Icons.edit_note),
+              label: Text(object == null ? 'Escrever' : 'Editar texto'),
             ),
-            const VerticalDivider(width: 12),
+            const VerticalDivider(width: 16),
             SizedBox(
-              width: 150,
+              width: 148,
               child: DropdownButtonFormField<String>(
-                key: ValueKey('font-${object.fontFamily}'),
-                initialValue: fonts.entries
-                    .firstWhere(
-                      (entry) => entry.value == object.fontFamily,
-                      orElse: () => fonts.entries.first,
-                    )
-                    .key,
+                key: ValueKey('font-$currentFamily'),
+                initialValue: fonts.containsValue(currentFamily)
+                    ? currentFamily
+                    : _defaultNotebookFontFamily,
                 decoration: const InputDecoration(
                   labelText: 'Fonte',
                   isDense: true,
@@ -1392,30 +1432,27 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     vertical: 8,
                   ),
                 ),
-                items: fonts.keys
+                items: fonts.entries
                     .map(
-                      (label) =>
-                          DropdownMenuItem(value: label, child: Text(label)),
+                      (entry) => DropdownMenuItem(
+                        value: entry.value,
+                        child: Text(entry.key),
+                      ),
                     )
                     .toList(growable: false),
-                onChanged: (label) {
-                  if (label == null) return;
-                  final family = fonts[label];
-                  _setSelectedTextStyle(
-                    fontFamily: family,
-                    clearFontFamily: family == null,
-                  );
+                onChanged: (family) {
+                  if (family != null) _setSelectedTextStyle(fontFamily: family);
                 },
               ),
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 92,
+              width: 90,
               child: DropdownButtonFormField<double>(
-                key: ValueKey('size-${object.fontSize}'),
-                initialValue: fontSizes.contains(object.fontSize ?? 20)
-                    ? (object.fontSize ?? 20)
-                    : 20,
+                key: ValueKey('size-$currentSize'),
+                initialValue: fontSizes.contains(currentSize)
+                    ? currentSize
+                    : _defaultNotebookFontSize,
                 decoration: const InputDecoration(
                   labelText: 'Tamanho',
                   isDense: true,
@@ -1441,22 +1478,21 @@ class _NotebookScreenState extends State<NotebookScreen> {
             const SizedBox(width: 4),
             IconButton(
               tooltip: 'Negrito',
-              isSelected: object.fontBold,
-              onPressed: () => _setSelectedTextStyle(bold: !object.fontBold),
+              isSelected: currentBold,
+              onPressed: () => _setSelectedTextStyle(bold: !currentBold),
               icon: const Icon(Icons.format_bold),
             ),
             IconButton(
               tooltip: 'Itálico',
-              isSelected: object.fontItalic,
-              onPressed: () =>
-                  _setSelectedTextStyle(italic: !object.fontItalic),
+              isSelected: currentItalic,
+              onPressed: () => _setSelectedTextStyle(italic: !currentItalic),
               icon: const Icon(Icons.format_italic),
             ),
             IconButton(
               tooltip: 'Sublinhado',
-              isSelected: object.fontUnderline,
+              isSelected: currentUnderline,
               onPressed: () =>
-                  _setSelectedTextStyle(underline: !object.fontUnderline),
+                  _setSelectedTextStyle(underline: !currentUnderline),
               icon: const Icon(Icons.format_underline),
             ),
             PopupMenuButton<int>(
@@ -1465,11 +1501,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 alignment: Alignment.bottomCenter,
                 children: [
                   const Icon(Icons.format_color_text),
-                  Container(
-                    width: 22,
-                    height: 4,
-                    color: Color(object.colorValue),
-                  ),
+                  Container(width: 22, height: 4, color: Color(currentColor)),
                 ],
               ),
               itemBuilder: (_) => _palette
@@ -1489,9 +1521,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            value == object.colorValue
-                                ? 'Selecionada'
-                                : 'Usar cor',
+                            value == currentColor ? 'Selecionada' : 'Usar cor',
                           ),
                         ],
                       ),
@@ -1500,20 +1530,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   .toList(growable: false),
               onSelected: (value) => _setSelectedTextStyle(colorValue: value),
             ),
-            const SizedBox(width: 8),
-            FilledButton.tonalIcon(
-              onPressed: _editingTextObjectId == object.id
-                  ? () {
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      setState(() => _editingTextObjectId = null);
-                    }
-                  : () => _beginTextEditing(object),
-              icon: Icon(
-                _editingTextObjectId == object.id ? Icons.check : Icons.edit,
-              ),
-              label: Text(
-                _editingTextObjectId == object.id ? 'Concluir' : 'Editar',
-              ),
+            const VerticalDivider(width: 16),
+            IconButton(
+              tooltip: 'Desfazer',
+              onPressed: _history.canUndo ? _undoHistory : null,
+              icon: const Icon(Icons.undo),
+            ),
+            IconButton(
+              tooltip: 'Refazer',
+              onPressed: _history.canRedo ? _redoHistory : null,
+              icon: const Icon(Icons.redo),
             ),
           ],
         ),

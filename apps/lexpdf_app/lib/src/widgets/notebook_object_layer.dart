@@ -17,6 +17,7 @@ class NotebookObjectLayer extends StatefulWidget {
     this.editingTextId,
     this.onTextChanged,
     this.onTextEditingComplete,
+    this.onEmptyTap,
     this.selectedId,
     super.key,
   });
@@ -30,6 +31,7 @@ class NotebookObjectLayer extends StatefulWidget {
   final String? editingTextId;
   final ValueChanged<NotebookObject>? onTextChanged;
   final ValueChanged<NotebookObject>? onTextEditingComplete;
+  final VoidCallback? onEmptyTap;
 
   @override
   State<NotebookObjectLayer> createState() => _NotebookObjectLayerState();
@@ -53,7 +55,10 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: () => widget.onSelectionChanged(null),
+            onTap: () {
+              widget.onSelectionChanged(null);
+              widget.onEmptyTap?.call();
+            },
           ),
           for (final raw in widget.objects)
             _buildObject(_effective(raw), widget.selectedId == raw.id),
@@ -65,6 +70,9 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
   Widget _buildObject(NotebookObject object, bool selected) {
     final width = math.max(_minimumObjectExtent, object.width);
     final height = math.max(_minimumObjectExtent, object.height);
+    final editingText =
+        object.type == NotebookObjectType.text &&
+        widget.editingTextId == object.id;
 
     return Positioned(
       left: object.x,
@@ -78,7 +86,9 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
           children: [
             Positioned.fill(
               child: MouseRegion(
-                cursor: SystemMouseCursors.move,
+                cursor: editingText
+                    ? SystemMouseCursors.text
+                    : SystemMouseCursors.move,
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTapDown: (_) => widget.onSelectionChanged(object.id),
@@ -87,27 +97,30 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                     widget.onSelectionChanged(object.id);
                     widget.onObjectDoubleTap?.call(object);
                   },
-                  onPanStart: (_) {
-                    widget.onSelectionChanged(object.id);
-                    _working = object;
-                  },
-                  onPanUpdate: (details) {
-                    final current = _working ?? object;
-                    setState(() {
-                      _working = current.copyWith(
-                        x: current.x + details.delta.dx,
-                        y: current.y + details.delta.dy,
-                        updatedAt: DateTime.now().toUtc(),
-                      );
-                    });
-                  },
-                  onPanEnd: (_) => _commitWorking(),
-                  onPanCancel: _cancelWorking,
+                  onPanStart: editingText
+                      ? null
+                      : (_) {
+                          widget.onSelectionChanged(object.id);
+                          _working = object;
+                        },
+                  onPanUpdate: editingText
+                      ? null
+                      : (details) {
+                          final current = _working ?? object;
+                          setState(() {
+                            _working = current.copyWith(
+                              x: current.x + details.delta.dx,
+                              y: current.y + details.delta.dy,
+                              updatedAt: DateTime.now().toUtc(),
+                            );
+                          });
+                        },
+                  onPanEnd: editingText ? null : (_) => _commitWorking(),
+                  onPanCancel: editingText ? null : _cancelWorking,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (object.type == NotebookObjectType.text &&
-                          widget.editingTextId == object.id)
+                      if (editingText)
                         _InlineNotebookTextEditor(
                           object: object,
                           onChanged: widget.onTextChanged,
@@ -131,7 +144,7 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                 ),
               ),
             ),
-            if (selected) ...[
+            if (selected && !editingText) ...[
               _buildResizeHandle(object, _ResizeHandle.topLeft),
               _buildResizeHandle(object, _ResizeHandle.topRight),
               _buildResizeHandle(object, _ResizeHandle.bottomLeft),
@@ -274,8 +287,8 @@ class _ObjectVisual extends StatelessWidget {
           maxLines: null,
           style: TextStyle(
             color: Color(object.colorValue),
-            fontSize: object.fontSize ?? 18,
-            fontFamily: object.fontFamily,
+            fontSize: object.fontSize ?? 12,
+            fontFamily: object.fontFamily ?? 'Arial',
             fontWeight: object.fontBold ? FontWeight.bold : FontWeight.normal,
             fontStyle: object.fontItalic ? FontStyle.italic : FontStyle.normal,
             decoration: object.fontUnderline ? TextDecoration.underline : null,
@@ -349,8 +362,8 @@ class _InlineNotebookTextEditorState extends State<_InlineNotebookTextEditor> {
 
   TextStyle get _style => TextStyle(
     color: Color(widget.object.colorValue),
-    fontSize: widget.object.fontSize ?? 20,
-    fontFamily: widget.object.fontFamily,
+    fontSize: widget.object.fontSize ?? 12,
+    fontFamily: widget.object.fontFamily ?? 'Arial',
     fontWeight: widget.object.fontBold ? FontWeight.bold : FontWeight.normal,
     fontStyle: widget.object.fontItalic ? FontStyle.italic : FontStyle.normal,
     decoration: widget.object.fontUnderline ? TextDecoration.underline : null,
@@ -385,37 +398,28 @@ class _InlineNotebookTextEditorState extends State<_InlineNotebookTextEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary,
-          width: 1.4,
-        ),
+    return TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      autofocus: true,
+      expands: true,
+      minLines: null,
+      maxLines: null,
+      keyboardType: TextInputType.multiline,
+      textAlignVertical: TextAlignVertical.top,
+      style: _style,
+      cursorColor: Theme.of(context).colorScheme.primary,
+      decoration: const InputDecoration(
+        isCollapsed: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        border: InputBorder.none,
       ),
-      child: TextField(
-        controller: _controller,
-        focusNode: _focusNode,
-        autofocus: true,
-        expands: true,
-        minLines: null,
-        maxLines: null,
-        keyboardType: TextInputType.multiline,
-        textAlignVertical: TextAlignVertical.top,
-        style: _style,
-        cursorColor: Theme.of(context).colorScheme.primary,
-        decoration: const InputDecoration(
-          isCollapsed: true,
-          contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-          border: InputBorder.none,
-        ),
-        onChanged: (_) => _emit(),
-        onEditingComplete: _finish,
-        onTapOutside: (_) {
-          _focusNode.unfocus();
-          _finish();
-        },
-      ),
+      onChanged: (_) => _emit(),
+      onEditingComplete: _finish,
+      onTapOutside: (_) {
+        _focusNode.unfocus();
+        _finish();
+      },
     );
   }
 }
