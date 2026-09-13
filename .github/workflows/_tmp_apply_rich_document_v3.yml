@@ -30,7 +30,7 @@ jobs:
           python .github/scripts/rich_document_v3_06_screen_commands_files.py
           python .github/scripts/rich_document_v3_07_tests.py
           python .github/scripts/rich_document_v3_08_contract_fixes.py
-      - name: Vendor Fluent Editor archive 4 compatibility patch
+      - name: Vendor Fluent Editor compatibility patches
         run: |
           rm -rf third_party/fluent_editor
           mkdir -p third_party/fluent_editor
@@ -53,13 +53,18 @@ jobs:
 
           pubspec = root / 'pubspec.yaml'
           spec = pubspec.read_text(encoding='utf-8')
-          old_constraint = '  archive: ^3.6.1\n'
-          if spec.count(old_constraint) != 1:
-              raise SystemExit('Unexpected fluent_editor archive constraint; refusing an unsafe patch.')
-          pubspec.write_text(
-              spec.replace(old_constraint, '  archive: ^4.0.5\n', 1),
-              encoding='utf-8',
-          )
+          replacements = {
+              '  archive: ^3.6.1\n': '  archive: ^4.0.5\n',
+              '  file_picker: ^8.0.0\n': '  file_picker: 10.3.11\n',
+          }
+          for old_constraint, new_constraint in replacements.items():
+              if spec.count(old_constraint) != 1:
+                  raise SystemExit(
+                      f'Unexpected fluent_editor dependency constraint {old_constraint.strip()!r}; '
+                      'refusing an unsafe patch.'
+                  )
+              spec = spec.replace(old_constraint, new_constraint, 1)
+          pubspec.write_text(spec, encoding='utf-8')
 
           (root / 'LEXPDF_PATCH.md').write_text(
               '''# LexPDF compatibility patch\n\n'
@@ -67,17 +72,25 @@ jobs:
               '`5676354889f7d5554458c9e97a85cfe640c4a133` (version 1.1.0).\n\n'
               'LexPDF uses `archive` 4.x because its PDF document stack requires it. '
               'The upstream editor still declares `archive ^3.6.1` and uses the removed '
-              '`ArchiveFile.compress` setter for the ODT mimetype entry. This vendor patch '\n'
+              '`ArchiveFile.compress` setter for the ODT mimetype entry. This vendor patch '
               'updates the constraint to `archive ^4.0.5` and uses '
               '`ArchiveFile.noCompress`, preserving the ODT requirement that `mimetype` '
-              'is stored uncompressed. No other upstream behavior is changed.\n\n'
+              'is stored uncompressed.\n\n'
+              'The upstream editor also declares `file_picker ^8.0.0`. That resolves to '
+              '`file_picker 8.3.7`, whose Android library is compiled against API 34 and '
+              'fails AAR metadata validation when `flutter_plugin_android_lifecycle` requires '
+              'API 36. LexPDF pins `file_picker 10.3.11`, which retains the 10.x instance API '
+              'used by Fluent Editor while using the Flutter compileSdk and supporting Gradle 9.\n\n'
               'The upstream MIT LICENSE is retained in this directory.\n''',
               encoding='utf-8',
           )
           PY
       - name: Resolve dependencies
         working-directory: apps/lexpdf_app
-        run: flutter pub get
+        run: |
+          flutter pub get
+          flutter pub deps --style=compact | grep -F 'file_picker 10.3.11'
+          flutter pub deps --style=compact | grep -F 'archive 4.0.9'
       - name: Format rich document integration
         working-directory: apps/lexpdf_app
         run: |
