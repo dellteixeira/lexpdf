@@ -1,0 +1,60 @@
+name: Apply WordPad fidelity redesign
+on:
+  push:
+    branches:
+      - fix/notebook-wordpad-fidelity
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/notebook-wordpad-fidelity
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Apply redesign patch
+        run: |
+          python .github/scripts/apply_wordpad_fidelity.py
+          python .github/scripts/postfix_wordpad_fidelity.py
+      - name: Format Dart
+        run: |
+          cd apps/lexpdf_app
+          dart format \
+            lib/src/core/notebook/notebook_object_models.dart \
+            lib/src/core/storage/local_database.dart \
+            lib/src/core/storage/local_notebook_object_store.dart \
+            lib/src/screens/layered_notebook_screen.dart \
+            lib/src/widgets/notebook_object_layer.dart \
+            lib/src/widgets/notebook_wordpad_chrome.dart \
+            test/notebook_rich_text_contract_test.dart \
+            test/notebook_wordpad_fidelity_contract_test.dart
+      - name: Analyze and focused tests
+        run: |
+          cd apps/lexpdf_app
+          flutter pub get
+          flutter analyze
+          flutter test \
+            test/notebook_wordpad_fidelity_contract_test.dart \
+            test/notebook_rich_text_contract_test.dart \
+            test/notebook_text_input_contract_test.dart \
+            test/notebook_editor_ux_contract_test.dart \
+            test/local_notebook_layer_store_test.dart
+      - name: Remove generated plugin noise
+        run: |
+          git checkout -- \
+            apps/lexpdf_app/macos/Flutter/GeneratedPluginRegistrant.swift \
+            apps/lexpdf_app/windows/flutter/generated_plugin_registrant.cc \
+            apps/lexpdf_app/windows/flutter/generated_plugins.cmake \
+            apps/lexpdf_app/linux/flutter/generated_plugin_registrant.cc \
+            apps/lexpdf_app/linux/flutter/generated_plugins.cmake 2>/dev/null || true
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "feat: match notebook UI to WordPad ribbon layout"
+          git push origin HEAD:fix/notebook-wordpad-fidelity
