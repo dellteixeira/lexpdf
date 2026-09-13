@@ -9,3 +9,9 @@ if start >= 0 and end > start:
     screen = screen[:start] + screen[end:]
 
 screen_path.write_text(screen)
+
+layer_test_path = Path('apps/lexpdf_app/test/local_notebook_layer_store_test.dart')
+layer_test = layer_test_path.read_text()
+layer_test = layer_test.replace("test('schema 9 creates and persists ordered notebook layers'", "test('schema 10 creates and persists ordered notebook layers'")
+layer_test = layer_test.replace('expect(database.database.userVersion, 9);', 'expect(database.database.userVersion, 10);')
+layer_test_path.write_text(layer_test)
