@@ -33,7 +33,8 @@ void main() {
     expect(screen, contains('page.height - (marginY * 2)'));
     expect(screen, contains('onEmptyTap: () {'));
     expect(layer, contains('widget.onEmptyTap?.call()'));
-    expect(layer, contains('editingText ? SystemMouseCursors.text'));
+    expect(layer, contains('cursor: editingText'));
+    expect(layer, contains('SystemMouseCursors.text'));
     expect(layer, contains("fontFamily: widget.object.fontFamily ?? 'Arial'"));
     expect(layer, contains('fontSize: widget.object.fontSize ?? 12'));
     expect(
