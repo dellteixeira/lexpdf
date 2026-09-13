@@ -55,8 +55,9 @@ text = replace_once(
     "    expect(screen, contains('_pointerMode && !_handMode && _canEditActiveLayer'));\n",
     (
         "    expect(screen, contains('enabled: _textMode && !_handMode'));\n"
-        "    expect(screen, contains('enabled: !_textMode &&'));\n"
+        "    expect(screen, contains('!_textMode &&'));\n"
         "    expect(screen, contains('_pointerMode &&'));\n"
+        "    expect(screen, contains('!_handMode &&'));\n"
         "    expect(screen, contains('_canEditActiveLayer,'));\n"
     ),
     'desktop notebook mode contract',
@@ -82,8 +83,9 @@ text = replace_once(
         '    // remain mutually exclusive, while drawing ignores input during text mode.\n'
         "    expect(screen, contains('_textMode = true'));\n"
         "    expect(screen, contains('enabled: _textMode && !_handMode'));\n"
-        "    expect(screen, contains('enabled: !_textMode &&'));\n"
+        "    expect(screen, contains('!_textMode &&'));\n"
         "    expect(screen, contains('_pointerMode &&'));\n"
+        "    expect(screen, contains('!_handMode &&'));\n"
         "    expect(screen, contains('ignoring:'));\n"
         "    expect(screen, contains('!_canEditActiveLayer ||'));\n"
         "    expect(screen, contains('_textMode ||'));\n"
