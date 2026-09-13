@@ -29,6 +29,7 @@ jobs:
           python .github/scripts/rich_document_v3_05_screen_view_modes.py
           python .github/scripts/rich_document_v3_06_screen_commands_files.py
           python .github/scripts/rich_document_v3_07_tests.py
+          python .github/scripts/rich_document_v3_08_contract_fixes.py
       - name: Resolve dependencies
         working-directory: apps/lexpdf_app
         run: flutter pub get
@@ -38,7 +39,6 @@ jobs:
           dart format \
             lib/src/core/notebook/legacy_notebook_text_migrator.dart \
             lib/src/core/notebook/notebook_document_file_service.dart \
-            lib/src/core/notebook/notebook_legacy_word_bridge.dart \
             lib/src/core/platform/legacy_word_converter.dart \
             lib/src/core/storage/local_database.dart \
             lib/src/core/storage/local_notebook_document_store.dart \
@@ -46,8 +46,12 @@ jobs:
             lib/src/widgets/notebook_object_layer.dart \
             lib/src/widgets/notebook_rich_document_surface.dart \
             lib/src/widgets/notebook_wordpad_chrome.dart \
+            test/desktop_pdf_notebook_navigation_contract_test.dart \
             test/legacy_notebook_text_migrator_test.dart \
+            test/library_notebook_interaction_contract_test.dart \
             test/local_notebook_document_store_test.dart \
+            test/local_notebook_layer_store_test.dart \
+            test/notebook_editor_ux_contract_test.dart \
             test/notebook_rich_text_contract_test.dart \
             test/notebook_text_input_contract_test.dart \
             test/notebook_wordpad_chrome_widget_test.dart \
