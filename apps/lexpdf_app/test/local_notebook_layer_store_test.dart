@@ -7,10 +7,10 @@ import 'package:lexpdf_app/src/core/storage/local_ink_store.dart';
 import 'package:lexpdf_app/src/core/storage/local_notebook_layer_store.dart';
 
 void main() {
-  test('schema 8 creates and persists ordered notebook layers', () async {
+  test('schema 9 creates and persists ordered notebook layers', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);
-    expect(database.database.userVersion, 8);
+    expect(database.database.userVersion, 9);
 
     final inkStore = LocalInkStore(database);
     final page = await inkStore.ensureDefaultPage();
@@ -72,10 +72,7 @@ void main() {
       base.id,
     );
     expect(await layers.listLayers(page.id), hasLength(1));
-    await expectLater(
-      layers.deleteLayer(base.id),
-      throwsA(isA<StateError>()),
-    );
+    await expectLater(layers.deleteLayer(base.id), throwsA(isA<StateError>()));
   });
 
   test('rejects cross-page assignments and cleans deleted stroke mapping', () async {
@@ -178,7 +175,10 @@ void main() {
 
     final beforeClose = await layers.listLayers(page.id);
     expect(beforeClose.map((layer) => layer.id), reversedIds);
-    expect(beforeClose.map((layer) => layer.sortOrder), List<int>.generate(layerCount, (i) => i));
+    expect(
+      beforeClose.map((layer) => layer.sortOrder),
+      List<int>.generate(layerCount, (i) => i),
+    );
     expect(
       await layers.itemLayerMap(page.id, NotebookLayerItemType.stroke),
       hasLength(strokeCount),
@@ -197,9 +197,18 @@ void main() {
 
     expect(restored, hasLength(layerCount));
     expect(restored.map((layer) => layer.id), reversedIds);
-    expect(restored.map((layer) => layer.sortOrder), List<int>.generate(layerCount, (i) => i));
-    expect(restored.singleWhere((layer) => layer.id == created[7].id).isVisible, isFalse);
-    expect(restored.singleWhere((layer) => layer.id == created[13].id).isLocked, isTrue);
+    expect(
+      restored.map((layer) => layer.sortOrder),
+      List<int>.generate(layerCount, (i) => i),
+    );
+    expect(
+      restored.singleWhere((layer) => layer.id == created[7].id).isVisible,
+      isFalse,
+    );
+    expect(
+      restored.singleWhere((layer) => layer.id == created[13].id).isLocked,
+      isTrue,
+    );
     expect(assignments, hasLength(strokeCount));
     for (var index = 0; index < strokeCount; index++) {
       expect(assignments['stress-stroke-$index'], created[index % layerCount].id);
