@@ -150,6 +150,44 @@ class WordPadRibbonGroup extends StatelessWidget {
   }
 }
 
+class WordPadLargeAction extends StatelessWidget {
+  const WordPadLargeAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 28),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class NotebookWordPadRuler extends StatelessWidget {
   const NotebookWordPadRuler({
     required this.visible,
@@ -194,14 +232,22 @@ class _NotebookWordPadRulerPainter extends CustomPainter {
     final ticks = Paint()
       ..color = foreground.withValues(alpha: 0.65)
       ..strokeWidth = 1;
-    canvas.drawLine(Offset(0, size.height - 1), Offset(size.width, size.height - 1), baseline);
+    canvas.drawLine(
+      Offset(0, size.height - 1),
+      Offset(size.width, size.height - 1),
+      baseline,
+    );
 
     const majorCount = 18;
     final step = size.width / majorCount;
     final textStyle = TextStyle(fontSize: 9, height: 1);
     for (var index = 0; index <= majorCount; index++) {
       final x = index * step;
-      canvas.drawLine(Offset(x, size.height - 10), Offset(x, size.height - 1), ticks);
+      canvas.drawLine(
+        Offset(x, size.height - 10),
+        Offset(x, size.height - 1),
+        ticks,
+      );
       if (index > 0 && index < majorCount) {
         final painter = TextPainter(
           text: TextSpan(
