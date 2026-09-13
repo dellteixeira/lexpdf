@@ -58,8 +58,20 @@ class _NotebookRichDocumentSurfaceState
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme.copyWith(
-      surface: Colors.transparent,
+    // The document is paper, not application chrome. Force a light editor
+    // palette even when LexPDF itself is running with a dark theme so text,
+    // caret and selection keep Word/WordPad semantics on the white page.
+    final editorTheme = ThemeData.light(useMaterial3: true).copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      canvasColor: Colors.transparent,
+      colorScheme: const ColorScheme.light(
+        primary: Color(0xFF2F66B3),
+        onPrimary: Colors.white,
+        surface: Colors.transparent,
+        onSurface: Color(0xFF202124),
+        surfaceContainerHighest: Color(0xFFF3F5F8),
+        outline: Color(0xFFB8BEC7),
+      ),
     );
     return IgnorePointer(
       ignoring: !widget.enabled,
@@ -67,7 +79,7 @@ class _NotebookRichDocumentSurfaceState
         canRequestFocus: widget.enabled,
         descendantsAreFocusable: widget.enabled,
         child: Theme(
-          data: Theme.of(context).copyWith(colorScheme: scheme),
+          data: editorTheme,
           child: LayoutBuilder(
             builder: (context, constraints) {
               // FluentDocumentWidget includes its own bottom-right diagnostics
