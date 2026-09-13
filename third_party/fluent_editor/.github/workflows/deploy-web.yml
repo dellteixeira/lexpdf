@@ -1,0 +1,85 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout fluent-editor-comments
+        uses: actions/checkout@v4
+        with:
+          repository: exusr/fluent-editor-comments
+          path: plugins-tmp/fluent-editor-comments
+
+      - name: Checkout fluent-editor-character-map
+        uses: actions/checkout@v4
+        with:
+          repository: exusr/fluent-editor-character-map
+          path: plugins-tmp/fluent-editor-character-map
+
+      - name: Checkout fluent-editor-review
+        uses: actions/checkout@v4
+        with:
+          repository: exusr/fluent-editor-review
+          path: plugins-tmp/fluent-editor-review
+
+      - name: Move plugins to parent directory
+        run: |
+          mv plugins-tmp/fluent-editor-comments ../
+          mv plugins-tmp/fluent-editor-character-map ../
+          mv plugins-tmp/fluent-editor-review ../
+          rm -rf plugins-tmp
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd example_full
+          flutter pub get
+
+      - name: Configure web platform
+        run: |
+          cd example_full
+          flutter create . --platforms web
+
+      - name: Build web app
+        run: |
+          cd example_full
+          flutter build web --release --base-href "/fluent-editor/"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: example_full/build/web
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

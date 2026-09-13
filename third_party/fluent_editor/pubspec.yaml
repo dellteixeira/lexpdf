@@ -1,0 +1,142 @@
+name: fluent_editor
+description: "A powerful and feature-rich rich word processor for Flutter applications with support for rich text editing, tables, images, lists, and export to DOCX, ODT, and PDF formats."
+version: 1.1.0
+homepage: https://github.com/exusr/fluent-editor
+
+environment:
+  sdk: ^3.8.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  json_annotation: ^4.11.0
+  desktop_drop: ^0.7.1
+  file_picker: 10.3.10
+  file_selector: ^1.0.0
+  pdf: ^3.11.0
+  path_provider: ^2.1.0
+  google_fonts: ^6.2.1
+  archive: ^4.0.5
+  html: ^0.15.4
+  xml: ^6.5.0
+  nanoid: ^1.0.0
+  json_serializable: ^6.7.1
+  shared_preferences: ^2.3.0
+  vector_math: ^2.1.4
+  url_launcher: ^6.3.0
+  characters: ^1.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.8
+
+flutter:
+  assets:
+    - assets/fonts/
+
+  # Local Google Fonts bundled for offline use on web
+  # These fonts are loaded via TextStyle(fontFamily: ...) without network requests
+  fonts:
+    - family: DejaVu Sans
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+        - asset: assets/fonts/DejaVuSans-Oblique.ttf
+          style: italic
+        - asset: assets/fonts/DejaVuSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/DejaVuSans-BoldOblique.ttf
+          weight: 700
+          style: italic
+    - family: DejaVu Sans Mono
+      fonts:
+        - asset: assets/fonts/DejaVuSansMono.ttf
+        - asset: assets/fonts/DejaVuSansMono-Bold.ttf
+          weight: 700
+    - family: DejaVu Serif
+      fonts:
+        - asset: assets/fonts/DejaVuSerif.ttf
+        - asset: assets/fonts/DejaVuSerif-Italic.ttf
+          style: italic
+        - asset: assets/fonts/DejaVuSerif-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/DejaVuSerif-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Crimson Text
+      fonts:
+        - asset: assets/fonts/CrimsonText-Regular.ttf
+        - asset: assets/fonts/CrimsonText-Italic.ttf
+          style: italic
+        - asset: assets/fonts/CrimsonText-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/CrimsonText-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Fira Sans
+      fonts:
+        - asset: assets/fonts/FiraSans-Regular.ttf
+        - asset: assets/fonts/FiraSans-Italic.ttf
+          style: italic
+        - asset: assets/fonts/FiraSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/FiraSans-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Lato
+      fonts:
+        - asset: assets/fonts/Lato-Regular.ttf
+        - asset: assets/fonts/Lato-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Lato-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Lato-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Titillium Web
+      fonts:
+        - asset: assets/fonts/TitilliumWeb-Regular.ttf
+        - asset: assets/fonts/TitilliumWeb-Italic.ttf
+          style: italic
+        - asset: assets/fonts/TitilliumWeb-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/TitilliumWeb-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Barlow
+      fonts:
+        - asset: assets/fonts/Barlow-Regular.ttf
+        - asset: assets/fonts/Barlow-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Barlow-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Barlow-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: SpaceMono
+      fonts:
+        - asset: assets/fonts/SpaceMono-Regular.ttf
+        - asset: assets/fonts/SpaceMono-Italic.ttf
+          style: italic
+        - asset: assets/fonts/SpaceMono-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/SpaceMono-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: NotoColorEmoji
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji.ttf
+
+  # Bundled Noto fonts for PDF export (OFL license)

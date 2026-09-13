@@ -1,0 +1,1146 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:math' as math;
+
+import 'package:fluent_editor/core/paragraph_registry.dart';
+import 'package:fluent_editor/factories.dart';
+import 'package:fluent_editor/fluent_document.dart';
+import 'package:fluent_editor/renderers/render_paragraph.dart';
+import 'package:fluent_editor/comments/comment_provider.dart';
+import 'package:fluent_editor/styles.dart';
+import 'package:fluent_editor/utils/handler_helpers.dart';
+import 'package:fluent_editor/utils/cursor_utils.dart';
+import 'package:fluent_editor/widgets/editor/fluent_link_dialog.dart';
+import 'package:fluent_editor/widgets/editor/fluent_context_menu.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+/// Paragraph with single TextPainter.
+/// The widget is simple: manages only tap and passes cursor offsets to the render object.
+class FluentParagraphWidget extends StatefulWidget {
+  const FluentParagraphWidget({
+    super.key,
+    required this.node,
+    required this.document,
+    this.applyParagraphSpacing = true,
+    this.shrinkWrap = false,
+  });
+
+  final FNode node;
+  final FluentDocument document;
+  final bool applyParagraphSpacing;
+  final bool shrinkWrap;
+
+  @override
+  FluentParagraphWidgetState createState() => FluentParagraphWidgetState();
+}
+
+class FluentParagraphWidgetState<T extends FluentParagraphWidget> extends State<T> {
+  final GlobalKey _renderWidgetKey = GlobalKey();
+  DateTime? _lastTapTime;
+  Offset? _lastTapPosition;
+  int _tapCount = 0;
+  StreamSubscription<void>? _commentSubscription;
+  bool _isSecondaryTap = false;
+  ({String startFrag, int startOff, String endFrag, int endOff})? _savedSelection;
+
+  /// Tracks the document content version so setState is only
+  /// called when the text actually changed, not on cursor-only movements.
+  int _lastContentVersion = -1;
+
+  /// Previous cursor/selection state for this paragraph. Used to skip
+  /// setState when this paragraph is not actually affected by the change.
+  bool _lastHadCursor = false;
+  bool _lastHadSelection = false;
+  int? _lastCursorOffset;
+  String? _lastCursorFragmentId;
+  ({String startFrag, int startOff, String endFrag, int endOff})? _lastSelectionRange;
+
+  /// Previous IME preedit state for this paragraph.
+  String _lastImePreeditText = '';
+  String _lastImePreeditFragmentId = '';
+  bool _lastIsSuggestionMode = false;
+
+  /// Cached inline images for this paragraph. Recomputed only when the
+  /// document content version changes, avoiding a full tree walk on every
+  /// cursor blink or selection update.
+  List<FluentImage>? _cachedInlineImages;
+  int? _cachedInlineImagesVersion;
+  List<Widget>? _cachedImageWidgets;
+
+  CommentProvider? get _comment => widget.document.commentProvider;
+
+  void onTapDown(TapDownDetails details) {
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.document.cursor.addListener(_onStateChange);
+    widget.document.selectionManager.addListener(_onStateChange);
+    widget.document.addListener(_onDocumentChange);
+    _subscribeToComments();
+  }
+
+  @override
+  void didUpdateWidget(T oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.document.cursor != widget.document.cursor) {
+      oldWidget.document.cursor.removeListener(_onStateChange);
+      widget.document.cursor.addListener(_onStateChange);
+    }
+    if (oldWidget.document.selectionManager != widget.document.selectionManager) {
+      oldWidget.document.selectionManager.removeListener(_onStateChange);
+      widget.document.selectionManager.addListener(_onStateChange);
+    }
+    if (oldWidget.document != widget.document) {
+      oldWidget.document.removeListener(_onDocumentChange);
+      widget.document.addListener(_onDocumentChange);
+      _subscribeToComments();
+    }
+  }
+
+  void _onStateChange() {
+    final nodeId = widget.node.id;
+    final doc = widget.document;
+    final cursor = doc.cursor;
+
+    final hasCursor = doc.cachedCursorContainerId == nodeId;
+    final hasSelection = doc.isNodeSelected(nodeId);
+
+    final cursorOffset = hasCursor ? cursor.focusOffset : null;
+    final cursorFragmentId = hasCursor ? cursor.focusId : null;
+
+    final selRange = hasSelection ? doc.getSelectionRangeForNode(nodeId) : null;
+
+    final hasPreedit = doc.imeHandler.isPreeditInContainer(nodeId);
+    final preeditText = hasPreedit ? doc.imeHandler.preeditText : '';
+    final preeditFragId = hasPreedit ? doc.imeHandler.preeditFragmentId : '';
+
+    final isSuggestionMode = doc.registry.isSuggestionMode;
+
+    if (hasCursor != _lastHadCursor ||
+        hasSelection != _lastHadSelection ||
+        cursorOffset != _lastCursorOffset ||
+        cursorFragmentId != _lastCursorFragmentId ||
+        !_sameRange(selRange, _lastSelectionRange) ||
+        preeditText != _lastImePreeditText ||
+        preeditFragId != _lastImePreeditFragmentId ||
+        isSuggestionMode != _lastIsSuggestionMode) {
+      _lastHadCursor = hasCursor;
+      _lastHadSelection = hasSelection;
+      _lastCursorOffset = cursorOffset;
+      _lastCursorFragmentId = cursorFragmentId;
+      _lastSelectionRange = selRange;
+      _lastImePreeditText = preeditText;
+      _lastImePreeditFragmentId = preeditFragId;
+      _lastIsSuggestionMode = isSuggestionMode;
+      setState(() {});
+    }
+  }
+
+  bool _sameRange(
+    ({String startFrag, int startOff, String endFrag, int endOff})? a,
+    ({String startFrag, int startOff, String endFrag, int endOff})? b,
+  ) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.startFrag == b.startFrag &&
+        a.startOff == b.startOff &&
+        a.endFrag == b.endFrag &&
+        a.endOff == b.endOff;
+  }
+
+  void _onDocumentChange() {
+    if (!widget.document.isNodeDirty(widget.node.id)) return;
+
+    final currentVersion = widget.document.contentVersion;
+    if (currentVersion != _lastContentVersion) {
+      _lastContentVersion = currentVersion;
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cursor = widget.document.cursor;
+    final container = widget.node as InlineContainerNode;
+    final nodeId = widget.node.id;
+    final hasPreedit = widget.document.imeHandler.isPreeditInContainer(nodeId);
+
+    final paragraph = widget.node is Paragraph ? widget.node as Paragraph : null;
+    final style = paragraph?.getStyle();
+    final suggestionHook = widget.document.allStyleHooks.whereType<SuggestionStyleHook>().firstOrNull ?? widget.document.suggestionStyleHook;
+
+    final styleSpacingBefore = style?.spacingBefore ?? 0.0;
+    final styleSpacingAfter = style?.spacingAfter ?? 0.0;
+    final spacingBefore = widget.applyParagraphSpacing
+        ? (styleSpacingBefore > 0 ? styleSpacingBefore : widget.document.pendingSpacingBefore)
+        : 0.0;
+    final spacingAfter = widget.applyParagraphSpacing
+        ? (styleSpacingAfter > 0 ? styleSpacingAfter : widget.document.pendingSpacingAfter)
+        : 0.0;
+
+    final selRange = widget.document.getSelectionRangeForNode(nodeId);
+
+    final currentVersion = widget.document.contentVersion;
+    if (_cachedInlineImages == null ||
+        _cachedInlineImagesVersion != currentVersion) {
+      _cachedInlineImages = collectInlineImages(container);
+      _cachedInlineImagesVersion = currentVersion;
+      _cachedImageWidgets = _cachedInlineImages!.map((img) {
+        return InlineImageWidget(node: img, document: widget.document);
+      }).toList();
+    }
+    final imageWidgets = _cachedImageWidgets!;
+
+    final commentAnnotations = _comment?.commentsForNode(nodeId) ?? const [];
+    final selectedCommentId = _comment?.selectedCommentId;
+
+    final indentLevel = (widget.node as Paragraph).indent;
+    final indentPadding = indentLevel * 24.0;
+
+    final isSuggestionMode = widget.document.registry.plugins.any((p) {
+      try {
+        return (p as dynamic).controller?.mode?.name == 'suggesting';
+      } catch (_) {
+        return false;
+      }
+    });
+
+    return RepaintBoundary(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: indentPadding,
+          top: spacingBefore,
+          bottom: spacingAfter,
+        ),
+        child: Listener(
+          onPointerDown: (event) {
+            if (event.buttons == 2) { // kSecondaryMouseButton
+              _isSecondaryTap = true;
+            }
+          },
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) {
+              if (_isSecondaryTap) return;
+              final now = DateTime.now();
+              final isConsecutiveTap = _lastTapTime != null &&
+                  _lastTapPosition != null &&
+                  now.difference(_lastTapTime!).inMilliseconds < 500 &&
+                  (details.globalPosition - _lastTapPosition!).distance < 30;
+
+              if (isConsecutiveTap) {
+                _tapCount++;
+              } else {
+                _tapCount = 1;
+              }
+              _lastTapTime = now;
+              _lastTapPosition = details.globalPosition;
+
+              final renderObject = _renderWidgetKey.currentContext?.findRenderObject();
+              if (renderObject is RenderBox) {
+                final localPosition = renderObject.globalToLocal(details.globalPosition);
+
+                if (_tapCount >= 3) {
+                  _tapCount = 0;
+                  _savedSelection = null;
+                  widget.document.eventHandler.onTripleTapWithPosition(
+                    localPosition, renderObject, widget);
+                } else if (_tapCount == 2) {
+                  _savedSelection = null;
+                  widget.document.eventHandler.onDoubleTapWithPosition(
+                    localPosition, renderObject, widget);
+                } else {
+                  final selRange = widget.document.selectionManager.getRangeForNode(widget.node.id);
+                  final hasSelection = selRange != null &&
+                      !widget.document.selectionManager.isCollapsed;
+                  if (hasSelection) {
+                    _savedSelection = selRange;
+                  } else {
+                    _savedSelection = null;
+                    widget.document.eventHandler.onTapDownWithPosition(
+                      localPosition, renderObject, widget);
+                  }
+                }
+              }
+            },
+            onTap: () {
+              if (_isSecondaryTap) {
+                _isSecondaryTap = false;
+                return; // Right-click: preserve selection, do not request focus
+              }
+              widget.document.requestEditorFocus();
+              widget.document.requestMobileKeyboardFocus(context);
+              if (_savedSelection != null && _lastTapPosition != null && mounted) {
+                final renderObject = _renderWidgetKey.currentContext?.findRenderObject();
+                if (renderObject is RenderBox) {
+                  final localPosition = renderObject.globalToLocal(_lastTapPosition!);
+                  widget.document.eventHandler.onTapDownWithPosition(
+                    localPosition, renderObject, widget);
+                }
+                _savedSelection = null;
+              }
+            },
+            onSecondaryTapUp: (details) {
+              _isSecondaryTap = false;
+              _onSecondaryTap(details);
+            },
+            onLongPressStart: (details) {
+              _onLongPress(details);
+            },
+            child: FParagraphRenderWidget(
+              key: _renderWidgetKey,
+              node: container,
+              registry: widget.document.paragraphRegistry,
+              styleHooks: widget.document.allStyleHooks,
+              suggestionStyleHook: suggestionHook,
+              lineHeight: style?.lineHeight ?? widget.document.pendingLineHeight,
+              textAlign: parseTextAlign((widget.node as Paragraph).textAlign),
+              shrinkWrap: widget.shrinkWrap,
+              paragraphStyle: style, // Pass the style for fallbacks
+              defaultTextColor: Theme.of(context).colorScheme.onSurface,
+              anchorFragmentId: cursor.anchorId,
+              anchorLocalOffset: cursor.anchorOffset,
+              focusFragmentId: cursor.isCollapsed ? null : cursor.focusId,
+              focusLocalOffset: cursor.isCollapsed ? null : cursor.focusOffset,
+              selAnchorFragmentId: selRange?.startFrag,
+              selAnchorLocalOffset: selRange?.startOff,
+              selFocusFragmentId: selRange?.endFrag,
+              selFocusLocalOffset: selRange?.endOff,
+              commentAnnotations: commentAnnotations,
+              selectedCommentId: selectedCommentId,
+              imePreeditText: hasPreedit
+                  ? widget.document.imeHandler.preeditText
+                  : '',
+              imePreeditFragmentId: hasPreedit
+                  ? (widget.document.imeHandler.preeditFragmentId.isNotEmpty
+                      ? widget.document.imeHandler.preeditFragmentId
+                      : (cursor.focusId.isNotEmpty
+                          ? cursor.focusId
+                          : cursor.anchorId))
+                  : '',
+              imePreeditLocalOffset: hasPreedit
+                  ? widget.document.imeHandler.preeditLocalOffset
+                  : 0,
+              isSuggestionMode: isSuggestionMode,
+              children: imageWidgets,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onSecondaryTap(TapUpDetails details) {
+    _showContextMenuAt(details.globalPosition);
+  }
+
+  void _onLongPress(LongPressStartDetails details) {
+    _showContextMenuAt(details.globalPosition, savedSelection: _savedSelection);
+    _savedSelection = null;
+  }
+
+  void _showContextMenuAt(Offset globalPosition,
+      {({String startFrag, int startOff, String endFrag, int endOff})? savedSelection}) {
+    final renderObject = _renderWidgetKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderFluentParagraph) return;
+
+    final localPosition = renderObject.globalToLocal(globalPosition);
+    final fragmentResult = renderObject.getFragmentAtPosition(localPosition);
+    if (fragmentResult == null) return;
+
+    final fragment = widget.document.nodeById(fragmentResult.fragmentId);
+    if (fragment == null) return;
+
+    // Release IME before showing context menu so dialogs opened from
+    // menu items get exclusive keyboard focus.
+    widget.document.editorFocusNode.unfocus();
+
+    final parentId = widget.document.findParentCached(fragment.id);
+    if (parentId != null) {
+      final parent = widget.document.nodeById(parentId);
+      if (parent is Link) {
+        _showLinkContextMenu(globalPosition, parent);
+        return;
+      }
+    }
+
+    _showCommentContextMenu(globalPosition, fragmentResult, savedSelection: savedSelection);
+  }
+
+  Future<void> _showCommentContextMenu(
+    Offset globalPosition,
+    ({String fragmentId, int localOffset}) fragmentResult, {
+    ({String startFrag, int startOff, String endFrag, int endOff})? savedSelection,
+  }) async {
+    final items = <FluentContextMenuItem>[];
+    final labels = widget.document.labels;
+
+    final commentProvider = _comment;
+    final renderObject = _renderWidgetKey.currentContext?.findRenderObject();
+    final selRange = savedSelection ?? widget.document.selectionManager.getRangeForNode(widget.node.id);
+    if (commentProvider != null &&
+        renderObject is RenderFluentParagraph &&
+        selRange != null) {
+      int? startGlobal;
+      int? endGlobal;
+
+      if (selRange.startFrag.isEmpty) {
+        startGlobal = 0;
+      } else {
+        startGlobal = renderObject.resolveGlobalOffset(selRange.startFrag, selRange.startOff);
+      }
+
+      if (selRange.endFrag.isEmpty) {
+        endGlobal = _paragraphTotalLength();
+      } else {
+        endGlobal = renderObject.resolveGlobalOffset(selRange.endFrag, selRange.endOff);
+      }
+
+      if (startGlobal != null && endGlobal != null) {
+        final start = startGlobal < endGlobal ? startGlobal : endGlobal;
+        final end = startGlobal < endGlobal ? endGlobal : startGlobal;
+        if (end > start) {
+          items.add(FluentContextMenuItem(
+            icon: Icons.add_comment_outlined,
+            label: labels?.addCommentLabel ?? 'Add comment',
+            onPressed: () => _showAddCommentDialog(start, end),
+          ));
+        }
+      }
+    }
+
+    // Always add Insert menu items to the context menu.
+    items.add(FluentContextMenuItem(
+      icon: Icons.link,
+      label: labels?.link ?? 'Link',
+      onPressed: () {
+        widget.document.requestEditorFocus();
+        widget.document.dialogPresenter.handleInsertLink(context);
+      },
+    ));
+    items.add(FluentContextMenuItem(
+      icon: Icons.image,
+      label: labels?.image ?? 'Image',
+      onPressed: () {
+        widget.document.requestEditorFocus();
+        widget.document.dialogPresenter.handleInsertImage(context);
+      },
+    ));
+    items.add(FluentContextMenuItem(
+      icon: Icons.table_chart,
+      label: labels?.table ?? 'Table',
+      onPressed: () {
+        widget.document.requestEditorFocus();
+        widget.document.eventHandler.handleInsertNode('table');
+      },
+    ));
+    items.add(FluentContextMenuItem(
+      icon: Icons.horizontal_rule,
+      label: labels?.horizontalLine ?? 'Horizontal line',
+      onPressed: () {
+        widget.document.requestEditorFocus();
+        widget.document.eventHandler.handleInsertNode('hr');
+      },
+    ));
+
+    if (items.isNotEmpty && mounted) {
+      showFluentContextMenu(context: context, globalPosition: globalPosition, items: items)
+          .then((_) {
+        if (mounted) widget.document.requestEditorFocus();
+      });
+    }
+  }
+
+  /// Returns the total text length of the current paragraph,
+  /// including text inside Links.
+  int _paragraphTotalLength() {
+    final container = widget.node as InlineContainerNode;
+    var length = 0;
+    for (final child in container.getChildren()) {
+      length += _nodeTextLength(child);
+    }
+    return length;
+  }
+
+  int _nodeTextLength(FNode node) {
+    if (node is Fragment) {
+      return node.text.length;
+    } else if (node is Link) {
+      var len = 0;
+      for (final child in node.getChildren()) {
+        len += _nodeTextLength(child);
+      }
+      return len;
+    } else if (node is FluentImage) {
+      return node.text.length; // ZWS placeholder
+    }
+    return 0;
+  }
+
+  void _showAddCommentDialog(int startOffset, int endOffset) {
+    final labels = widget.document.labels;
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(labels?.commentDialogTitle ?? 'Add comment'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          decoration: InputDecoration(hintText: labels?.commentHint ?? 'Write a comment...'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(labels?.cancel ?? 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                final author = _comment?.currentAuthor ?? labels?.defaultAuthorName ?? 'User';
+                final added = _comment?.addComment(widget.node.id, startOffset, endOffset, author, text);
+                if (added == false) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: Theme.of(context).colorScheme.errorContainer,
+                      content: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.onErrorContainer),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              labels?.commentOverlapWarning ?? 'Warning: the comment overlaps an existing comment.',
+                              style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                            ),
+                          ),
+                        ],
+                      ),
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+              }
+              Navigator.of(ctx).pop();
+            },
+            child: Text(labels?.confirmButton ?? 'Confirm'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _copyUrlAndNotify(String url, String message) {
+    Clipboard.setData(ClipboardData(text: url));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showLinkContextMenu(Offset globalPosition, Link link) {
+    final currentText = link.fragments
+        .whereType<Fragment>()
+        .map((f) => f.text)
+        .join();
+
+    showFluentContextMenu(
+      context: context,
+      globalPosition: globalPosition,
+      items: [
+        FluentContextMenuItem(
+          icon: Icons.open_in_new,
+          label: widget.document.labels?.goToLink ?? 'Go to link',
+          onPressed: () async {
+            final uri = Uri.tryParse(link.url);
+            if (uri != null) {
+              if (!kIsWeb && Platform.isLinux) {
+                _copyUrlAndNotify(link.url, 'URL copied to clipboard.');
+                return;
+              }
+
+              try {
+                final launched = await launchUrl(
+                  uri,
+                  webOnlyWindowName: kIsWeb ? '_blank' : null,
+                );
+                if (!launched) {
+                  _copyUrlAndNotify(link.url, 'Could not open link. URL copied to clipboard.');
+                }
+              } catch (_) {
+                _copyUrlAndNotify(link.url, 'Could not open link. URL copied to clipboard.');
+              }
+            }
+          },
+        ),
+        FluentContextMenuItem(
+          icon: Icons.link,
+          label: widget.document.labels?.replaceLink ?? 'Replace link',
+          onPressed: () async {
+            final result = await showFluentLinkDialog(
+              context,
+              labels: widget.document.labels,
+              initialUrl: link.url,
+              initialText: currentText,
+            );
+            if (result != null) {
+              link.url = result['url']!;
+              final text = result['text'];
+              if (text != null && text.isNotEmpty && link.fragments.isNotEmpty) {
+                final firstFrag = link.fragments.first;
+                if (firstFrag is Fragment) {
+                  firstFrag.text = text;
+                }
+              }
+              widget.document.updateContent();
+            }
+          },
+        ),
+        FluentContextMenuItem(
+          icon: Icons.delete,
+          label: widget.document.labels?.deleteLink ?? 'Delete',
+          onPressed: () => saveAndDeleteNode(widget.document, link, description: 'Delete link'),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    widget.document.cursor.removeListener(_onStateChange);
+    widget.document.selectionManager.removeListener(_onStateChange);
+    widget.document.removeListener(_onDocumentChange);
+    _commentSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _subscribeToComments() {
+    _commentSubscription?.cancel();
+    _commentSubscription = null;
+    final provider = _comment;
+    if (provider != null) {
+      _commentSubscription = provider.commentsChanged.listen((_) => _onCommentsChanged());
+    }
+  }
+
+  void _onCommentsChanged() {
+    if (mounted) setState(() {});
+  }
+}
+
+/// MultiChildRenderObjectWidget that passes cursor/selection offsets to the
+/// paragraph and hosts inline widgets (e.g. images inside Link).
+class FParagraphRenderWidget extends MultiChildRenderObjectWidget {
+  const FParagraphRenderWidget({
+    super.key,
+    required this.node,
+    required this.registry,
+    this.styleHooks = const [],
+    this.suggestionStyleHook = const SuggestionStyleHook(),
+    this.lineHeight = 1.15,
+    this.textAlign = TextAlign.left,
+    this.shrinkWrap = false,
+    this.paragraphStyle,
+    this.defaultTextColor,
+    this.cursorColor,
+    this.selectionColor,
+    this.linkColor,
+    this.imeCompositionColor,
+    required this.anchorFragmentId,
+    required this.anchorLocalOffset,
+    this.focusFragmentId,
+    this.focusLocalOffset,
+    this.selAnchorFragmentId,
+    this.selAnchorLocalOffset,
+    this.selFocusFragmentId,
+    this.selFocusLocalOffset,
+    this.commentAnnotations = const [],
+    this.selectedCommentId,
+    this.imePreeditText = '',
+    this.imePreeditFragmentId = '',
+    this.imePreeditLocalOffset = 0,
+    this.isSuggestionMode = false,
+    super.children = const [],
+  });
+
+  final InlineContainerNode node;
+  final ParagraphRegistry registry;
+  final List<RenderStyleHook> styleHooks;
+  final SuggestionStyleHook suggestionStyleHook;
+  final double lineHeight;
+  final TextAlign textAlign;
+  final bool shrinkWrap;
+  final ParagraphStyle? paragraphStyle;
+  final Color? defaultTextColor;
+  final Color? cursorColor;
+  final Color? selectionColor;
+  final Color? linkColor;
+  final Color? imeCompositionColor;
+
+  final String anchorFragmentId;
+  final int anchorLocalOffset;
+  final String? focusFragmentId;
+  final int? focusLocalOffset;
+  final String? selAnchorFragmentId;
+  final int? selAnchorLocalOffset;
+  final String? selFocusFragmentId;
+  final int? selFocusLocalOffset;
+  final List<Map<String, dynamic>> commentAnnotations;
+  final String? selectedCommentId;
+  final String imePreeditText;
+  final String imePreeditFragmentId;
+  final int imePreeditLocalOffset;
+  final bool isSuggestionMode;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return RenderFluentParagraph(
+        container: node,
+        registry: registry,
+        lineHeight: lineHeight,
+        textAlign: textAlign,
+        shrinkWrap: shrinkWrap,
+        paragraphStyle: paragraphStyle,
+        defaultTextColor: defaultTextColor ?? Theme.of(context).colorScheme.onSurface,
+        cursorColor: cursorColor ?? Theme.of(context).colorScheme.primary,
+        selectionColor: selectionColor ?? Theme.of(context).colorScheme.primary.withAlpha(100),
+        linkColor: linkColor ?? Theme.of(context).colorScheme.primary,
+        imeCompositionColor: imeCompositionColor ?? Theme.of(context).colorScheme.primary,
+      )
+      ..styleHooks = styleHooks
+      ..suggestionStyleHook = suggestionStyleHook
+      ..setCursorOffsets(
+        anchorFragmentId,
+        anchorLocalOffset,
+        focusFragmentId,
+        focusLocalOffset,
+      )
+      ..setSelectionRange(
+        selAnchorFragmentId,
+        selAnchorLocalOffset,
+        selFocusFragmentId,
+        selFocusLocalOffset,
+      )
+      ..commentAnnotations = commentAnnotations
+      ..selectedCommentId = selectedCommentId
+      ..imePreeditText = imePreeditText
+      ..imePreeditFragmentId = imePreeditFragmentId
+      ..imePreeditLocalOffset = imePreeditLocalOffset
+      ..isSuggestionMode = isSuggestionMode;
+  }
+
+  @override
+  void updateRenderObject(BuildContext context, RenderFluentParagraph renderObject) {
+    renderObject.container = node;
+    renderObject.styleHooks = styleHooks;
+    renderObject.suggestionStyleHook = suggestionStyleHook;
+    renderObject.lineHeight = lineHeight;
+    renderObject.textAlign = textAlign;
+    renderObject.shrinkWrap = shrinkWrap;
+    renderObject.paragraphStyle = paragraphStyle;
+    renderObject.defaultTextColor = defaultTextColor ?? Theme.of(context).colorScheme.onSurface;
+    renderObject.cursorColor = cursorColor ?? Theme.of(context).colorScheme.primary;
+    renderObject.selectionColor = selectionColor ?? Theme.of(context).colorScheme.primary.withAlpha(100);
+    renderObject.linkColor = linkColor ?? Theme.of(context).colorScheme.primary;
+    renderObject.imeCompositionColor = imeCompositionColor ?? Theme.of(context).colorScheme.primary;
+    renderObject.setCursorOffsets(
+      anchorFragmentId,
+      anchorLocalOffset,
+      focusFragmentId,
+      focusLocalOffset,
+    );
+    renderObject.setSelectionRange(
+      selAnchorFragmentId,
+      selAnchorLocalOffset,
+      selFocusFragmentId,
+      selFocusLocalOffset,
+    );
+    renderObject.commentAnnotations = commentAnnotations;
+    renderObject.selectedCommentId = selectedCommentId;
+    renderObject.imePreeditText = imePreeditText;
+    renderObject.imePreeditFragmentId = imePreeditFragmentId;
+    renderObject.imePreeditLocalOffset = imePreeditLocalOffset;
+    renderObject.isSuggestionMode = isSuggestionMode;
+  }
+}
+
+enum _ResizeHandle {
+  topLeft, topRight, bottomLeft, bottomRight,
+  top, bottom, left, right
+}
+
+/// Widget for inline images that maintains inline behavior but enables resize
+class InlineImageWidget extends StatefulWidget {
+  const InlineImageWidget({
+    super.key,
+    required this.node,
+    required this.document,
+  });
+
+  final FluentImage node;
+  final FluentDocument document;
+
+  @override
+  State<InlineImageWidget> createState() => _InlineImageWidgetState();
+}
+
+class _InlineImageWidgetState extends State<InlineImageWidget> {
+  static const double _defaultImgWidth = 300;
+  static const double _defaultImgHeight = 300;
+  static double get _handleSize => kIsWeb || Platform.isAndroid || Platform.isIOS ? 24.0 : 12.0;
+  static const double _minSize = 50.0;
+  static const double _maxSize = 800.0;
+
+  bool _isDragging = false;
+  _ResizeHandle? _activeHandle;
+  _ResizeHandle? _hoveredHandle;
+  Offset? _dragStartPosition;
+  
+  double? _originalAspectRatio;
+  bool _aspectRatioConstrained = true;
+  static const double _aspectRatioThreshold = 0.1; // 10% deviation threshold
+  String? _cachedImageSrc;
+  ImageProvider? _cachedImageProvider;
+
+  void _onTapDown(TapDownDetails details) {
+    if (_isDragging) return;
+
+    if (widget.document.imeHandler.isComposing) {
+      widget.document.imeHandler.commitIfComposing();
+    }
+
+    widget.document.requestEditorFocus();
+
+    _initializeAspectRatio();
+    
+    final box = context.findRenderObject() as RenderBox?;
+    final localX = box != null
+        ? box.globalToLocal(details.globalPosition).dx
+        : 0.0;
+    final imgWidth = widget.node.width ?? _defaultImgWidth;
+    final offset = localX < imgWidth / 2 ? 0 : 1;
+    widget.document.cursor.moveTo(widget.node.id, offset);
+  }
+
+  void _initializeAspectRatio() {
+    if (_originalAspectRatio == null) {
+      final imgWidth = widget.node.width ?? _defaultImgWidth;
+      final imgHeight = widget.node.height ?? _defaultImgHeight;
+      _originalAspectRatio = imgWidth / imgHeight;
+    }
+  }
+
+  bool _isAspectRatioDeviating(double newWidth, double newHeight) {
+    if (_originalAspectRatio == null || newHeight <= 0) return false;
+    
+    final currentAspectRatio = newWidth / newHeight;
+    final deviation = (currentAspectRatio - _originalAspectRatio!).abs() / _originalAspectRatio!;
+    
+    return deviation > _aspectRatioThreshold;
+  }
+
+  void _onHoverUpdate(bool hovering, Offset localPosition) {
+    if (!hovering) {
+      if (_hoveredHandle != null) {
+        setState(() => _hoveredHandle = null);
+      }
+      return;
+    }
+    
+    final imgWidth = widget.node.width ?? _defaultImgWidth;
+    final imgHeight = widget.node.height ?? _defaultImgHeight;
+    final tolerance = _handleSize;
+    
+    _ResizeHandle? newHoveredHandle;
+    
+    if (localPosition.dx <= tolerance && localPosition.dy <= tolerance) {
+      newHoveredHandle = _ResizeHandle.topLeft;
+    } else if (localPosition.dx >= imgWidth - tolerance && localPosition.dy <= tolerance) {
+      newHoveredHandle = _ResizeHandle.topRight;
+    } else if (localPosition.dx <= tolerance && localPosition.dy >= imgHeight - tolerance) {
+      newHoveredHandle = _ResizeHandle.bottomLeft;
+    } else if (localPosition.dx >= imgWidth - tolerance && localPosition.dy >= imgHeight - tolerance) {
+      newHoveredHandle = _ResizeHandle.bottomRight;
+    }
+    else if (localPosition.dx <= tolerance) {
+      newHoveredHandle = _ResizeHandle.left;
+    } else if (localPosition.dx >= imgWidth - tolerance) {
+      newHoveredHandle = _ResizeHandle.right;
+    } else if (localPosition.dy <= tolerance) {
+      newHoveredHandle = _ResizeHandle.top;
+    } else if (localPosition.dy >= imgHeight - tolerance) {
+      newHoveredHandle = _ResizeHandle.bottom;
+    }
+    
+    if (newHoveredHandle != _hoveredHandle) {
+      setState(() => _hoveredHandle = newHoveredHandle);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imgWidth = widget.node.width ?? _defaultImgWidth;
+    final imgHeight = widget.node.height ?? _defaultImgHeight;
+    final cursor = widget.document.cursor;
+    final cursorOnImage = cursor.isCollapsed && cursor.anchorId == widget.node.id;
+    final suggestionHook = widget.document.allStyleHooks.whereType<SuggestionStyleHook>().firstOrNull ?? widget.document.suggestionStyleHook;
+    final showHandles = cursorOnImage;
+
+    return MouseRegion(
+      onEnter: (_) => _onHoverUpdate(true, Offset.zero),
+      onExit: (_) => _onHoverUpdate(false, Offset.zero),
+      onHover: (event) => _onHoverUpdate(true, event.localPosition),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: _onTapDown,
+        onTap: () {
+          widget.document.requestEditorFocus();
+          widget.document.cursor.moveTo(widget.node.id, 0);
+        },
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: imgWidth,
+            height: imgHeight,
+            child: Stack(
+              children: [
+                Positioned.fill(child: _buildImage(widget.node.src)),
+                if (widget.node.styles?.contains('suggestion_deletion') == true ||
+                    widget.node.styles?.contains('strikethrough') == true)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Stack(
+                        children: [
+                          ColoredBox(
+                            color: suggestionHook.deletionBackgroundColor ?? Colors.red.withValues(alpha: 0.35),
+                            child: const SizedBox.expand(),
+                          ),
+                          Center(
+                            child: Container(
+                              height: 4,
+                              color: suggestionHook.deletionColor ?? const Color(0xFFE53935),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (widget.node.styles?.contains(suggestionHook.additionTag) == true)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: suggestionHook.additionBackgroundColor ?? const Color(0x404CAF50),
+                          border: Border.all(color: suggestionHook.additionColor ?? const Color(0xFF4CAF50), width: 3),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (showHandles) ..._buildResizeHandles(imgWidth, imgHeight),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImage(String src) {
+    if (_cachedImageSrc != src) {
+      _cachedImageSrc = src;
+      _cachedImageProvider = null;
+      if (src.startsWith('data:')) {
+        final commaIndex = src.indexOf(',');
+        if (commaIndex != -1) {
+          try {
+            _cachedImageProvider = MemoryImage(
+              base64Decode(src.substring(commaIndex + 1)),
+            );
+          } catch (_) {}
+        }
+      } else if (src.startsWith('http://') || src.startsWith('https://')) {
+        _cachedImageProvider = NetworkImage(src);
+      } else {
+        _cachedImageProvider = AssetImage(src);
+      }
+    }
+    final provider = _cachedImageProvider;
+    if (provider == null) return const SizedBox.shrink();
+    return Image(image: provider, fit: BoxFit.cover, gaplessPlayback: true);
+  }
+
+  List<Widget> _buildResizeHandles(double imgWidth, double imgHeight) {
+    return [
+      _buildHandle(0, 0, _ResizeHandle.topLeft, SystemMouseCursors.resizeUpLeft),
+      _buildHandle(imgWidth - _handleSize, 0, _ResizeHandle.topRight, SystemMouseCursors.resizeUpRight),
+      _buildHandle(0, imgHeight - _handleSize, _ResizeHandle.bottomLeft, SystemMouseCursors.resizeDownLeft),
+      _buildHandle(imgWidth - _handleSize, imgHeight - _handleSize, _ResizeHandle.bottomRight, SystemMouseCursors.resizeDownRight),
+      _buildHandle(imgWidth / 2 - _handleSize / 2, 0, _ResizeHandle.top, SystemMouseCursors.resizeUpDown),
+      _buildHandle(imgWidth / 2 - _handleSize / 2, imgHeight - _handleSize, _ResizeHandle.bottom, SystemMouseCursors.resizeUpDown),
+      _buildHandle(0, imgHeight / 2 - _handleSize / 2, _ResizeHandle.left, SystemMouseCursors.resizeLeftRight),
+      _buildHandle(imgWidth - _handleSize, imgHeight / 2 - _handleSize / 2, _ResizeHandle.right, SystemMouseCursors.resizeLeftRight),
+    ];
+  }
+
+  Widget _buildHandle(double x, double y, _ResizeHandle handle, MouseCursor cursor) {
+    final isActive = _activeHandle == handle;
+    return Positioned(
+      left: x,
+      top: y,
+      width: _handleSize,
+      height: _handleSize,
+      child: GestureDetector(
+        onPanStart: (details) {
+          final box = context.findRenderObject() as RenderBox?;
+          if (box != null) {
+            widget.document.saveState(description: 'Resize image', forceNewAction: true);
+            setState(() {
+              _isDragging = true;
+              _activeHandle = handle;
+              _aspectRatioConstrained = true;
+              final imgWidth = widget.node.width ?? _defaultImgWidth;
+              final imgHeight = widget.node.height ?? _defaultImgHeight;
+              _dragStartPosition = _getHandlePosition(handle, imgWidth, imgHeight);
+            });
+            widget.document.isResizingImage = true;
+          }
+        },
+        onPanUpdate: (details) {
+          if (_activeHandle == null || _dragStartPosition == null) return;
+          
+          final box = context.findRenderObject() as RenderBox?;
+          if (box == null) return;
+          
+          final currentPos = box.globalToLocal(details.globalPosition);
+          final imgWidth = widget.node.width ?? _defaultImgWidth;
+          final imgHeight = widget.node.height ?? _defaultImgHeight;
+          
+          double newWidth = imgWidth;
+          double newHeight = imgHeight;
+
+          switch (_activeHandle!) {
+            case _ResizeHandle.topLeft:
+              newWidth = math.max(currentPos.dx, _minSize);
+              newHeight = math.max(currentPos.dy, _minSize);
+              break;
+            case _ResizeHandle.topRight:
+              newWidth = math.max(currentPos.dx, _minSize);
+              newHeight = math.max(imgHeight - (currentPos.dy - _dragStartPosition!.dy), _minSize);
+              break;
+            case _ResizeHandle.bottomLeft:
+              newWidth = math.max(currentPos.dx, _minSize);
+              newHeight = math.max(currentPos.dy, _minSize);
+              break;
+            case _ResizeHandle.bottomRight:
+              newWidth = math.max(currentPos.dx, _minSize);
+              newHeight = math.max(currentPos.dy, _minSize);
+              break;
+            case _ResizeHandle.left:
+              newWidth = math.max(currentPos.dx, _minSize);
+              break;
+            case _ResizeHandle.right:
+              newWidth = math.max(currentPos.dx, _minSize);
+              break;
+            case _ResizeHandle.top:
+              newHeight = math.max(currentPos.dy, _minSize);
+              break;
+            case _ResizeHandle.bottom:
+              newHeight = math.max(currentPos.dy, _minSize);
+              break;
+          }
+
+          newWidth = math.min(newWidth, _maxSize);
+          newHeight = math.min(newHeight, _maxSize);
+
+          if (_aspectRatioConstrained && _isAspectRatioDeviating(newWidth, newHeight)) {
+            _aspectRatioConstrained = false;
+          }
+
+          if (_aspectRatioConstrained && _originalAspectRatio != null) {
+            if (_activeHandle == _ResizeHandle.topLeft || 
+                _activeHandle == _ResizeHandle.topRight ||
+                _activeHandle == _ResizeHandle.bottomLeft || 
+                _activeHandle == _ResizeHandle.bottomRight) {
+              
+              final widthRatio = newWidth / imgWidth;
+              final heightRatio = newHeight / imgHeight;
+              
+              if (widthRatio > heightRatio) {
+                newHeight = newWidth / _originalAspectRatio!;
+              } else {
+                newWidth = newHeight * _originalAspectRatio!;
+              }
+            }
+            else if (_activeHandle == _ResizeHandle.left || _activeHandle == _ResizeHandle.right) {
+              newHeight = newWidth / _originalAspectRatio!;
+            } else if (_activeHandle == _ResizeHandle.top || _activeHandle == _ResizeHandle.bottom) {
+              newWidth = newHeight * _originalAspectRatio!;
+            }
+          }
+
+          const double threshold = 1.0;
+          
+          final widthDiff = (newWidth - imgWidth).abs();
+          final heightDiff = (newHeight - imgHeight).abs();
+          
+          if (widthDiff >= threshold || heightDiff >= threshold) {
+            widget.node.width = newWidth;
+            widget.node.height = newHeight;
+            setState(() {});
+          }
+        },
+        onPanEnd: (_) {
+          setState(() {
+            _isDragging = false;
+            _activeHandle = null;
+            _dragStartPosition = null;
+          });
+          widget.document.isResizingImage = false;
+          widget.document.updateContent();
+        },
+        child: MouseRegion(
+          cursor: cursor,
+          child: Container(
+            decoration: BoxDecoration(
+              color: isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surface,
+              border: Border.all(color: Theme.of(context).colorScheme.primary, width: 2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Offset _getHandlePosition(_ResizeHandle handle, double imgWidth, double imgHeight) {
+    switch (handle) {
+      case _ResizeHandle.topLeft:
+        return Offset(0, 0);
+      case _ResizeHandle.topRight:
+        return Offset(imgWidth - _handleSize, 0);
+      case _ResizeHandle.bottomLeft:
+        return Offset(0, imgHeight - _handleSize);
+      case _ResizeHandle.bottomRight:
+        return Offset(imgWidth - _handleSize, imgHeight - _handleSize);
+      case _ResizeHandle.top:
+        return Offset(imgWidth / 2 - _handleSize / 2, 0);
+      case _ResizeHandle.bottom:
+        return Offset(imgWidth / 2 - _handleSize / 2, imgHeight - _handleSize);
+      case _ResizeHandle.left:
+        return Offset(0, imgHeight / 2 - _handleSize / 2);
+      case _ResizeHandle.right:
+        return Offset(imgWidth - _handleSize, imgHeight / 2 - _handleSize / 2);
+    }
+  }
+
+  }

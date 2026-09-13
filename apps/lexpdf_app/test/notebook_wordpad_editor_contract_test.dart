@@ -3,47 +3,40 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('notebook exposes WordPad-like always-visible text ribbon', () {
+  test('WordPad ribbon controls FluentDocument formatting by selection', () {
     final screen = File('lib/src/screens/layered_notebook_screen.dart')
         .readAsStringSync();
-
     expect(screen, contains("_defaultNotebookFontFamily = 'Arial'"));
     expect(screen, contains('_defaultNotebookFontSize = 12'));
     expect(screen, contains('_buildTextFormattingToolbar(),'));
-    expect(screen, isNot(contains("if (_editingTextObjectId != null ||")));
-    expect(screen, contains("label: 'Fonte'"));
-    expect(screen, contains('DropdownButton<double>('));
-    expect(screen, contains("tooltip: 'Negrito'"));
-    expect(screen, contains("tooltip: 'Itálico'"));
-    expect(screen, contains("tooltip: 'Sublinhado'"));
-    expect(screen, contains("tooltip: 'Cor da fonte'"));
+    expect(screen, contains('document.eventHandler.handleBold()'));
+    expect(screen, contains('document.eventHandler.handleItalic()'));
+    expect(screen, contains('document.eventHandler.handleUnderline()'));
+    expect(screen, contains('document.eventHandler.handleFontFamily'));
+    expect(screen, contains('document.eventHandler.handleFontSize'));
+    expect(screen, contains('document.eventHandler.handleTextAlign'));
+    expect(screen, contains('document.eventHandler.handleTextColor'));
   });
 
-  test('notebook text starts as Arial 12 and edits directly on page', () {
+  test('Arquivo menu exposes real document import and export routes', () {
     final screen = File('lib/src/screens/layered_notebook_screen.dart')
         .readAsStringSync();
-    final layer = File('lib/src/widgets/notebook_object_layer.dart')
+    final chrome = File('lib/src/widgets/notebook_wordpad_chrome.dart')
         .readAsStringSync();
-
-    expect(screen, contains('fontSize: _defaultTextFontSize'));
-    expect(screen, contains('fontFamily: _defaultTextFontFamily'));
-    expect(screen, contains('fontBold: _defaultTextBold'));
-    expect(screen, contains('fontItalic: _defaultTextItalic'));
-    expect(screen, contains('fontUnderline: _defaultTextUnderline'));
-    expect(screen, contains('page.height - (marginY * 2)'));
-    expect(screen, contains('onEmptyTap: () {'));
-    expect(layer, contains('widget.onEmptyTap?.call()'));
-    expect(layer, contains('cursor: editingText'));
-    expect(layer, contains('SystemMouseCursors.text'));
-    expect(layer, contains("fontFamily: widget.object.fontFamily ?? 'Arial'"));
-    expect(layer, contains('fontSize: widget.object.fontSize ?? 12'));
-    expect(
-      layer,
-      isNot(
-        contains(
-          'border: Border.all(\n          color: Theme.of(context).colorScheme.primary,\n          width: 1.4',
-        ),
-      ),
-    );
+    final service = File(
+      'lib/src/core/notebook/notebook_document_file_service.dart',
+    ).readAsStringSync();
+    expect(chrome, contains("label: 'Abrir documento'"));
+    expect(chrome, contains("label: 'Salvar como DOCX'"));
+    expect(chrome, contains("label: 'Salvar como TXT'"));
+    expect(chrome, contains("label: 'Exportar PDF'"));
+    expect(chrome, contains("label: 'Salvar como DOC'"));
+    expect(chrome, contains("label: 'Salvar como RTF'"));
+    expect(screen, contains('_openRichDocumentFile()'));
+    expect(screen, contains("_saveRichDocumentAs('docx')"));
+    expect(service, contains("case 'docx':"));
+    expect(service, contains("case 'txt':"));
+    expect(service, contains("case 'pdf':"));
+    expect(service, contains('LegacyWordBridgeUnavailable'));
   });
 }

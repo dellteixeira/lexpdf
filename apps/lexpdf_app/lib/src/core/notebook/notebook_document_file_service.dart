@@ -36,10 +36,7 @@ class NotebookDocumentFileService {
         return importer.importFromHtml(_plainTextToHtml(text));
       case 'doc':
       case 'rtf':
-        final docx = await legacyConverter.toDocx(
-          bytes,
-          sourceExtension: ext,
-        );
+        final docx = await legacyConverter.toDocx(bytes, sourceExtension: ext);
         if (docx == null) throw LegacyWordBridgeUnavailable(ext);
         return importer.importFromDocx(docx);
       default:
@@ -79,9 +76,6 @@ class NotebookDocumentFileService {
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;');
-    return escaped
-        .split(RegExp(r'\r?\n'))
-        .map((line) => '<p>$line</p>')
-        .join();
+    return escaped.split(RegExp(r'\r?\n')).map((line) => '<p>$line</p>').join();
   }
 }

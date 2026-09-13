@@ -7,13 +7,14 @@ class LegacyNotebookTextMigrator {
   const LegacyNotebookTextMigrator();
 
   Root migrate(List<NotebookObject> objects) {
-    final legacy = objects
-        .where((object) => object.type == NotebookObjectType.text)
-        .toList(growable: false)
-      ..sort((a, b) {
-        final y = a.y.compareTo(b.y);
-        return y != 0 ? y : a.x.compareTo(b.x);
-      });
+    final legacy =
+        objects
+            .where((object) => object.type == NotebookObjectType.text)
+            .toList(growable: false)
+          ..sort((a, b) {
+            final y = a.y.compareTo(b.y);
+            return y != 0 ? y : a.x.compareTo(b.x);
+          });
 
     if (legacy.isEmpty) {
       return ImportService().importFromHtml('<p></p>');
@@ -35,7 +36,8 @@ class LegacyNotebookTextMigrator {
           ? 'text-decoration:underline;'
           : '';
       final color = _cssColor(object.colorValue);
-      final text = _escapeText(object.textValue ?? '').replaceAll('\n', '<br/>');
+      final text = _escapeText(object.textValue ?? '')
+          .replaceAll('\n', '<br/>');
       html
         ..write('<p style="text-align:$paragraphAlign;">')
         ..write(
@@ -55,7 +57,6 @@ class LegacyNotebookTextMigrator {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
 
-  String _escapeAttribute(String value) => _escapeText(value)
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+  String _escapeAttribute(String value) =>
+      _escapeText(value).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }

@@ -46,6 +46,9 @@ void main() {
 
     expect(root.text, contains('Primeiro'));
     expect(root.text, contains('Segundo'));
-    expect(root.text.indexOf('Primeiro'), lessThan(root.text.indexOf('Segundo')));
+    expect(
+      root.text.indexOf('Primeiro'),
+      lessThan(root.text.indexOf('Segundo')),
+    );
   });
 }

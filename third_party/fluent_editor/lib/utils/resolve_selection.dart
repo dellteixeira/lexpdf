@@ -1,0 +1,250 @@
+import 'package:fluent_editor/factories.dart';
+import 'package:fluent_editor/fluent_document.dart';
+import 'package:fluent_editor/utils/cursor_navigation.dart';
+import 'package:fluent_editor/utils/node_operations.dart';
+
+/// An endpoint of the selection with direct reference to the Fragment.
+class SelectionEndpoint {
+  /// The leaf Fragment where this selection endpoint falls.
+  final Fragment fragment;
+
+  /// Local offset inside [fragment].
+  final int offset;
+
+  /// The LogicalLine container (Paragraph / ListItem / FluentCell).
+  final InlineContainerNode container;
+
+  const SelectionEndpoint({
+    required this.fragment,
+    required this.offset,
+    required this.container,
+  });
+
+  @override
+  String toString() =>
+      'SelectionEndpoint(${fragment.id}:$offset in ${(container as FNode).id})';
+}
+
+/// A node partially or completely traversed by the selection.
+class SelectedNode {
+  /// The logical container (Paragraph / ListItem / FluentCell).
+  final InlineContainerNode container;
+
+  /// First selected fragment in this node.
+  /// If the node is completely selected, it coincides with the first fragment.
+  final Fragment startFragment;
+
+  /// Local offset in [startFragment] where the selection starts.
+  /// 0 if the node is completely selected or if the selection starts before.
+  final int startOffset;
+
+  /// Last selected fragment in this node.
+  final Fragment endFragment;
+
+  /// Local offset in [endFragment] where the selection reaches.
+  /// text.length if the node is completely selected or the selection continues.
+  final int endOffset;
+
+  /// True if the entire node is included in the selection
+  /// (neither startOffset nor endOffset are partial).
+  final bool isFullySelected;
+
+  const SelectedNode({
+    required this.container,
+    required this.startFragment,
+    required this.startOffset,
+    required this.endFragment,
+    required this.endOffset,
+    required this.isFullySelected,
+  });
+
+  @override
+  String toString() {
+    final id = (container as FNode).id;
+    return 'SelectedNode($id: ${startFragment.id}:$startOffset → '
+        '${endFragment.id}:$endOffset, full=$isFullySelected)';
+  }
+}
+
+/// The active selection with all references resolved.
+class ResolvedSelection {
+  /// Fixed endpoint (where the selection started).
+  final SelectionEndpoint anchor;
+
+  /// Mobile endpoint (where the cursor is now).
+  final SelectionEndpoint focus;
+
+  /// The endpoint that comes first in the document (anchor or focus).
+  final SelectionEndpoint base;
+
+  /// The endpoint that comes after in the document (anchor or focus).
+  final SelectionEndpoint extent;
+
+  /// All nodes traversed by the selection, in document order.
+  /// The first and last can be partially selected.
+  /// Intermediate ones are always completely selected.
+  final List<SelectedNode> nodes;
+
+  /// True if the selection traverses more than one LogicalLine.
+  bool get isMultiNode => nodes.length > 1;
+
+  /// True if anchor and focus are on the same container.
+  bool get isSingleNode => nodes.length == 1;
+
+  const ResolvedSelection({
+    required this.anchor,
+    required this.focus,
+    required this.base,
+    required this.extent,
+    required this.nodes,
+  });
+
+  @override
+  String toString() =>
+      'ResolvedSelection(${nodes.length} node/s, '
+      'base=${base.fragment.id}:${base.offset}, '
+      'extent=${extent.fragment.id}:${extent.offset})';
+}
+
+/// Resolves the selection defined by (anchorFragmentId, anchorOffset) →
+/// (focusFragmentId, focusOffset) in the [root] tree.
+///
+/// Returns null if:
+/// - anchor == focus (collapsed selection)
+/// - one of the fragments is not found in the tree
+/// - positions are not on the stop rail
+///
+/// Usage example:
+/// ```dart
+/// final sel = resolveSelection(
+///   document.content,
+///   cursor.anchorId, cursor.anchorOffset,
+///   cursor.focusId,  cursor.focusOffset,
+/// );
+/// if (sel != null) {
+///   for (final node in sel.nodes) {
+///     print(node);
+///   }
+/// }
+/// ```
+ResolvedSelection? resolveSelection(
+  Root root,
+  String anchorFragmentId,
+  int anchorOffset,
+  String focusFragmentId,
+  int focusOffset, {
+  List<CaretStop>? cachedStops,
+  List<LogicalLine>? cachedLines,
+  FluentDocument? document,
+}) {
+  if (anchorFragmentId == focusFragmentId && anchorOffset == focusOffset) {
+    return null;
+  }
+
+  final stops = cachedStops ?? buildAllStops(root);
+  final lines = cachedLines ?? buildAllLogicalLines(root);
+
+  final anchorIdx = findStopIndex(stops, anchorFragmentId, anchorOffset);
+  final focusIdx  = findStopIndex(stops, focusFragmentId,  focusOffset);
+
+  if (anchorIdx < 0 || focusIdx < 0) return null;
+
+  final baseIsAnchor = anchorIdx <= focusIdx;
+  final baseIdx   = baseIsAnchor ? anchorIdx : focusIdx;
+  final extentIdx = baseIsAnchor ? focusIdx  : anchorIdx;
+
+  final anchorFragResolved = document?.nodeById(anchorFragmentId) ?? findById(root, anchorFragmentId);
+  final focusFragResolved  = document?.nodeById(focusFragmentId)  ?? findById(root, focusFragmentId);
+  if (anchorFragResolved is! Fragment || focusFragResolved is! Fragment) return null;
+
+  final anchorContainer = document?.findLogicalContainerCached(anchorFragmentId) ??
+      findLogicalContainer(root, anchorFragmentId);
+  final focusContainer  = document?.findLogicalContainerCached(focusFragmentId) ??
+      findLogicalContainer(root, focusFragmentId);
+  if (anchorContainer == null || focusContainer == null) return null;
+
+  final anchorEndpoint = SelectionEndpoint(
+    fragment:  anchorFragResolved,
+    offset:    anchorOffset,
+    container: anchorContainer,
+  );
+  final focusEndpoint = SelectionEndpoint(
+    fragment:  focusFragResolved,
+    offset:    focusOffset,
+    container: focusContainer,
+  );
+
+  final baseEndpoint   = baseIsAnchor ? anchorEndpoint : focusEndpoint;
+  final extentEndpoint = baseIsAnchor ? focusEndpoint  : anchorEndpoint;
+
+  final selectedNodes = <SelectedNode>[];
+
+  for (final line in lines) {
+    if (line.stops.isEmpty) continue;
+    final firstStop = line.stops.first;
+    final lastStop = line.stops.last;
+    final firstIdx = findStopIndex(stops, firstStop.fragmentId, firstStop.offset);
+    final lastIdx = findStopIndex(stops, lastStop.fragmentId, lastStop.offset);
+
+    if (firstIdx < 0 || lastIdx < 0) continue;
+    final lineMinIdx = firstIdx <= lastIdx ? firstIdx : lastIdx;
+    final lineMaxIdx = firstIdx >= lastIdx ? firstIdx : lastIdx;
+
+    if (lineMaxIdx < baseIdx || lineMinIdx > extentIdx) continue;
+
+    final Fragment startFrag;
+    final int startOff;
+
+    final lineContainerId = (line.node as FNode).id;
+    final isBaseLine   = lineContainerId == (baseEndpoint.container as FNode).id;
+    final isExtentLine = lineContainerId == (extentEndpoint.container as FNode).id;
+
+    if (isBaseLine) {
+      startFrag = baseEndpoint.fragment;
+      startOff  = baseEndpoint.offset;
+    } else {
+      final firstStop = line.stops.first;
+      final firstNode = document?.nodeById(firstStop.fragmentId) ?? findById(root, firstStop.fragmentId);
+      if (firstNode is! Fragment) continue;
+      final frag = firstNode;
+      startFrag = frag;
+      startOff  = 0;
+    }
+
+    final Fragment endFrag;
+    final int endOff;
+
+    if (isExtentLine) {
+      endFrag = extentEndpoint.fragment;
+      endOff  = extentEndpoint.offset;
+    } else {
+      final lastStop = line.stops.last;
+      final lastNode = document?.nodeById(lastStop.fragmentId) ?? findById(root, lastStop.fragmentId);
+      if (lastNode is! Fragment) continue;
+      final frag = lastNode;
+      endFrag = frag;
+      endOff  = frag.text.length;
+    }
+
+    final isFullySelected = !isBaseLine && !isExtentLine;
+
+    selectedNodes.add(SelectedNode(
+      container:       line.node,
+      startFragment:   startFrag,
+      startOffset:     startOff,
+      endFragment:     endFrag,
+      endOffset:       endOff,
+      isFullySelected: isFullySelected,
+    ));
+  }
+
+  if (selectedNodes.isEmpty) return null;
+
+  return ResolvedSelection(
+    anchor: anchorEndpoint,
+    focus:  focusEndpoint,
+    base:   baseEndpoint,
+    extent: extentEndpoint,
+    nodes:  selectedNodes,
+  );
+}

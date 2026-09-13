@@ -9,7 +9,9 @@ void main() {
     final temp = await Directory.systemTemp.createTemp('lexpdf-squid-test-');
     addTearDown(() => temp.delete(recursive: true));
     final source = File('${temp.path}${Platform.pathSeparator}sample.squid');
-    final destination = Directory('${temp.path}${Platform.pathSeparator}imports');
+    final destination = Directory(
+      '${temp.path}${Platform.pathSeparator}imports',
+    );
 
     final archive = Archive()
       ..addFile(ArchiveFile.bytes('one/document.pdf', const [1, 2, 3]))
@@ -17,7 +19,10 @@ void main() {
     await source.writeAsBytes(ZipEncoder().encodeBytes(archive), flush: true);
 
     const service = SquidImportService();
-    final result = await service.importSafely(source.path, destination: destination);
+    final result = await service.importSafely(
+      source.path,
+      destination: destination,
+    );
 
     expect(result.importedFiles, hasLength(2));
     expect(result.importedFiles.toSet(), hasLength(2));
@@ -29,8 +34,12 @@ void main() {
   test('leaves unsupported Squid source unchanged', () async {
     final temp = await Directory.systemTemp.createTemp('lexpdf-squid-invalid-');
     addTearDown(() => temp.delete(recursive: true));
-    final source = File('${temp.path}${Platform.pathSeparator}unsupported.squid');
-    final destination = Directory('${temp.path}${Platform.pathSeparator}imports');
+    final source = File(
+      '${temp.path}${Platform.pathSeparator}unsupported.squid',
+    );
+    final destination = Directory(
+      '${temp.path}${Platform.pathSeparator}imports',
+    );
     await source.writeAsBytes(const [1, 2, 3, 4], flush: true);
 
     const service = SquidImportService();

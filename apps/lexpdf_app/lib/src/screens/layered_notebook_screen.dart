@@ -1,16 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:fluent_editor/fluent_document.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/ink/ink_models.dart';
 import '../core/notebook/ink_shape_recognizer.dart';
+import '../core/notebook/legacy_notebook_text_migrator.dart';
+import '../core/notebook/notebook_document_file_service.dart';
 import '../core/notebook/notebook_history.dart';
 import '../core/notebook/notebook_object_models.dart';
 import '../core/storage/local_ink_store.dart';
+import '../core/storage/local_notebook_document_store.dart';
 import '../core/storage/local_notebook_layer_store.dart';
 import '../core/storage/local_notebook_object_store.dart';
 import '../widgets/ink_canvas.dart';
@@ -19,6 +24,7 @@ import '../widgets/notebook_editor_toolbar.dart';
 import '../widgets/notebook_layer_ink_view.dart';
 import '../widgets/notebook_object_layer.dart';
 import '../widgets/notebook_page_background.dart';
+import '../widgets/notebook_rich_document_surface.dart';
 import '../widgets/notebook_ruler_overlay.dart';
 import '../widgets/notebook_wordpad_chrome.dart';
 
@@ -50,7 +56,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
       TransformationController();
   late final LocalNotebookObjectStore _objectStore;
   late final LocalNotebookLayerStore _layerStore;
+  late final LocalNotebookDocumentStore _documentStore;
   late final Future<void> _loadFuture;
+  static const LegacyNotebookTextMigrator _legacyTextMigrator =
+      LegacyNotebookTextMigrator();
+  static const NotebookDocumentFileService _documentFileService =
+      NotebookDocumentFileService();
+  static const Duration _documentAutosaveDelay = Duration(milliseconds: 650);
+  static const int _maximumOfficeFileBytes = 32 * 1024 * 1024;
+
+  FluentDocument? _richDocument;
+  String? _richDocumentPageId;
+  Timer? _richDocumentSaveTimer;
+  int _lastDocumentContentVersion = -1;
+  bool _richDocumentMigratedLegacyText = false;
 
   List<InkNotebook> _notebooks = const [];
   List<InkNotebookPage> _pages = const [];
@@ -71,13 +90,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
   bool _lassoMode = false;
   bool _clipboardAvailable = false;
   int _selectionCount = 0;
-  bool _pointerMode = true;
+  bool _textMode = true;
+  bool _pointerMode = false;
   bool _handMode = false;
   bool _rulerMode = false;
   bool _showDocumentRuler = true;
   double _zoom = 1.0;
   String? _selectedObjectId;
-  String? _editingTextObjectId;
   String _defaultTextFontFamily = _defaultNotebookFontFamily;
   double _defaultTextFontSize = _defaultNotebookFontSize;
   bool _defaultTextBold = false;
@@ -103,11 +122,19 @@ class _NotebookScreenState extends State<NotebookScreen> {
     super.initState();
     _objectStore = LocalNotebookObjectStore(widget.inkStore.db);
     _layerStore = LocalNotebookLayerStore(widget.inkStore.db);
+    _documentStore = LocalNotebookDocumentStore(widget.inkStore.db);
     _loadFuture = _loadInitial();
   }
 
   @override
   void dispose() {
+    _richDocumentSaveTimer?.cancel();
+    final document = _richDocument;
+    if (document != null) {
+      document.removeListener(_onRichDocumentChanged);
+      unawaited(_persistRichDocumentNow());
+      document.dispose();
+    }
     _toolbarScrollController.dispose();
     _pageTransformController.dispose();
     super.dispose();
@@ -144,11 +171,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
       .toList(growable: false);
 
   List<NotebookObject> get _activeObjects => _allObjects
-      .where((object) => _objectLayerIds[object.id] == _activeLayerId)
+      .where(
+        (object) =>
+            object.type != NotebookObjectType.text &&
+            _objectLayerIds[object.id] == _activeLayerId,
+      )
       .toList(growable: false);
 
   List<NotebookObject> get _backgroundObjects => _allObjects
       .where((object) {
+        if (object.type == NotebookObjectType.text) return false;
         final layerId = _objectLayerIds[object.id];
         return layerId != _activeLayerId && _visibleLayerIds.contains(layerId);
       })
@@ -182,6 +214,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final layers = await _layerStore.listLayers(pageId);
     final strokes = await widget.inkStore.listStrokes(pageId);
     final objects = await _objectStore.listObjects(pageId);
+    await _loadRichDocument(pageId, objects);
     final strokeMap = await _layerStore.itemLayerMap(
       pageId,
       NotebookLayerItemType.stroke,
@@ -212,6 +245,119 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _strokeLayerIds = Map.unmodifiable(strokeMap);
     _objectLayerIds = Map.unmodifiable(objectMap);
     _activeLayerId = selected;
+  }
+
+  Future<void> _loadRichDocument(
+    String pageId,
+    List<NotebookObject> legacyObjects,
+  ) async {
+    if (_richDocumentPageId == pageId && _richDocument != null) return;
+
+    await _persistRichDocumentNow();
+    _richDocumentSaveTimer?.cancel();
+    final previous = _richDocument;
+    previous?.removeListener(_onRichDocumentChanged);
+
+    final stored = await _documentStore.read(pageId);
+    late final FluentDocument document;
+    late final bool migratedLegacyText;
+    if (stored != null) {
+      document = FluentDocument.fromJson(
+        jsonDecode(stored.documentJson) as Map<String, dynamic>,
+      );
+      migratedLegacyText = stored.migratedLegacyText;
+    } else {
+      document = FluentDocument(
+        content: _legacyTextMigrator.migrate(legacyObjects),
+      );
+      document.pendingFontFamily = _defaultNotebookFontFamily;
+      document.pendingFontSize = _defaultNotebookFontSize;
+      document.pendingTextAlign = NotebookTextAlign.left.dbValue;
+      migratedLegacyText = true;
+      await _documentStore.upsert(
+        pageId: pageId,
+        documentJson: document.toJson(),
+        migratedLegacyText: migratedLegacyText,
+      );
+    }
+
+    _richDocument = document;
+    _richDocumentPageId = pageId;
+    _richDocumentMigratedLegacyText = migratedLegacyText;
+    _lastDocumentContentVersion = document.contentVersion;
+    _syncRibbonStateFromDocument(document);
+    document.addListener(_onRichDocumentChanged);
+
+    if (previous != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+    }
+  }
+
+  void _onRichDocumentChanged() {
+    final document = _richDocument;
+    if (document == null) return;
+
+    final ribbonChanged = _syncRibbonStateFromDocument(document);
+    if (document.contentVersion != _lastDocumentContentVersion) {
+      _lastDocumentContentVersion = document.contentVersion;
+      _richDocumentSaveTimer?.cancel();
+      _richDocumentSaveTimer = Timer(
+        _documentAutosaveDelay,
+        () => unawaited(_persistRichDocumentNow()),
+      );
+    }
+    if (ribbonChanged && mounted) setState(() {});
+  }
+
+  bool _syncRibbonStateFromDocument(FluentDocument document) {
+    final bold = document.pendingStyles.contains('bold');
+    final italic = document.pendingStyles.contains('italic');
+    final underline = document.pendingStyles.contains('underline');
+    final align = NotebookTextAlign.fromDb(document.pendingTextAlign);
+    final color = _documentColorValue(document.pendingColor);
+    final changed =
+        _defaultTextFontFamily != document.pendingFontFamily ||
+        _defaultTextFontSize != document.pendingFontSize ||
+        _defaultTextBold != bold ||
+        _defaultTextItalic != italic ||
+        _defaultTextUnderline != underline ||
+        _defaultTextAlign != align ||
+        _defaultTextColorValue != color;
+    _defaultTextFontFamily = document.pendingFontFamily;
+    _defaultTextFontSize = document.pendingFontSize;
+    _defaultTextBold = bold;
+    _defaultTextItalic = italic;
+    _defaultTextUnderline = underline;
+    _defaultTextAlign = align;
+    _defaultTextColorValue = color;
+    return changed;
+  }
+
+  int _documentColorValue(String? cssColor) {
+    final value = cssColor?.trim();
+    if (value == null || value.isEmpty || !value.startsWith('#')) {
+      return 0xFF000000;
+    }
+    final hex = value.substring(1);
+    final parsed = int.tryParse(hex, radix: 16);
+    if (parsed == null) return 0xFF000000;
+    if (hex.length == 6) return 0xFF000000 | parsed;
+    if (hex.length == 8) return parsed;
+    return 0xFF000000;
+  }
+
+  String _cssColor(int value) =>
+      '#${(value & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+
+  Future<void> _persistRichDocumentNow() async {
+    final document = _richDocument;
+    final pageId = _richDocumentPageId;
+    if (document == null || pageId == null) return;
+    await _documentStore.upsert(
+      pageId: pageId,
+      documentJson: document.toJson(),
+      migratedLegacyText: _richDocumentMigratedLegacyText,
+    );
   }
 
   List<InkStroke> _snapshotStrokes() {
@@ -337,18 +483,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _eraserMode = false;
       _clipboardAvailable = false;
       _selectedObjectId = null;
-      _pointerMode = true;
+      _textMode = true;
+      _pointerMode = false;
       _handMode = false;
     });
     _history.clear();
   }
 
   int get _wordCount {
-    final combined = _allObjects
-        .where((object) => object.type == NotebookObjectType.text)
-        .map((object) => object.textValue ?? '')
-        .join(' ')
-        .trim();
+    final combined = _richDocument?.content.text.trim() ?? '';
     if (combined.isEmpty) return 0;
     return RegExp(r'\S+').allMatches(combined).length;
   }
@@ -399,6 +542,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
             layerName: _activeLayer?.name ?? 'Camada 1',
             zoom: _zoom,
             showDocumentRuler: _showDocumentRuler,
+            onOpenDocument: () => unawaited(_openRichDocumentFile()),
+            onSaveDocx: () => unawaited(_saveRichDocumentAs('docx')),
+            onSaveTxt: () => unawaited(_saveRichDocumentAs('txt')),
+            onExportPdf: () => unawaited(_saveRichDocumentAs('pdf')),
+            onSaveDoc: () => unawaited(_saveRichDocumentAs('doc')),
+            onSaveRtf: () => unawaited(_saveRichDocumentAs('rtf')),
+            onRibbonTabChanged: (tab) {
+              if (tab == NotebookRibbonTab.home) _activateTextMode();
+              if (tab == NotebookRibbonTab.drawing) {
+                setState(() => _textMode = false);
+              }
+            },
             onNewNotebook: () => unawaited(_createNotebook()),
             onRenameNotebook: () => unawaited(_renameNotebook()),
             onDeleteNotebook: _notebooks.length > 1
@@ -416,8 +571,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onNextPage: pageIndex >= 0 && pageIndex < _pages.length - 1
                 ? () => unawaited(_openPageAt(pageIndex + 1))
                 : null,
-            onUndo: _history.canUndo ? () => unawaited(_undoHistory()) : null,
-            onRedo: _history.canRedo ? () => unawaited(_redoHistory()) : null,
+            onUndo: _textMode
+                ? () => _richDocument?.undo()
+                : (_history.canUndo ? () => unawaited(_undoHistory()) : null),
+            onRedo: _textMode
+                ? () => _richDocument?.redo()
+                : (_history.canRedo ? () => unawaited(_redoHistory()) : null),
             onZoomChanged: _setZoom,
             onFitPage: _resetZoom,
           );
@@ -427,6 +586,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   Widget _buildPageViewport(InkNotebookPage page) {
+    final document = _richDocument;
     return ColoredBox(
       key: _pageViewportKey,
       color: const Color(0xFFD9DDE2),
@@ -469,7 +629,6 @@ class _NotebookScreenState extends State<NotebookScreen> {
                       fit: StackFit.expand,
                       children: [
                         NotebookPageBackground(background: page.background),
-                        NotebookLayerInkView(strokes: _backgroundStrokes),
                         NotebookObjectLayer(
                           objects: _backgroundObjects,
                           enabled: false,
@@ -478,9 +637,19 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           onObjectDoubleTap: (_) {},
                           onSelectionChanged: (_) {},
                         ),
+                        if (document != null)
+                          NotebookRichDocumentSurface(
+                            key: ValueKey('rich-document-${page.id}'),
+                            document: document,
+                            enabled: _textMode && !_handMode,
+                          ),
+                        NotebookLayerInkView(strokes: _backgroundStrokes),
                         IgnorePointer(
                           ignoring:
-                              !_canEditActiveLayer || _pointerMode || _handMode,
+                              !_canEditActiveLayer ||
+                              _textMode ||
+                              _pointerMode ||
+                              _handMode,
                           child: InkCanvas(
                             key: _canvasKey,
                             initialStrokes: _activeLayer?.isVisible == true
@@ -509,18 +678,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
                               ? _activeObjects
                               : const [],
                           enabled:
-                              _pointerMode && !_handMode && _canEditActiveLayer,
+                              !_textMode &&
+                              _pointerMode &&
+                              !_handMode &&
+                              _canEditActiveLayer,
                           selectedId: _selectedObjectId,
                           onObjectChanged: _onObjectChanged,
-                          onObjectDoubleTap: _handleObjectDoubleTap,
-                          editingTextId: _editingTextObjectId,
-                          onTextChanged: _onTextObjectLiveChanged,
-                          onTextEditingComplete: _finishTextEditing,
-                          onEmptyTap: () {
-                            if (_pointerMode && _canEditActiveLayer) {
-                              unawaited(_addText());
-                            }
-                          },
                           onSelectionChanged: (id) {
                             if (!mounted) return;
                             setState(() => _selectedObjectId = id);
@@ -534,7 +697,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
               ),
             ),
           ),
-          if (_pointerMode)
+          if (!_textMode && _pointerMode)
             Positioned(
               left: 16,
               bottom: 16,
@@ -554,7 +717,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   ),
                   child: Text(
                     _selectedObjectId == null
-                        ? 'Selecionar: clique em um objeto ou texto'
+                        ? 'Selecionar: clique em uma imagem ou forma'
                         : 'Objeto selecionado: arraste para mover ou use os controles acima',
                   ),
                 ),
@@ -563,6 +726,67 @@ class _NotebookScreenState extends State<NotebookScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _openRichDocumentFile() async {
+    const group = XTypeGroup(
+      label: 'Documentos de texto',
+      extensions: ['docx', 'txt', 'doc', 'rtf'],
+    );
+    final selected = await openFile(acceptedTypeGroups: const [group]);
+    if (selected == null) return;
+    try {
+      final length = await selected.length();
+      if (length > _maximumOfficeFileBytes) {
+        throw StateError('Arquivo excede o limite seguro de 32 MB.');
+      }
+      final extension = selected.name.contains('.')
+          ? selected.name.split('.').last.toLowerCase()
+          : '';
+      final root = await _documentFileService.importBytes(
+        await selected.readAsBytes(),
+        extension,
+      );
+      final document = _richDocument;
+      if (document == null) return;
+      document.loadContent(root);
+      _richDocumentMigratedLegacyText = true;
+      _lastDocumentContentVersion = document.contentVersion;
+      await _persistRichDocumentNow();
+      _activateTextMode();
+      _showNotebookMessage('Documento aberto: ${selected.name}');
+    } catch (error) {
+      _showNotebookMessage('Não foi possível abrir o documento: $error');
+    }
+  }
+
+  Future<void> _saveRichDocumentAs(String extension) async {
+    final document = _richDocument;
+    if (document == null) return;
+    final ext = extension.toLowerCase();
+    final notebookName = (_currentNotebook?.title ?? 'documento')
+        .replaceAll(RegExp(r'[^A-Za-z0-9 _.-]'), '_')
+        .trim();
+    final safeName = notebookName.isEmpty ? 'documento' : notebookName;
+    final group = XTypeGroup(label: ext.toUpperCase(), extensions: [ext]);
+    final location = await getSaveLocation(
+      suggestedName: '$safeName.$ext',
+      acceptedTypeGroups: [group],
+    );
+    if (location == null) return;
+    try {
+      final bytes = await _documentFileService.exportBytes(document, ext);
+      await File(location.path).writeAsBytes(bytes, flush: true);
+      _showNotebookMessage('Arquivo salvo: ${location.path}');
+    } catch (error) {
+      _showNotebookMessage('Não foi possível salvar .$ext: $error');
+    }
+  }
+
+  void _showNotebookMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _zoomBy(double factor) {
@@ -713,6 +937,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onPointerModeChanged: (value) => setState(() {
         _pointerMode = value;
         if (value) {
+          _textMode = false;
           _handMode = false;
           _eraserMode = false;
           _lassoMode = false;
@@ -724,6 +949,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onHandModeChanged: (value) => setState(() {
         _handMode = value;
         if (value) {
+          _textMode = false;
           _pointerMode = false;
           _eraserMode = false;
           _lassoMode = false;
@@ -734,6 +960,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       }),
       onToolChanged: (value) => setState(() {
         _tool = value;
+        _textMode = false;
         _eraserMode = false;
         _lassoMode = false;
         _pointerMode = false;
@@ -744,6 +971,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onEraserModeChanged: (value) => setState(() {
         _eraserMode = value;
         if (value) {
+          _textMode = false;
           _lassoMode = false;
           _pointerMode = false;
           _handMode = false;
@@ -752,6 +980,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       }),
       onLassoModeChanged: (value) => setState(() {
         _lassoMode = value;
+        if (value) _textMode = false;
         _eraserMode = false;
         _pointerMode = false;
         _handMode = false;
@@ -779,9 +1008,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       onDuplicateObject: () => unawaited(_duplicateSelectedObject()),
       onRotateObjectLeft: () => _rotateSelectedObject(-_rotationStep),
       onRotateObjectRight: () => _rotateSelectedObject(_rotationStep),
-      onEditTextObject: () {
-        if (selectedObject != null) _beginTextEditing(selectedObject);
-      },
+      onEditTextObject: _activateTextMode,
       onDeleteSelectedObject: () => unawaited(_deleteSelectedObject()),
       onRulerModeChanged: (value) => setState(() => _rulerMode = value),
       onColorSelected: (value) {
@@ -1158,8 +1385,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Future<void> _duplicatePage() async {
     final page = _currentPage;
     if (page == null) return;
+    await _persistRichDocumentNow();
     final duplicate = await widget.inkStore.duplicatePage(page);
     await _objectStore.copyPageObjects(page.id, duplicate.id);
+    await _documentStore.copyPageDocument(page.id, duplicate.id);
     await _reloadCurrent(pageId: duplicate.id);
   }
 
@@ -1238,51 +1467,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   Future<void> _addText() async {
-    final page = _currentPage;
-    if (page == null || !_canEditActiveLayer) return;
-
-    for (final existing in _activeObjects) {
-      if (existing.type == NotebookObjectType.text) {
-        _beginTextEditing(existing);
-        return;
-      }
-    }
-
-    _recordHistory();
-    final now = DateTime.now().toUtc();
-    const marginX = 56.0;
-    const marginY = 56.0;
-    final object = NotebookObject(
-      id: 'object-${now.microsecondsSinceEpoch.toRadixString(36)}',
-      pageId: page.id,
-      type: NotebookObjectType.text,
-      x: marginX,
-      y: marginY,
-      width: math.max(120.0, page.width - (marginX * 2)),
-      height: math.max(120.0, page.height - (marginY * 2)),
-      rotation: 0,
-      colorValue: _defaultTextColorValue,
-      strokeWidth: 1,
-      textValue: '',
-      fontSize: _defaultTextFontSize,
-      fontFamily: _defaultTextFontFamily,
-      fontBold: _defaultTextBold,
-      fontItalic: _defaultTextItalic,
-      fontUnderline: _defaultTextUnderline,
-      textAlign: _defaultTextAlign,
-      createdAt: now,
-      updatedAt: now,
-    );
-    await _persistNewObject(object);
-    if (!mounted) return;
-    setState(() {
-      _pointerMode = true;
-      _handMode = false;
-      _eraserMode = false;
-      _lassoMode = false;
-      _selectedObjectId = object.id;
-      _editingTextObjectId = object.id;
-    });
+    _activateTextMode();
   }
 
   Future<void> _addImage() async {
@@ -1326,37 +1511,22 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
-  void _handleObjectDoubleTap(NotebookObject object) {
-    if (object.type == NotebookObjectType.text && _canEditActiveLayer) {
-      _beginTextEditing(object);
-    }
-  }
-
-  void _beginTextEditing(NotebookObject object) {
-    if (!_canEditActiveLayer || object.type != NotebookObjectType.text) return;
-    if (_editingTextObjectId != object.id) _recordHistory();
+  void _activateTextMode() {
+    final document = _richDocument;
+    if (document == null) return;
     setState(() {
-      _selectedObjectId = object.id;
-      _editingTextObjectId = object.id;
-      _pointerMode = true;
+      _textMode = true;
+      _pointerMode = false;
       _handMode = false;
       _eraserMode = false;
       _lassoMode = false;
+      _selectionCount = 0;
+      _selectedObjectId = null;
     });
-  }
-
-  void _onTextObjectLiveChanged(NotebookObject object) {
-    final index = _allObjects.indexWhere((item) => item.id == object.id);
-    if (index < 0 || !_canEditActiveLayer) return;
-    final next = [..._allObjects]..[index] = object;
-    setState(() => _allObjects = next);
-    unawaited(_objectStore.upsert(object));
-  }
-
-  void _finishTextEditing(NotebookObject object) {
-    _onTextObjectLiveChanged(object);
-    if (!mounted) return;
-    setState(() => _editingTextObjectId = null);
+    _canvasKey.currentState?.clearSelection();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) document.requestEditorFocus();
+    });
   }
 
   void _setSelectedTextStyle({
@@ -1369,35 +1539,31 @@ class _NotebookScreenState extends State<NotebookScreen> {
     int? colorValue,
     NotebookTextAlign? textAlign,
   }) {
-    final object = _selectedObject;
-    if (object == null || object.type != NotebookObjectType.text) {
-      setState(() {
-        if (bold != null) _defaultTextBold = bold;
-        if (italic != null) _defaultTextItalic = italic;
-        if (underline != null) _defaultTextUnderline = underline;
-        if (textAlign != null) _defaultTextAlign = textAlign;
-        if (fontSize != null) _defaultTextFontSize = fontSize;
-        if (fontFamily != null) _defaultTextFontFamily = fontFamily;
-        if (clearFontFamily) {
-          _defaultTextFontFamily = _defaultNotebookFontFamily;
-        }
-        if (colorValue != null) _defaultTextColorValue = colorValue;
-      });
-      return;
+    final document = _richDocument;
+    if (document == null) return;
+    _activateTextMode();
+
+    if (bold != null && bold != document.pendingStyles.contains('bold')) {
+      document.eventHandler.handleBold();
     }
-    _onObjectChanged(
-      object.copyWith(
-        fontBold: bold,
-        fontItalic: italic,
-        fontUnderline: underline,
-        textAlign: textAlign,
-        fontSize: fontSize,
-        fontFamily: fontFamily,
-        clearFontFamily: clearFontFamily,
-        colorValue: colorValue,
-        updatedAt: DateTime.now().toUtc(),
-      ),
-    );
+    if (italic != null && italic != document.pendingStyles.contains('italic')) {
+      document.eventHandler.handleItalic();
+    }
+    if (underline != null &&
+        underline != document.pendingStyles.contains('underline')) {
+      document.eventHandler.handleUnderline();
+    }
+    if (fontSize != null) document.eventHandler.handleFontSize(fontSize);
+    final resolvedFamily = clearFontFamily
+        ? _defaultNotebookFontFamily
+        : fontFamily;
+    if (resolvedFamily != null)
+      document.eventHandler.handleFontFamily(resolvedFamily);
+    if (colorValue != null)
+      document.eventHandler.handleTextColor(_cssColor(colorValue));
+    if (textAlign != null)
+      document.eventHandler.handleTextAlign(textAlign.dbValue);
+    document.requestEditorFocus();
   }
 
   Widget _buildTextFormattingToolbar() {
@@ -1688,16 +1854,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 WordPadLabeledCommand(
                   label: 'Desfazer',
                   icon: Icons.undo,
-                  onPressed: _history.canUndo
-                      ? () => unawaited(_undoHistory())
-                      : null,
+                  onPressed: _richDocument == null
+                      ? null
+                      : () => _richDocument!.undo(),
                 ),
                 WordPadLabeledCommand(
                   label: 'Refazer',
                   icon: Icons.redo,
-                  onPressed: _history.canRedo
-                      ? () => unawaited(_redoHistory())
-                      : null,
+                  onPressed: _richDocument == null
+                      ? null
+                      : () => _richDocument!.redo(),
                 ),
               ],
             ),
@@ -1906,8 +2072,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
         .where((e) => e.value == layer.id)
         .map((e) => e.key)
         .toList();
+    final legacyTextIds = _allObjects
+        .where((object) => object.type == NotebookObjectType.text)
+        .map((object) => object.id)
+        .toSet();
     final objectIds = _objectLayerIds.entries
-        .where((e) => e.value == layer.id)
+        .where((e) => e.value == layer.id && !legacyTextIds.contains(e.key))
         .map((e) => e.key)
         .toList();
     for (final id in strokeIds) {
