@@ -6,6 +6,7 @@ on:
       - fix/notebook-wordpad-fidelity-v2
     paths:
       - .github/scripts/apply_wordpad_fidelity_v2.py
+      - .github/scripts/fix_wordpad_v2_migration.py
   pull_request:
     branches:
       - develop
@@ -25,7 +26,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply deterministic production patch
-        run: python3 .github/scripts/apply_wordpad_fidelity_v2.py
+        run: |
+          python3 .github/scripts/apply_wordpad_fidelity_v2.py
+          python3 .github/scripts/fix_wordpad_v2_migration.py
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -47,7 +50,9 @@ jobs:
             apps/lexpdf_app/lib/src/widgets/notebook_editor_toolbar.dart \
             apps/lexpdf_app/lib/src/widgets/notebook_editor_toolbar_groups.dart \
             apps/lexpdf_app/lib/src/widgets/notebook_ink_controls.dart \
-            apps/lexpdf_app/lib/src/widgets/notebook_object_controls.dart
+            apps/lexpdf_app/lib/src/widgets/notebook_object_controls.dart \
+            apps/lexpdf_app/test/notebook_wordpad_chrome_widget_test.dart \
+            apps/lexpdf_app/test/notebook_rich_text_contract_test.dart
 
       - name: Flutter analyze
         working-directory: apps/lexpdf_app
@@ -60,6 +65,7 @@ jobs:
       - name: Remove temporary patch machinery
         run: |
           rm -f .github/scripts/apply_wordpad_fidelity_v2.py
+          rm -f .github/scripts/fix_wordpad_v2_migration.py
           rm -f .github/workflows/_tmp_apply_wordpad_fidelity_v2.yml
 
       - name: Commit validated production changes
