@@ -12,15 +12,15 @@ enum NotebookObjectType {
   String get dbValue => name;
 
   static NotebookObjectType fromDb(String value) => switch (value) {
-        'line' => NotebookObjectType.line,
-        'arrow' => NotebookObjectType.arrow,
-        'rectangle' => NotebookObjectType.rectangle,
-        'ellipse' => NotebookObjectType.ellipse,
-        'triangle' => NotebookObjectType.triangle,
-        'text' => NotebookObjectType.text,
-        'image' => NotebookObjectType.image,
-        _ => throw StateError('Tipo de objeto de caderno desconhecido: $value'),
-      };
+    'line' => NotebookObjectType.line,
+    'arrow' => NotebookObjectType.arrow,
+    'rectangle' => NotebookObjectType.rectangle,
+    'ellipse' => NotebookObjectType.ellipse,
+    'triangle' => NotebookObjectType.triangle,
+    'text' => NotebookObjectType.text,
+    'image' => NotebookObjectType.image,
+    _ => throw StateError('Tipo de objeto de caderno desconhecido: $value'),
+  };
 }
 
 @immutable
@@ -41,6 +41,10 @@ class NotebookObject {
     this.fillColorValue,
     this.textValue,
     this.fontSize,
+    this.fontFamily,
+    this.fontBold = false,
+    this.fontItalic = false,
+    this.fontUnderline = false,
     this.imagePath,
   });
 
@@ -57,6 +61,10 @@ class NotebookObject {
   final double strokeWidth;
   final String? textValue;
   final double? fontSize;
+  final String? fontFamily;
+  final bool fontBold;
+  final bool fontItalic;
+  final bool fontUnderline;
   final String? imagePath;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -76,6 +84,11 @@ class NotebookObject {
     double? strokeWidth,
     String? textValue,
     double? fontSize,
+    String? fontFamily,
+    bool clearFontFamily = false,
+    bool? fontBold,
+    bool? fontItalic,
+    bool? fontUnderline,
     String? imagePath,
     DateTime? updatedAt,
   }) {
@@ -89,10 +102,16 @@ class NotebookObject {
       height: height ?? this.height,
       rotation: rotation ?? this.rotation,
       colorValue: colorValue ?? this.colorValue,
-      fillColorValue: clearFillColor ? null : (fillColorValue ?? this.fillColorValue),
+      fillColorValue: clearFillColor
+          ? null
+          : (fillColorValue ?? this.fillColorValue),
       strokeWidth: strokeWidth ?? this.strokeWidth,
       textValue: textValue ?? this.textValue,
       fontSize: fontSize ?? this.fontSize,
+      fontFamily: clearFontFamily ? null : (fontFamily ?? this.fontFamily),
+      fontBold: fontBold ?? this.fontBold,
+      fontItalic: fontItalic ?? this.fontItalic,
+      fontUnderline: fontUnderline ?? this.fontUnderline,
       imagePath: imagePath ?? this.imagePath,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

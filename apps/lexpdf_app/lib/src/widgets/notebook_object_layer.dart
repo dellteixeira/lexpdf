@@ -14,6 +14,9 @@ class NotebookObjectLayer extends StatefulWidget {
     required this.onObjectChanged,
     required this.onSelectionChanged,
     this.onObjectDoubleTap,
+    this.editingTextId,
+    this.onTextChanged,
+    this.onTextEditingComplete,
     this.selectedId,
     super.key,
   });
@@ -24,6 +27,9 @@ class NotebookObjectLayer extends StatefulWidget {
   final ValueChanged<NotebookObject> onObjectChanged;
   final ValueChanged<String?> onSelectionChanged;
   final ValueChanged<NotebookObject>? onObjectDoubleTap;
+  final String? editingTextId;
+  final ValueChanged<NotebookObject>? onTextChanged;
+  final ValueChanged<NotebookObject>? onTextEditingComplete;
 
   @override
   State<NotebookObjectLayer> createState() => _NotebookObjectLayerState();
@@ -100,8 +106,16 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      _ObjectVisual(object: object),
-                      if (selected)
+                      if (object.type == NotebookObjectType.text &&
+                          widget.editingTextId == object.id)
+                        _InlineNotebookTextEditor(
+                          object: object,
+                          onChanged: widget.onTextChanged,
+                          onEditingComplete: widget.onTextEditingComplete,
+                        )
+                      else
+                        _ObjectVisual(object: object),
+                      if (selected && widget.editingTextId != object.id)
                         IgnorePointer(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
@@ -143,14 +157,15 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
       _ResizeHandle.bottomLeft || _ResizeHandle.bottomRight => null,
     };
     final bottom = switch (handle) {
-      _ResizeHandle.bottomLeft || _ResizeHandle.bottomRight => -_handleExtent / 2,
+      _ResizeHandle.bottomLeft ||
+      _ResizeHandle.bottomRight => -_handleExtent / 2,
       _ResizeHandle.topLeft || _ResizeHandle.topRight => null,
     };
     final cursor = switch (handle) {
-      _ResizeHandle.topLeft || _ResizeHandle.bottomRight =>
-        SystemMouseCursors.resizeUpLeftDownRight,
-      _ResizeHandle.topRight || _ResizeHandle.bottomLeft =>
-        SystemMouseCursors.resizeUpRightDownLeft,
+      _ResizeHandle.topLeft ||
+      _ResizeHandle.bottomRight => SystemMouseCursors.resizeUpLeftDownRight,
+      _ResizeHandle.topRight ||
+      _ResizeHandle.bottomLeft => SystemMouseCursors.resizeUpRightDownLeft,
     };
 
     return Positioned(
@@ -260,6 +275,10 @@ class _ObjectVisual extends StatelessWidget {
           style: TextStyle(
             color: Color(object.colorValue),
             fontSize: object.fontSize ?? 18,
+            fontFamily: object.fontFamily,
+            fontWeight: object.fontBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: object.fontItalic ? FontStyle.italic : FontStyle.normal,
+            decoration: object.fontUnderline ? TextDecoration.underline : null,
           ),
         ),
       );
@@ -271,15 +290,132 @@ class _ObjectVisual extends StatelessWidget {
         child: Image.file(
           File(path),
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const Center(
-            child: Icon(Icons.broken_image_outlined),
-          ),
+          errorBuilder: (_, __, ___) =>
+              const Center(child: Icon(Icons.broken_image_outlined)),
         ),
       );
     }
     return CustomPaint(
       painter: _NotebookShapePainter(object),
       child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _InlineNotebookTextEditor extends StatefulWidget {
+  const _InlineNotebookTextEditor({
+    required this.object,
+    this.onChanged,
+    this.onEditingComplete,
+  });
+
+  final NotebookObject object;
+  final ValueChanged<NotebookObject>? onChanged;
+  final ValueChanged<NotebookObject>? onEditingComplete;
+
+  @override
+  State<_InlineNotebookTextEditor> createState() =>
+      _InlineNotebookTextEditorState();
+}
+
+class _InlineNotebookTextEditorState extends State<_InlineNotebookTextEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.object.textValue ?? '');
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+    _focusNode = FocusNode(debugLabel: 'notebook-inline-text');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineNotebookTextEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final external = widget.object.textValue ?? '';
+    if (!_focusNode.hasFocus && external != _controller.text) {
+      _controller.value = TextEditingValue(
+        text: external,
+        selection: TextSelection.collapsed(offset: external.length),
+      );
+    }
+  }
+
+  TextStyle get _style => TextStyle(
+    color: Color(widget.object.colorValue),
+    fontSize: widget.object.fontSize ?? 20,
+    fontFamily: widget.object.fontFamily,
+    fontWeight: widget.object.fontBold ? FontWeight.bold : FontWeight.normal,
+    fontStyle: widget.object.fontItalic ? FontStyle.italic : FontStyle.normal,
+    decoration: widget.object.fontUnderline ? TextDecoration.underline : null,
+    height: 1.25,
+  );
+
+  void _emit() {
+    widget.onChanged?.call(
+      widget.object.copyWith(
+        textValue: _controller.text,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  void _finish() {
+    _emit();
+    widget.onEditingComplete?.call(
+      widget.object.copyWith(
+        textValue: _controller.text,
+        updatedAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary,
+          width: 1.4,
+        ),
+      ),
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        autofocus: true,
+        expands: true,
+        minLines: null,
+        maxLines: null,
+        keyboardType: TextInputType.multiline,
+        textAlignVertical: TextAlignVertical.top,
+        style: _style,
+        cursorColor: Theme.of(context).colorScheme.primary,
+        decoration: const InputDecoration(
+          isCollapsed: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+          border: InputBorder.none,
+        ),
+        onChanged: (_) => _emit(),
+        onEditingComplete: _finish,
+        onTapOutside: (_) {
+          _focusNode.unfocus();
+          _finish();
+        },
+      ),
     );
   }
 }
@@ -300,8 +436,8 @@ class _NotebookShapePainter extends CustomPainter {
     final fill = object.fillColorValue == null
         ? null
         : (Paint()
-          ..color = Color(object.fillColorValue!)
-          ..style = PaintingStyle.fill);
+            ..color = Color(object.fillColorValue!)
+            ..style = PaintingStyle.fill);
     final rect = Offset.zero & size;
 
     switch (object.type) {

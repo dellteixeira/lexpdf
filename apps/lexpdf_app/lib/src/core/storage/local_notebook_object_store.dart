@@ -24,7 +24,9 @@ class LocalNotebookObjectStore {
   ) async {
     db.database.execute('BEGIN IMMEDIATE;');
     try {
-      db.database.execute('DELETE FROM notebook_objects WHERE page_id = ?;', [pageId]);
+      db.database.execute('DELETE FROM notebook_objects WHERE page_id = ?;', [
+        pageId,
+      ]);
       for (final object in objects) {
         if (object.pageId != pageId) {
           throw StateError('Objeto ${object.id} pertence a outra página.');
@@ -39,30 +41,37 @@ class LocalNotebookObjectStore {
   }
 
   void _insertObject(NotebookObject object) {
-    db.database.execute('''
+    db.database.execute(
+      '''
       INSERT OR REPLACE INTO notebook_objects(
         id, page_id, type, x, y, width, height, rotation, color_value,
-        fill_color_value, stroke_width, text_value, font_size, image_path,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    ''', [
-      object.id,
-      object.pageId,
-      object.type.dbValue,
-      object.x,
-      object.y,
-      object.width,
-      object.height,
-      object.rotation,
-      object.colorValue,
-      object.fillColorValue,
-      object.strokeWidth,
-      object.textValue,
-      object.fontSize,
-      object.imagePath,
-      object.createdAt.toUtc().toIso8601String(),
-      object.updatedAt.toUtc().toIso8601String(),
-    ]);
+        fill_color_value, stroke_width, text_value, font_size, font_family,
+        font_bold, font_italic, font_underline, image_path, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ''',
+      [
+        object.id,
+        object.pageId,
+        object.type.dbValue,
+        object.x,
+        object.y,
+        object.width,
+        object.height,
+        object.rotation,
+        object.colorValue,
+        object.fillColorValue,
+        object.strokeWidth,
+        object.textValue,
+        object.fontSize,
+        object.fontFamily,
+        object.fontBold ? 1 : 0,
+        object.fontItalic ? 1 : 0,
+        object.fontUnderline ? 1 : 0,
+        object.imagePath,
+        object.createdAt.toUtc().toIso8601String(),
+        object.updatedAt.toUtc().toIso8601String(),
+      ],
+    );
   }
 
   Future<List<NotebookObject>> copyPageObjects(
@@ -88,6 +97,10 @@ class LocalNotebookObjectStore {
         strokeWidth: object.strokeWidth,
         textValue: object.textValue,
         fontSize: object.fontSize,
+        fontFamily: object.fontFamily,
+        fontBold: object.fontBold,
+        fontItalic: object.fontItalic,
+        fontUnderline: object.fontUnderline,
         imagePath: object.imagePath,
         createdAt: now.add(Duration(microseconds: index)),
         updatedAt: now.add(Duration(microseconds: index)),
@@ -103,25 +116,31 @@ class LocalNotebookObjectStore {
   }
 
   Future<void> clearPage(String pageId) async {
-    db.database.execute('DELETE FROM notebook_objects WHERE page_id = ?;', [pageId]);
+    db.database.execute('DELETE FROM notebook_objects WHERE page_id = ?;', [
+      pageId,
+    ]);
   }
 
   NotebookObject _fromRow(dynamic row) => NotebookObject(
-        id: row['id'] as String,
-        pageId: row['page_id'] as String,
-        type: NotebookObjectType.fromDb(row['type'] as String),
-        x: (row['x'] as num).toDouble(),
-        y: (row['y'] as num).toDouble(),
-        width: (row['width'] as num).toDouble(),
-        height: (row['height'] as num).toDouble(),
-        rotation: (row['rotation'] as num).toDouble(),
-        colorValue: row['color_value'] as int,
-        fillColorValue: row['fill_color_value'] as int?,
-        strokeWidth: (row['stroke_width'] as num).toDouble(),
-        textValue: row['text_value'] as String?,
-        fontSize: (row['font_size'] as num?)?.toDouble(),
-        imagePath: row['image_path'] as String?,
-        createdAt: DateTime.parse(row['created_at'] as String),
-        updatedAt: DateTime.parse(row['updated_at'] as String),
-      );
+    id: row['id'] as String,
+    pageId: row['page_id'] as String,
+    type: NotebookObjectType.fromDb(row['type'] as String),
+    x: (row['x'] as num).toDouble(),
+    y: (row['y'] as num).toDouble(),
+    width: (row['width'] as num).toDouble(),
+    height: (row['height'] as num).toDouble(),
+    rotation: (row['rotation'] as num).toDouble(),
+    colorValue: row['color_value'] as int,
+    fillColorValue: row['fill_color_value'] as int?,
+    strokeWidth: (row['stroke_width'] as num).toDouble(),
+    textValue: row['text_value'] as String?,
+    fontSize: (row['font_size'] as num?)?.toDouble(),
+    fontFamily: row['font_family'] as String?,
+    fontBold: (row['font_bold'] as int? ?? 0) != 0,
+    fontItalic: (row['font_italic'] as int? ?? 0) != 0,
+    fontUnderline: (row['font_underline'] as int? ?? 0) != 0,
+    imagePath: row['image_path'] as String?,
+    createdAt: DateTime.parse(row['created_at'] as String),
+    updatedAt: DateTime.parse(row['updated_at'] as String),
+  );
 }
