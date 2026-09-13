@@ -179,14 +179,14 @@ text = replace_exact(
 text = replace_exact(
     text,
     'manifestFile.readBytes()',
-    'manifestFile.content as List<int>',
+    'manifestFile.content as List<int>?',
     1,
     'streaming manifest bytes API',
 )
 text = replace_exact(
     text,
     'databaseFile.readBytes()',
-    'databaseFile.content as List<int>',
+    'databaseFile.content as List<int>?',
     1,
     'streaming database bytes API',
 )
