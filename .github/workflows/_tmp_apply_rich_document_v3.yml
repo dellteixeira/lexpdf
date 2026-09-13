@@ -32,9 +32,26 @@ jobs:
       - name: Resolve dependencies
         working-directory: apps/lexpdf_app
         run: flutter pub get
-      - name: Format
+      - name: Format rich document integration
         working-directory: apps/lexpdf_app
-        run: dart format lib test
+        run: |
+          dart format \
+            lib/src/core/notebook/legacy_notebook_text_migrator.dart \
+            lib/src/core/notebook/notebook_document_file_service.dart \
+            lib/src/core/notebook/notebook_legacy_word_bridge.dart \
+            lib/src/core/platform/legacy_word_converter.dart \
+            lib/src/core/storage/local_database.dart \
+            lib/src/core/storage/local_notebook_document_store.dart \
+            lib/src/screens/layered_notebook_screen.dart \
+            lib/src/widgets/notebook_object_layer.dart \
+            lib/src/widgets/notebook_rich_document_surface.dart \
+            lib/src/widgets/notebook_wordpad_chrome.dart \
+            test/legacy_notebook_text_migrator_test.dart \
+            test/local_notebook_document_store_test.dart \
+            test/notebook_rich_text_contract_test.dart \
+            test/notebook_text_input_contract_test.dart \
+            test/notebook_wordpad_chrome_widget_test.dart \
+            test/notebook_wordpad_editor_contract_test.dart
       - name: Analyze
         working-directory: apps/lexpdf_app
         run: flutter analyze
