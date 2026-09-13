@@ -53,4 +53,22 @@ void main() {
     expect(store, contains("row['font_bold']"));
     expect(store, contains("row['text_align']"));
   });
+
+  test('schema v10 alignment migration stays inside _migrate', () {
+    final db = File('lib/src/core/storage/local_database.dart')
+        .readAsStringSync();
+    final migrateStart = db.indexOf('void _migrate()');
+    final migrateEnd = db.indexOf('void close() => database.dispose();');
+    final alignmentMigration = db.indexOf('if (version < 10)');
+    final alignmentColumn = db.indexOf(
+      "ALTER TABLE notebook_objects ADD COLUMN text_align TEXT NOT NULL DEFAULT 'left'",
+    );
+
+    expect(migrateStart, greaterThanOrEqualTo(0));
+    expect(migrateEnd, greaterThan(migrateStart));
+    expect(alignmentMigration, greaterThan(migrateStart));
+    expect(alignmentMigration, lessThan(migrateEnd));
+    expect(alignmentColumn, greaterThan(alignmentMigration));
+    expect(alignmentColumn, lessThan(migrateEnd));
+  });
 }
