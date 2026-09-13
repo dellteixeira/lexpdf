@@ -23,6 +23,22 @@ enum NotebookObjectType {
   };
 }
 
+enum NotebookTextAlign {
+  left,
+  center,
+  right,
+  justify;
+
+  String get dbValue => name;
+
+  static NotebookTextAlign fromDb(String? value) => switch (value) {
+    'center' => NotebookTextAlign.center,
+    'right' => NotebookTextAlign.right,
+    'justify' => NotebookTextAlign.justify,
+    _ => NotebookTextAlign.left,
+  };
+}
+
 @immutable
 class NotebookObject {
   const NotebookObject({
@@ -45,6 +61,7 @@ class NotebookObject {
     this.fontBold = false,
     this.fontItalic = false,
     this.fontUnderline = false,
+    this.textAlign = NotebookTextAlign.left,
     this.imagePath,
   });
 
@@ -65,6 +82,7 @@ class NotebookObject {
   final bool fontBold;
   final bool fontItalic;
   final bool fontUnderline;
+  final NotebookTextAlign textAlign;
   final String? imagePath;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -89,6 +107,7 @@ class NotebookObject {
     bool? fontBold,
     bool? fontItalic,
     bool? fontUnderline,
+    NotebookTextAlign? textAlign,
     String? imagePath,
     DateTime? updatedAt,
   }) {
@@ -112,6 +131,7 @@ class NotebookObject {
       fontBold: fontBold ?? this.fontBold,
       fontItalic: fontItalic ?? this.fontItalic,
       fontUnderline: fontUnderline ?? this.fontUnderline,
+      textAlign: textAlign ?? this.textAlign,
       imagePath: imagePath ?? this.imagePath,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
