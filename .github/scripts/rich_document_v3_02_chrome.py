@@ -92,10 +92,16 @@ text = replace_once(
 )
 text = replace_once(
     text,
-    '''  final VoidCallback onFitPage;
+    '''  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
+  final ValueChanged<double> onZoomChanged;
+  final VoidCallback onFitPage;
 
   @override''',
-    '''  final VoidCallback onFitPage;
+    '''  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
+  final ValueChanged<double> onZoomChanged;
+  final VoidCallback onFitPage;
   final ValueChanged<NotebookRibbonTab>? onRibbonTabChanged;
 
   @override''',
