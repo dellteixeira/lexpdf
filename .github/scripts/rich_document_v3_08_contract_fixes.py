@@ -20,15 +20,6 @@ def replace_once(text, old, new, label):
     return text.replace(old, new, 1)
 
 
-def replace_exact(text, old, new, expected, label):
-    count = text.count(old)
-    if count != expected:
-        raise RuntimeError(
-            f'{label}: expected exactly {expected} occurrences, found {count}'
-        )
-    return text.replace(old, new)
-
-
 # Schema v11 is intentional: rich documents are persisted per notebook page.
 path = 'apps/lexpdf_app/test/local_notebook_layer_store_test.dart'
 text = read(path)
@@ -48,6 +39,8 @@ write(path, text)
 
 
 # Selection, rich-text editing and Hand navigation are now separate modes.
+# Assert semantic fragments independently so dart format line wrapping cannot
+# turn a valid implementation into a false-negative contract failure.
 path = 'apps/lexpdf_app/test/desktop_pdf_notebook_navigation_contract_test.dart'
 text = read(path)
 text = replace_once(
@@ -124,109 +117,8 @@ text = replace_once(
 write(path, text)
 
 
-# fluent_editor 1.1.0 is built against archive 3.x. Keep the application's
-# backup implementation on the archive 3.6.1 API as well, instead of forcing
-# archive 4 and breaking the editor package.
-path = 'apps/lexpdf_app/lib/src/core/backup/lex_backup_service.dart'
-text = read(path)
-text = replace_once(
-    text,
-    "    archive.addFile(ArchiveFile.bytes('database.json', databaseBytes));\n",
-    "    archive.addFile(ArchiveFile('database.json', databaseBytes.length, databaseBytes));\n",
-    'backup database archive entry',
-)
-text = replace_once(
-    text,
-    "      archive.addFile(ArchiveFile.bytes(archivePath, bytes));\n",
-    "      archive.addFile(ArchiveFile(archivePath, bytes.length, bytes));\n",
-    'backup document archive entry',
-)
-text = replace_once(
-    text,
-    (
-        "    archive.addFile(\n"
-        "      ArchiveFile.bytes('manifest.json', utf8.encode(jsonEncode(manifest))),\n"
-        "    );\n"
-        "    return ZipEncoder().encodeBytes(archive);\n"
-    ),
-    (
-        "    final manifestBytes = utf8.encode(jsonEncode(manifest));\n"
-        "    archive.addFile(\n"
-        "      ArchiveFile('manifest.json', manifestBytes.length, manifestBytes),\n"
-        "    );\n"
-        "    return Uint8List.fromList(ZipEncoder().encode(archive)!);\n"
-    ),
-    'backup manifest and archive encoding',
-)
-write(path, text)
-
-
-# archive 3 exposes file streams via archive_io and calls decoder streaming
-# input decodeBuffer (renamed to decodeStream in archive 4).
-path = 'apps/lexpdf_app/lib/src/core/backup/lex_backup_streaming_restore_service.dart'
-text = read(path)
-text = replace_once(
-    text,
-    "import 'package:archive/archive.dart';\n",
-    "import 'package:archive/archive_io.dart';\n",
-    'streaming backup archive_io import',
-)
-text = replace_exact(
-    text,
-    'ZipDecoder().decodeStream(input, verify: true)',
-    'ZipDecoder().decodeBuffer(input, verify: true)',
-    2,
-    'streaming backup decoder API',
-)
-text = replace_exact(
-    text,
-    'manifestFile.readBytes()',
-    'manifestFile.content as List<int>?',
-    1,
-    'streaming manifest bytes API',
-)
-text = replace_exact(
-    text,
-    'databaseFile.readBytes()',
-    'databaseFile.content as List<int>?',
-    1,
-    'streaming database bytes API',
-)
-text = replace_exact(
-    text,
-    'manifestEntry.readBytes()!',
-    'manifestEntry.content as List<int>',
-    1,
-    'restore manifest bytes API',
-)
-text = replace_exact(
-    text,
-    'databaseEntry.readBytes()!',
-    'databaseEntry.content as List<int>',
-    1,
-    'restore database bytes API',
-)
-write(path, text)
-
-
-path = 'apps/lexpdf_app/test/squid_import_service_test.dart'
-text = read(path)
-text = replace_once(
-    text,
-    "      ..addFile(ArchiveFile.bytes('one/document.pdf', const [1, 2, 3]))\n",
-    "      ..addFile(ArchiveFile('one/document.pdf', 3, const [1, 2, 3]))\n",
-    'squid archive entry one',
-)
-text = replace_once(
-    text,
-    "      ..addFile(ArchiveFile.bytes('two/document.pdf', const [4, 5, 6]));\n",
-    "      ..addFile(ArchiveFile('two/document.pdf', 3, const [4, 5, 6]));\n",
-    'squid archive entry two',
-)
-text = replace_once(
-    text,
-    '    await source.writeAsBytes(ZipEncoder().encodeBytes(archive), flush: true);\n',
-    '    await source.writeAsBytes(ZipEncoder().encode(archive)!, flush: true);\n',
-    'squid archive encoder API',
-)
-write(path, text)
+# Keep LexPDF backup and archive tests on the existing archive 4 API. The
+# current pdf_cos/pdf_document 4.x stack requires archive 4, while
+# fluent_editor 1.1.0 only declares an older constraint even though the ZIP
+# calls it uses remain source-compatible. pubspec.yaml carries the temporary
+# override and CI validates analyzer, tests, and an Android AOT build.
