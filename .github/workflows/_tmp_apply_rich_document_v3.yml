@@ -37,6 +37,8 @@ jobs:
         working-directory: apps/lexpdf_app
         run: |
           dart format \
+            lib/src/core/backup/lex_backup_service.dart \
+            lib/src/core/backup/lex_backup_streaming_restore_service.dart \
             lib/src/core/notebook/legacy_notebook_text_migrator.dart \
             lib/src/core/notebook/notebook_document_file_service.dart \
             lib/src/core/platform/legacy_word_converter.dart \
@@ -55,7 +57,8 @@ jobs:
             test/notebook_rich_text_contract_test.dart \
             test/notebook_text_input_contract_test.dart \
             test/notebook_wordpad_chrome_widget_test.dart \
-            test/notebook_wordpad_editor_contract_test.dart
+            test/notebook_wordpad_editor_contract_test.dart \
+            test/squid_import_service_test.dart
       - name: Analyze
         working-directory: apps/lexpdf_app
         run: flutter analyze
