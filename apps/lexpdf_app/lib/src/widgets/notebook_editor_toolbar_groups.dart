@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'notebook_wordpad_chrome.dart';
+
 class NotebookLassoTools extends StatelessWidget {
   const NotebookLassoTools({
     required this.editable,
@@ -34,60 +36,79 @@ class NotebookLassoTools extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    VoidCallback? enabled(VoidCallback callback) => editable ? callback : null;
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          onPressed: editable ? onMoveLeft : null,
-          icon: const Icon(Icons.arrow_left),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            WordPadCompactIconButton(
+              tooltip: 'Mover à esquerda',
+              icon: Icons.arrow_left,
+              onPressed: enabled(onMoveLeft),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Mover à direita',
+              icon: Icons.arrow_right,
+              onPressed: enabled(onMoveRight),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Reduzir seleção',
+              icon: Icons.zoom_in_map,
+              onPressed: enabled(onScaleDown),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Ampliar seleção',
+              icon: Icons.zoom_out_map,
+              onPressed: enabled(onScaleUp),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Girar à esquerda',
+              icon: Icons.rotate_left,
+              onPressed: enabled(onRotateLeft),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Girar à direita',
+              icon: Icons.rotate_right,
+              onPressed: enabled(onRotateRight),
+            ),
+          ],
         ),
-        IconButton(
-          onPressed: editable ? onMoveRight : null,
-          icon: const Icon(Icons.arrow_right),
-        ),
-        IconButton(
-          onPressed: editable ? onScaleDown : null,
-          icon: const Icon(Icons.zoom_in_map),
-        ),
-        IconButton(
-          onPressed: editable ? onScaleUp : null,
-          icon: const Icon(Icons.zoom_out_map),
-        ),
-        IconButton(
-          onPressed: editable ? onRotateLeft : null,
-          icon: const Icon(Icons.rotate_left),
-        ),
-        IconButton(
-          onPressed: editable ? onRotateRight : null,
-          icon: const Icon(Icons.rotate_right),
-        ),
-        IconButton(
-          onPressed: editable ? onDecreaseWidth : null,
-          icon: const Icon(Icons.remove),
-        ),
-        IconButton(
-          onPressed: editable ? onIncreaseWidth : null,
-          icon: const Icon(Icons.add),
-        ),
-        IconButton(
-          tooltip: 'Copiar',
-          onPressed: onCopy,
-          icon: const Icon(Icons.content_copy),
-        ),
-        IconButton(
-          tooltip: 'Duplicar',
-          onPressed: editable ? onDuplicate : null,
-          icon: const Icon(Icons.copy_all_outlined),
-        ),
-        IconButton(
-          tooltip: 'Recortar',
-          onPressed: editable ? onCut : null,
-          icon: const Icon(Icons.content_cut),
-        ),
-        IconButton(
-          tooltip: 'Reconhecer forma',
-          onPressed: editable ? onRecognize : null,
-          icon: const Icon(Icons.auto_awesome_outlined),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            WordPadCompactIconButton(
+              tooltip: 'Traço mais fino',
+              icon: Icons.remove,
+              onPressed: enabled(onDecreaseWidth),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Traço mais grosso',
+              icon: Icons.add,
+              onPressed: enabled(onIncreaseWidth),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Copiar',
+              icon: Icons.content_copy,
+              onPressed: onCopy,
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Duplicar',
+              icon: Icons.copy_all_outlined,
+              onPressed: enabled(onDuplicate),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Recortar',
+              icon: Icons.content_cut,
+              onPressed: enabled(onCut),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Reconhecer forma',
+              icon: Icons.auto_awesome_outlined,
+              onPressed: enabled(onRecognize),
+            ),
+          ],
         ),
       ],
     );
@@ -134,8 +155,8 @@ class NotebookStyleControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final canStyle = editable &&
+    final canStyle =
+        editable &&
         !eraserMode &&
         (!lassoMode || selectionCount > 0) &&
         (!pointerMode || objectSelected);
@@ -143,58 +164,136 @@ class NotebookStyleControls extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FilterChip(
+        WordPadLabeledCommand(
+          label: 'Régua',
+          icon: Icons.straighten,
           selected: rulerMode,
-          avatar: const Icon(Icons.straighten, size: 18),
-          label: const Text('Régua'),
-          onSelected: onRulerModeChanged,
+          onPressed: () => onRulerModeChanged(!rulerMode),
         ),
-        const SizedBox(width: 8),
-        for (final value in palette)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: canStyle ? () => onColorSelected(value) : null,
-              child: Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: Color(value),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: colorValue == value
-                        ? scheme.primary
-                        : scheme.outlineVariant,
-                    width: colorValue == value ? 3 : 1,
+        const SizedBox(width: 4),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in palette.take(4))
+                  _ColorSwatch(
+                    value: value,
+                    selected: value == colorValue,
+                    enabled: canStyle,
+                    onTap: onColorSelected,
                   ),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in palette.skip(4))
+                  _ColorSwatch(
+                    value: value,
+                    selected: value == colorValue,
+                    enabled: canStyle,
+                    onTap: onColorSelected,
+                  ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(width: 5),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Espessura ${width.toStringAsFixed(1)}',
+              style: const TextStyle(fontSize: 9.5),
+            ),
+            SizedBox(
+              width: 105,
+              height: 28,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 5,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 9),
+                ),
+                child: Slider(
+                  min: 1,
+                  max: 10,
+                  value: width.clamp(1.0, 10.0).toDouble(),
+                  onChanged: canStyle && !lassoMode ? onWidthChanged : null,
                 ),
               ),
             ),
-          ),
-        const SizedBox(width: 8),
-        Text(objectSelected ? 'Espessura do objeto' : 'Espessura'),
-        SizedBox(
-          width: 120,
-          child: Slider(
-            min: 1,
-            max: 10,
-            value: width.clamp(1.0, 10.0).toDouble(),
-            onChanged: canStyle && !lassoMode ? onWidthChanged : null,
-          ),
+          ],
         ),
-        FilterChip(
-          selected: stylusOnly,
-          avatar: const Icon(Icons.edit_outlined, size: 18),
-          label: const Text('Somente caneta'),
-          onSelected: editable ? onStylusOnlyChanged : null,
-        ),
-        IconButton(
-          tooltip: 'Limpar camada ativa',
-          onPressed: editable ? onClearActiveLayer : null,
-          icon: const Icon(Icons.delete_sweep_outlined),
+        const SizedBox(width: 4),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 27,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Checkbox(
+                    value: stylusOnly,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: editable
+                        ? (value) => onStylusOnlyChanged(value ?? false)
+                        : null,
+                  ),
+                  const Text('Só caneta', style: TextStyle(fontSize: 9.5)),
+                ],
+              ),
+            ),
+            WordPadCompactIconButton(
+              tooltip: 'Limpar camada ativa',
+              icon: Icons.delete_sweep_outlined,
+              onPressed: editable ? onClearActiveLayer : null,
+            ),
+          ],
         ),
       ],
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({
+    required this.value,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final int value;
+  final bool selected;
+  final bool enabled;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(1.5),
+      child: InkWell(
+        onTap: enabled ? () => onTap(value) : null,
+        child: Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            color: Color(value),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF2F66B3)
+                  : const Color(0xFF8B8F96),
+              width: selected ? 2 : 1,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

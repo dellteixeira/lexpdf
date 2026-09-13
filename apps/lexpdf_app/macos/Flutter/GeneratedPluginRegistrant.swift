@@ -13,7 +13,7 @@ import flutter_web_auth_2
 import pdfium_flutter
 import printing
 import shared_preferences_foundation
-import sqlite3_flutter_libs
+import sqlcipher_flutter_libs
 import url_launcher_macos
 import window_to_front
 

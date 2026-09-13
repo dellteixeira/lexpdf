@@ -44,15 +44,21 @@ void main() {
     expect(screen, contains('_buildTextFormattingToolbar()'));
     expect(toolbar, contains('objectSelected: selectedObject != null'));
     expect(toolbar, contains('onPointerModeChanged(true)'));
-    expect(objectControls, contains("tooltip: 'Duplicar objeto selecionado'"));
-    expect(objectControls, contains("label: const Text('Excluir')"));
+    expect(
+      objectControls,
+      contains("tooltip: 'Duplicar \${_selectionLabel(selected.type)}'"),
+    );
+    expect(
+      objectControls,
+      contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"),
+    );
     expect(
       objectLayer,
       contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'),
     );
     expect(objectLayer, contains('_InlineNotebookTextEditor'));
     expect(objectLayer, contains('enum _ResizeHandle'));
-    expect(styleControls, contains("'Espessura do objeto'"));
+    expect(styleControls, contains('width.toStringAsFixed(1)'));
   });
 
   test('notebook inserted lines are horizontal until explicitly rotated', () {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/notebook/notebook_object_models.dart';
+import 'notebook_wordpad_chrome.dart';
 
 class NotebookObjectControls extends StatelessWidget {
   const NotebookObjectControls({
@@ -35,72 +36,23 @@ class NotebookObjectControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = selectedObject;
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (selected != null) ...[
-          Chip(
-            avatar: const Icon(Icons.select_all, size: 17),
-            label: Text(_selectionLabel(selected.type)),
-          ),
-          IconButton(
-            tooltip: 'Diminuir objeto selecionado',
-            onPressed: editable ? onScaleDown : null,
-            icon: const Icon(Icons.zoom_in_map),
-          ),
-          IconButton(
-            tooltip: 'Aumentar objeto selecionado',
-            onPressed: editable ? onScaleUp : null,
-            icon: const Icon(Icons.zoom_out_map),
-          ),
-          IconButton(
-            tooltip: 'Duplicar objeto selecionado',
-            onPressed: editable ? onDuplicate : null,
-            icon: const Icon(Icons.copy_all_outlined),
-          ),
-          IconButton(
-            tooltip: 'Girar à esquerda',
-            onPressed: editable ? onRotateLeft : null,
-            icon: const Icon(Icons.rotate_left),
-          ),
-          IconButton(
-            tooltip: 'Girar à direita',
-            onPressed: editable ? onRotateRight : null,
-            icon: const Icon(Icons.rotate_right),
-          ),
-          if (selected.type == NotebookObjectType.text)
-            IconButton(
-              tooltip: 'Editar texto selecionado',
-              onPressed: editable ? onEditText : null,
-              icon: const Icon(Icons.edit_note),
-            ),
-          FilledButton.tonalIcon(
-            onPressed: editable ? onDelete : null,
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('Excluir'),
-          ),
-          const VerticalDivider(width: 18),
-        ],
-        FilledButton.tonalIcon(
+        WordPadLabeledCommand(
+          label: 'Texto',
+          icon: Icons.text_fields,
           onPressed: editable ? onAddText : null,
-          icon: const Icon(Icons.text_fields),
-          label: const Text('Texto'),
         ),
-        const SizedBox(width: 4),
         PopupMenuButton<NotebookObjectType>(
-          tooltip: 'Inserir forma e selecionar',
-          icon: const Icon(Icons.add_box_outlined),
+          tooltip: 'Inserir forma',
           onSelected: onAddShape,
           itemBuilder: (_) => const [
             PopupMenuItem(
               value: NotebookObjectType.line,
               child: Text('Linha reta'),
             ),
-            PopupMenuItem(
-              value: NotebookObjectType.arrow,
-              child: Text('Seta'),
-            ),
+            PopupMenuItem(value: NotebookObjectType.arrow, child: Text('Seta')),
             PopupMenuItem(
               value: NotebookObjectType.rectangle,
               child: Text('Retângulo'),
@@ -114,23 +66,75 @@ class NotebookObjectControls extends StatelessWidget {
               child: Text('Triângulo'),
             ),
           ],
+          child: const SizedBox(
+            width: 54,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.add_box_outlined, size: 22),
+                SizedBox(height: 2),
+                Text('Forma', style: TextStyle(fontSize: 9.5)),
+              ],
+            ),
+          ),
         ),
-        IconButton(
-          tooltip: 'Inserir imagem e selecionar',
+        WordPadLabeledCommand(
+          label: 'Imagem',
+          icon: Icons.add_photo_alternate_outlined,
           onPressed: editable ? onAddImage : null,
-          icon: const Icon(Icons.add_photo_alternate_outlined),
         ),
+        if (selected != null) ...[
+          const SizedBox(width: 4),
+          Container(width: 1, height: 44, color: const Color(0xFFD5D8DE)),
+          const SizedBox(width: 4),
+          WordPadCompactIconButton(
+            tooltip: 'Diminuir ${_selectionLabel(selected.type)}',
+            icon: Icons.zoom_in_map,
+            onPressed: editable ? onScaleDown : null,
+          ),
+          WordPadCompactIconButton(
+            tooltip: 'Aumentar ${_selectionLabel(selected.type)}',
+            icon: Icons.zoom_out_map,
+            onPressed: editable ? onScaleUp : null,
+          ),
+          WordPadCompactIconButton(
+            tooltip: 'Duplicar ${_selectionLabel(selected.type)}',
+            icon: Icons.copy_all_outlined,
+            onPressed: editable ? onDuplicate : null,
+          ),
+          WordPadCompactIconButton(
+            tooltip: 'Girar à esquerda',
+            icon: Icons.rotate_left,
+            onPressed: editable ? onRotateLeft : null,
+          ),
+          WordPadCompactIconButton(
+            tooltip: 'Girar à direita',
+            icon: Icons.rotate_right,
+            onPressed: editable ? onRotateRight : null,
+          ),
+          if (selected.type == NotebookObjectType.text)
+            WordPadCompactIconButton(
+              tooltip: 'Editar texto',
+              icon: Icons.edit_note,
+              onPressed: editable ? onEditText : null,
+            ),
+          WordPadCompactIconButton(
+            tooltip: 'Excluir ${_selectionLabel(selected.type)}',
+            icon: Icons.delete_outline,
+            onPressed: editable ? onDelete : null,
+          ),
+        ],
       ],
     );
   }
 
-  String _selectionLabel(NotebookObjectType type) => switch (type) {
-        NotebookObjectType.text => 'Texto selecionado',
-        NotebookObjectType.image => 'Imagem selecionada',
-        NotebookObjectType.line => 'Linha selecionada',
-        NotebookObjectType.arrow => 'Seta selecionada',
-        NotebookObjectType.rectangle => 'Retângulo selecionado',
-        NotebookObjectType.ellipse => 'Elipse selecionada',
-        NotebookObjectType.triangle => 'Triângulo selecionado',
-      };
+  static String _selectionLabel(NotebookObjectType type) => switch (type) {
+    NotebookObjectType.text => 'texto',
+    NotebookObjectType.image => 'imagem',
+    NotebookObjectType.line => 'linha',
+    NotebookObjectType.arrow => 'seta',
+    NotebookObjectType.rectangle => 'retângulo',
+    NotebookObjectType.ellipse => 'elipse',
+    NotebookObjectType.triangle => 'triângulo',
+  };
 }

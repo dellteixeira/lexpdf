@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/ink/ink_models.dart';
+import 'notebook_wordpad_chrome.dart';
 
 class NotebookInkControls extends StatelessWidget {
   const NotebookInkControls({
@@ -38,57 +39,47 @@ class NotebookInkControls extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FilterChip(
+        WordPadLabeledCommand(
+          label: 'Selecionar',
+          icon: Icons.near_me_outlined,
           selected: pointerMode,
-          avatar: const Icon(Icons.near_me_outlined, size: 18),
-          label: const Text('Selecionar'),
-          onSelected: editable ? onPointerModeChanged : null,
+          onPressed: editable ? () => onPointerModeChanged(!pointerMode) : null,
         ),
-        const SizedBox(width: 6),
-        FilterChip(
+        WordPadLabeledCommand(
+          label: 'Mão',
+          icon: Icons.pan_tool_alt_outlined,
           selected: handMode,
-          avatar: const Icon(Icons.pan_tool_alt_outlined, size: 18),
-          label: const Text('Mão'),
-          onSelected: onHandModeChanged,
+          onPressed: () => onHandModeChanged(!handMode),
         ),
-        const SizedBox(width: 6),
-        SegmentedButton<InkTool>(
-          showSelectedIcon: false,
-          segments: const [
-            ButtonSegment(
-              value: InkTool.pen,
-              icon: Icon(Icons.edit_outlined),
-              label: Text('Caneta'),
-            ),
-            ButtonSegment(
-              value: InkTool.pencil,
-              icon: Icon(Icons.draw_outlined),
-              label: Text('Lápis'),
-            ),
-            ButtonSegment(
-              value: InkTool.highlighter,
-              icon: Icon(Icons.border_color_outlined),
-              label: Text('Marca-texto'),
-            ),
-          ],
-          selected: {tool},
-          onSelectionChanged: editable
-              ? (selection) => onToolChanged(selection.first)
-              : null,
+        WordPadLabeledCommand(
+          label: 'Caneta',
+          icon: Icons.edit_outlined,
+          selected: !eraserMode && !lassoMode && tool == InkTool.pen,
+          onPressed: editable ? () => onToolChanged(InkTool.pen) : null,
         ),
-        const SizedBox(width: 6),
-        FilterChip(
+        WordPadLabeledCommand(
+          label: 'Lápis',
+          icon: Icons.draw_outlined,
+          selected: !eraserMode && !lassoMode && tool == InkTool.pencil,
+          onPressed: editable ? () => onToolChanged(InkTool.pencil) : null,
+        ),
+        WordPadLabeledCommand(
+          label: 'Marca-texto',
+          icon: Icons.border_color_outlined,
+          selected: !eraserMode && !lassoMode && tool == InkTool.highlighter,
+          onPressed: editable ? () => onToolChanged(InkTool.highlighter) : null,
+        ),
+        WordPadLabeledCommand(
+          label: 'Borracha',
+          icon: Icons.auto_fix_normal_outlined,
           selected: eraserMode,
-          avatar: const Icon(Icons.auto_fix_normal_outlined, size: 18),
-          label: const Text('Borracha'),
-          onSelected: editable ? onEraserModeChanged : null,
+          onPressed: editable ? () => onEraserModeChanged(!eraserMode) : null,
         ),
-        const SizedBox(width: 6),
-        FilterChip(
+        WordPadLabeledCommand(
+          label: selectionCount > 0 ? 'Laço $selectionCount' : 'Laço',
+          icon: Icons.gesture,
           selected: lassoMode,
-          avatar: const Icon(Icons.gesture, size: 18),
-          label: Text(selectionCount > 0 ? 'Laço ($selectionCount)' : 'Laço'),
-          onSelected: editable ? onLassoModeChanged : null,
+          onPressed: editable ? () => onLassoModeChanged(!lassoMode) : null,
         ),
       ],
     );

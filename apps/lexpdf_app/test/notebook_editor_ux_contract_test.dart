@@ -6,7 +6,7 @@ void main() {
   test('notebook editor exposes zoom, selection, hand, text and bounded toolbar', () {
     final screen = File('lib/src/screens/layered_notebook_screen.dart')
         .readAsStringSync();
-    final chrome = File('lib/src/widgets/notebook_editor_chrome.dart')
+    final chrome = File('lib/src/widgets/notebook_wordpad_chrome.dart')
         .readAsStringSync();
     final toolbar = File('lib/src/widgets/notebook_editor_toolbar.dart')
         .readAsStringSync();
@@ -16,20 +16,20 @@ void main() {
         .readAsStringSync();
 
     expect(screen, contains('TransformationController'));
-    expect(screen, contains('NotebookZoomControls('));
+    expect(screen, contains('NotebookWordPadScaffold('));
     expect(screen, contains('NotebookEditorToolbar('));
     expect(screen, contains('_buildTextFormattingToolbar()'));
-    expect(chrome, contains("tooltip: 'Aumentar zoom'"));
-    expect(chrome, contains("tooltip: 'Diminuir zoom'"));
-    expect(chrome, contains("tooltip: 'Ajustar página'"));
-    expect(chrome, contains('onZoomSelected'));
-    expect(chrome, contains('onCustomZoom'));
+    expect(chrome, contains("label: 'Mais'"));
+    expect(chrome, contains("label: 'Menos'"));
+    expect(chrome, contains("tooltip: 'Ajustar à página'"));
+    expect(chrome, contains('onZoomChanged'));
+    expect(chrome, contains('NotebookWordPadViewRibbon'));
     expect(toolbar, contains('NotebookInkControls('));
-    expect(inkControls, contains("label: const Text('Selecionar')"));
-    expect(inkControls, contains("label: const Text('Mão')"));
+    expect(inkControls, contains("label: 'Selecionar'"));
+    expect(inkControls, contains("label: 'Mão'"));
     expect(toolbar, contains('NotebookObjectControls('));
-    expect(objectControls, contains("label: const Text('Texto')"));
-    expect(toolbar, contains('height: 54'));
+    expect(objectControls, contains("label: 'Texto'"));
+    expect(toolbar, contains('WordPadRibbonGroup('));
     expect(toolbar, contains('SingleChildScrollView('));
     expect(toolbar, contains('scrollDirection: Axis.horizontal'));
     expect(toolbar, isNot(contains('thumbVisibility: true')));

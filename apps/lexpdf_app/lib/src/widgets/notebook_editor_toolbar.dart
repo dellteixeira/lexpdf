@@ -5,6 +5,7 @@ import '../core/notebook/notebook_object_models.dart';
 import 'notebook_editor_toolbar_groups.dart';
 import 'notebook_ink_controls.dart';
 import 'notebook_object_controls.dart';
+import 'notebook_wordpad_chrome.dart';
 
 class NotebookEditorToolbar extends StatelessWidget {
   const NotebookEditorToolbar({
@@ -111,19 +112,6 @@ class NotebookEditorToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    Widget group(Widget child) => DecoratedBox(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow.withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(11),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: child,
-          ),
-        );
-
     void addShapeAndSelect(NotebookObjectType type) {
       if (!pointerMode) onPointerModeChanged(true);
       onAddShape(type);
@@ -134,101 +122,101 @@ class NotebookEditorToolbar extends StatelessWidget {
       onAddImage();
     }
 
-    return Material(
-      color: scheme.surface,
-      child: SizedBox(
-        height: 54,
-        child: SingleChildScrollView(
-          controller: controller,
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            children: [
-              group(
-                NotebookInkControls(
-                  editable: editable,
-                  pointerMode: pointerMode,
-                  handMode: handMode,
-                  tool: tool,
-                  eraserMode: eraserMode,
-                  lassoMode: lassoMode,
-                  selectionCount: selectionCount,
-                  onPointerModeChanged: onPointerModeChanged,
-                  onHandModeChanged: onHandModeChanged,
-                  onToolChanged: onToolChanged,
-                  onEraserModeChanged: onEraserModeChanged,
-                  onLassoModeChanged: onLassoModeChanged,
-                ),
-              ),
-              if (lassoMode && selectionCount > 0) ...[
-                const SizedBox(width: 6),
-                group(
-                  NotebookLassoTools(
-                    editable: editable,
-                    onMoveLeft: onMoveSelectionLeft,
-                    onMoveRight: onMoveSelectionRight,
-                    onScaleDown: onScaleSelectionDown,
-                    onScaleUp: onScaleSelectionUp,
-                    onRotateLeft: onRotateSelectionLeft,
-                    onRotateRight: onRotateSelectionRight,
-                    onDecreaseWidth: onDecreaseSelectionWidth,
-                    onIncreaseWidth: onIncreaseSelectionWidth,
-                    onCopy: onCopySelection,
-                    onDuplicate: onDuplicateSelection,
-                    onCut: onCutSelection,
-                    onRecognize: onRecognizeSelectedInk,
-                  ),
-                ),
-              ],
-              if (lassoMode && clipboardAvailable) ...[
-                const SizedBox(width: 4),
-                IconButton(
-                  tooltip: 'Colar',
-                  onPressed: editable ? onPasteClipboard : null,
-                  icon: const Icon(Icons.content_paste),
-                ),
-              ],
-              const SizedBox(width: 6),
-              group(
-                NotebookObjectControls(
-                  editable: editable,
-                  selectedObject: selectedObject,
-                  onAddText: onAddText,
-                  onAddShape: addShapeAndSelect,
-                  onAddImage: addImageAndSelect,
-                  onScaleDown: onScaleObjectDown,
-                  onScaleUp: onScaleObjectUp,
-                  onDuplicate: onDuplicateObject,
-                  onRotateLeft: onRotateObjectLeft,
-                  onRotateRight: onRotateObjectRight,
-                  onEditText: onEditTextObject,
-                  onDelete: onDeleteSelectedObject,
-                ),
-              ),
-              const SizedBox(width: 6),
-              group(
-                NotebookStyleControls(
-                  editable: editable,
-                  pointerMode: pointerMode,
-                  objectSelected: selectedObject != null,
-                  eraserMode: eraserMode,
-                  lassoMode: lassoMode,
-                  selectionCount: selectionCount,
-                  rulerMode: rulerMode,
-                  palette: palette,
-                  colorValue: colorValue,
-                  width: width,
-                  stylusOnly: stylusOnly,
-                  onRulerModeChanged: onRulerModeChanged,
-                  onColorSelected: onColorSelected,
-                  onWidthChanged: onWidthChanged,
-                  onStylusOnlyChanged: onStylusOnlyChanged,
-                  onClearActiveLayer: onClearActiveLayer,
-                ),
-              ),
-            ],
+    return SingleChildScrollView(
+      controller: controller,
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WordPadRibbonGroup(
+            label: 'Ferramentas',
+            minWidth: 380,
+            child: NotebookInkControls(
+              editable: editable,
+              pointerMode: pointerMode,
+              handMode: handMode,
+              tool: tool,
+              eraserMode: eraserMode,
+              lassoMode: lassoMode,
+              selectionCount: selectionCount,
+              onPointerModeChanged: onPointerModeChanged,
+              onHandModeChanged: onHandModeChanged,
+              onToolChanged: onToolChanged,
+              onEraserModeChanged: onEraserModeChanged,
+              onLassoModeChanged: onLassoModeChanged,
+            ),
           ),
-        ),
+          if (lassoMode && selectionCount > 0)
+            WordPadRibbonGroup(
+              label: 'Seleção',
+              minWidth: 175,
+              child: NotebookLassoTools(
+                editable: editable,
+                onMoveLeft: onMoveSelectionLeft,
+                onMoveRight: onMoveSelectionRight,
+                onScaleDown: onScaleSelectionDown,
+                onScaleUp: onScaleSelectionUp,
+                onRotateLeft: onRotateSelectionLeft,
+                onRotateRight: onRotateSelectionRight,
+                onDecreaseWidth: onDecreaseSelectionWidth,
+                onIncreaseWidth: onIncreaseSelectionWidth,
+                onCopy: onCopySelection,
+                onDuplicate: onDuplicateSelection,
+                onCut: onCutSelection,
+                onRecognize: onRecognizeSelectedInk,
+              ),
+            ),
+          if (lassoMode && clipboardAvailable)
+            WordPadRibbonGroup(
+              label: 'Área de transferência',
+              minWidth: 70,
+              child: WordPadLabeledCommand(
+                label: 'Colar',
+                icon: Icons.content_paste,
+                onPressed: editable ? onPasteClipboard : null,
+              ),
+            ),
+          WordPadRibbonGroup(
+            label: 'Inserir e objeto',
+            minWidth: selectedObject == null ? 175 : 360,
+            child: NotebookObjectControls(
+              editable: editable,
+              selectedObject: selectedObject,
+              onAddText: onAddText,
+              onAddShape: addShapeAndSelect,
+              onAddImage: addImageAndSelect,
+              onScaleDown: onScaleObjectDown,
+              onScaleUp: onScaleObjectUp,
+              onDuplicate: onDuplicateObject,
+              onRotateLeft: onRotateObjectLeft,
+              onRotateRight: onRotateObjectRight,
+              onEditText: onEditTextObject,
+              onDelete: onDeleteSelectedObject,
+            ),
+          ),
+          WordPadRibbonGroup(
+            label: 'Estilo',
+            minWidth: 330,
+            child: NotebookStyleControls(
+              editable: editable,
+              pointerMode: pointerMode,
+              objectSelected: selectedObject != null,
+              eraserMode: eraserMode,
+              lassoMode: lassoMode,
+              selectionCount: selectionCount,
+              rulerMode: rulerMode,
+              palette: palette,
+              colorValue: colorValue,
+              width: width,
+              stylusOnly: stylusOnly,
+              onRulerModeChanged: onRulerModeChanged,
+              onColorSelected: onColorSelected,
+              onWidthChanged: onWidthChanged,
+              onStylusOnlyChanged: onStylusOnlyChanged,
+              onClearActiveLayer: onClearActiveLayer,
+            ),
+          ),
+        ],
       ),
     );
   }

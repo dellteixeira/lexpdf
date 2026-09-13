@@ -45,7 +45,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
   static const _sqliteHeader = <int>[
     0x53,
     0x51,
@@ -565,6 +565,24 @@ class LocalDatabase {
           'schema_version',
         ]);
         database.userVersion = 9;
+        database.execute('COMMIT;');
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 10) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute(
+          "ALTER TABLE notebook_objects ADD COLUMN text_align TEXT NOT NULL DEFAULT 'left' CHECK(text_align IN ('left', 'center', 'right', 'justify'));",
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '10',
+          'schema_version',
+        ]);
+        database.userVersion = 10;
         database.execute('COMMIT;');
       } catch (_) {
         database.execute('ROLLBACK;');

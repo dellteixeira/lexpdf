@@ -46,8 +46,9 @@ class LocalNotebookObjectStore {
       INSERT OR REPLACE INTO notebook_objects(
         id, page_id, type, x, y, width, height, rotation, color_value,
         fill_color_value, stroke_width, text_value, font_size, font_family,
-        font_bold, font_italic, font_underline, image_path, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        font_bold, font_italic, font_underline, text_align, image_path,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     ''',
       [
         object.id,
@@ -67,6 +68,7 @@ class LocalNotebookObjectStore {
         object.fontBold ? 1 : 0,
         object.fontItalic ? 1 : 0,
         object.fontUnderline ? 1 : 0,
+        object.textAlign.dbValue,
         object.imagePath,
         object.createdAt.toUtc().toIso8601String(),
         object.updatedAt.toUtc().toIso8601String(),
@@ -101,6 +103,7 @@ class LocalNotebookObjectStore {
         fontBold: object.fontBold,
         fontItalic: object.fontItalic,
         fontUnderline: object.fontUnderline,
+        textAlign: object.textAlign,
         imagePath: object.imagePath,
         createdAt: now.add(Duration(microseconds: index)),
         updatedAt: now.add(Duration(microseconds: index)),
@@ -139,6 +142,7 @@ class LocalNotebookObjectStore {
     fontBold: (row['font_bold'] as int? ?? 0) != 0,
     fontItalic: (row['font_italic'] as int? ?? 0) != 0,
     fontUnderline: (row['font_underline'] as int? ?? 0) != 0,
+    textAlign: NotebookTextAlign.fromDb(row['text_align'] as String?),
     imagePath: row['image_path'] as String?,
     createdAt: DateTime.parse(row['created_at'] as String),
     updatedAt: DateTime.parse(row['updated_at'] as String),
