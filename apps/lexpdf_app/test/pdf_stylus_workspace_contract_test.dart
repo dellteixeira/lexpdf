@@ -16,7 +16,8 @@ void main() {
     expect(workspace, contains('_StylusMode.highlighter'));
     expect(workspace, contains('_StylusMode.eraser'));
     expect(workspace, contains('TargetPlatform.android'));
-    expect(workspace, contains('? _StylusMode.pen'));
+    expect(workspace, contains('_stylusMode = _StylusMode.hand;'));
+    expect(workspace, isNot(contains('? _StylusMode.pen')));
     expect(workspace, contains("'Selecionar'"));
     expect(workspace, contains("'Anotar'"));
     expect(workspace, contains("'Caneta'"));
