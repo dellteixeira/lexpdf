@@ -29,6 +29,10 @@ void main() {
     document.loadContent(
       ImportService().importFromHtml('<p><strong>LexPDF</strong> rico</p>'),
     );
+    final sourceText = document.content.text;
+    expect(sourceText, contains('LexPDF'));
+    expect(sourceText, contains('rico'));
+
     final store = LocalNotebookDocumentStore(db);
     await store.upsert(
       pageId: 'page-doc',
@@ -43,7 +47,7 @@ void main() {
       jsonDecode(record.documentJson) as Map<String, dynamic>,
     );
     addTearDown(restored.dispose);
-    expect(restored.content.text, contains('LexPDF rico'));
+    expect(restored.content.text, sourceText);
   });
 
   test('rich document follows page copy without deleting legacy data', () async {
