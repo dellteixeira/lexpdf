@@ -150,7 +150,7 @@ rich_methods = r'''
 text = replace_once(text, '''  List<InkStroke> _snapshotStrokes() {''', rich_methods + '''
 
   List<InkStroke> _snapshotStrokes() {''', 'insert rich document lifecycle')
-text = sub_once(text, r"  int get _wordCount \{.*?\n  \}\n\n  Widget _buildViewRibbon", '''  int get _wordCount {
+text = sub_once(text, r"  int get _wordCount \{.*?\n  \}\n\n  Widget _buildViewRibbon", r'''  int get _wordCount {
     final combined = _richDocument?.content.text.trim() ?? '';
     if (combined.isEmpty) return 0;
     return RegExp(r'\S+').allMatches(combined).length;
