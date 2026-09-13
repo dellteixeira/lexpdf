@@ -55,7 +55,7 @@ jobs:
           spec = pubspec.read_text(encoding='utf-8')
           replacements = {
               '  archive: ^3.6.1\n': '  archive: ^4.0.5\n',
-              '  file_picker: ^8.0.0\n': '  file_picker: 10.3.11\n',
+              '  file_picker: ^8.0.0\n': '  file_picker: 10.3.10\n',
           }
           for old_constraint, new_constraint in replacements.items():
               if spec.count(old_constraint) != 1:
@@ -79,8 +79,9 @@ jobs:
               'The upstream editor also declares `file_picker ^8.0.0`. That resolves to '
               '`file_picker 8.3.7`, whose Android library is compiled against API 34 and '
               'fails AAR metadata validation when `flutter_plugin_android_lifecycle` requires '
-              'API 36. LexPDF pins `file_picker 10.3.11`, which retains the 10.x instance API '
-              'used by Fluent Editor while using the Flutter compileSdk and supporting Gradle 9.\n\n'
+              'API 36. LexPDF pins the published `file_picker 10.3.10`, which retains the '
+              '10.x instance API used by Fluent Editor, uses Flutter compileSdk, and contains '
+              'the Gradle 9 compatibility work from the 10.3.9 line.\n\n'
               'The upstream MIT LICENSE is retained in this directory.\n''',
               encoding='utf-8',
           )
@@ -89,7 +90,7 @@ jobs:
         working-directory: apps/lexpdf_app
         run: |
           flutter pub get
-          flutter pub deps --style=compact | grep -F 'file_picker 10.3.11'
+          flutter pub deps --style=compact | grep -F 'file_picker 10.3.10'
           flutter pub deps --style=compact | grep -F 'archive 4.0.9'
       - name: Format rich document integration
         working-directory: apps/lexpdf_app
