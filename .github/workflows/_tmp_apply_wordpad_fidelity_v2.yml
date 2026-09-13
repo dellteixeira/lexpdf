@@ -1,0 +1,71 @@
+name: Temporary WordPad Fidelity V2 Apply
+
+on:
+  push:
+    branches:
+      - fix/notebook-wordpad-fidelity-v2
+    paths:
+      - .github/scripts/apply_wordpad_fidelity_v2.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/notebook-wordpad-fidelity-v2
+          fetch-depth: 0
+
+      - name: Apply deterministic production patch
+        run: python3 .github/scripts/apply_wordpad_fidelity_v2.py
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: apps/lexpdf_app
+        run: flutter pub get
+
+      - name: Format touched Dart sources
+        run: |
+          dart format \
+            apps/lexpdf_app/lib/src/screens/layered_notebook_screen.dart \
+            apps/lexpdf_app/lib/src/core/storage/local_database.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_object_layer.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_wordpad_chrome.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_editor_toolbar.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_editor_toolbar_groups.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_ink_controls.dart \
+            apps/lexpdf_app/lib/src/widgets/notebook_object_controls.dart
+
+      - name: Flutter analyze
+        working-directory: apps/lexpdf_app
+        run: flutter analyze
+
+      - name: Flutter test
+        working-directory: apps/lexpdf_app
+        run: flutter test
+
+      - name: Remove temporary patch machinery
+        run: |
+          rm -f .github/scripts/apply_wordpad_fidelity_v2.py
+          rm -f .github/workflows/_tmp_apply_wordpad_fidelity_v2.yml
+
+      - name: Commit validated production changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git commit -m "feat(notebook): implement WordPad fidelity v2"
+          git push origin HEAD:fix/notebook-wordpad-fidelity-v2
