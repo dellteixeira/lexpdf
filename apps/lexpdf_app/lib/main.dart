@@ -51,7 +51,8 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
         '${supportDirectory.path}${Platform.pathSeparator}lexpdf.sqlite3';
     final key = await const LocalDatabaseKeyManager().loadOrCreate(databasePath);
     final database = LocalDatabase.openEncrypted(databasePath, key);
-    final initialPdfPath = NativePdfOpenService.pdfPathFromArgs(widget.arguments);
+    final args = widget.arguments;
+    final initialPdfPath = NativePdfOpenService.pdfPathFromArgs(args);
 
     return _BootstrapData(
       database: database,
