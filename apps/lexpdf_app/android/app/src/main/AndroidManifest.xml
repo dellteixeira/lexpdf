@@ -5,6 +5,17 @@
         android:label="LexPDF"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!--
+          Flutter 3.47 enables Impeller by default on Android. Some physical
+          Android devices, including Xiaomi/HyperOS variants, can launch to a
+          persistent black surface when the Vulkan/Impeller backend fails to
+          present the first frame. Keep the production Android renderer on the
+          mature Skia/OpenGL path until the physical-device matrix proves the
+          Impeller path reliable for LexPDF.
+        -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
