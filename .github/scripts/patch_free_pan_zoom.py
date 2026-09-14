@@ -41,9 +41,13 @@ void main() {
   test('PDF viewer keeps free pan and focal-point zoom on touch devices', () {
     final source = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
+    final compact = source.replaceAll(RegExp(r'\\s+'), '');
 
     expect(source, contains('panAxis: PanAxis.free'));
-    expect(source, contains('boundaryMargin: EdgeInsets.all(_mobile ? 320.0 : 120.0)'));
+    expect(
+      compact,
+      contains('boundaryMargin:EdgeInsets.all(_mobile?320.0:120.0)'),
+    );
     expect(source, contains('onInteractionStart: (details)'));
     expect(source, contains('onInteractionUpdate: (details)'));
     expect(source, contains('_zoomAnchorLocal = details.localFocalPoint'));
