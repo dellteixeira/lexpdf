@@ -30,7 +30,8 @@ void main() {
     expect(source, contains('LogicalKeyboardKey.arrowDown'));
     expect(source, contains('_zoomPresets'));
     expect(source, contains('Personalizado…'));
-    expect(source, contains('_controller.setZoom'));
+    expect(source, contains('_controller.zoomOnLocalPosition'));
+    expect(source, contains('localPosition: _effectiveZoomLocalAnchor()'));
   });
 
   test(
