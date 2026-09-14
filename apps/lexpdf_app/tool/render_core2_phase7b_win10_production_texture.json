@@ -1,0 +1,46 @@
+{
+  "phase": "7b",
+  "name": "Windows 10 production native texture validation",
+  "base_sha": "abdfdeaa2ae8b4c0fa1fe2f19a3ed13a120cb191",
+  "renderer_pr": 146,
+  "renderer_head_sha": "6f952a913e818ac99b8fbeedcc7fb301e22affea",
+  "approved": false,
+  "status": "pending_physical_retest",
+  "test_pdf": "tratado_leis_especiais_concursos_2026_atualizado_15-08-2026.pdf",
+  "previous_failure": {
+    "zoom_percent": 75,
+    "status": "fail",
+    "symptom": "PDF page severely blurred/soft while Flutter chrome and blue ink remained sharp",
+    "renderer_path": "legacy PdfPage.render -> decodeImageFromPixels -> ui.Image -> RawImage",
+    "date": "2026-09-12"
+  },
+  "required_renderer_evidence": {
+    "debug_badge_prefix": "RC2 native",
+    "log_prefix": "[LexPDF][RenderCore2][production]",
+    "transport": "native-texture",
+    "legacy_rawimage_path_allowed": false
+  },
+  "environment": {
+    "windows_version": null,
+    "display_scaling_percent": null,
+    "device_pixel_ratio": null,
+    "gpu": null,
+    "display_resolution": null
+  },
+  "zoom_matrix": {
+    "75": {"status": "pending", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "100": {"status": "blocked_by_75", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "125": {"status": "blocked_by_75", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "200": {"status": "blocked_by_75", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "300": {"status": "blocked_by_75", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null},
+    "400": {"status": "blocked_by_75", "requested_px": null, "returned_px": null, "badge_visible": null, "lexpdf_evidence": null, "reference_evidence": null, "notes": null}
+  },
+  "interactions": {
+    "pan_200": "blocked_by_75",
+    "pan_400": "blocked_by_75",
+    "resize_100": "blocked_by_75",
+    "maximize_restore_maximize_100": "blocked_by_75",
+    "zoom_75_200_400_100": "blocked_by_75",
+    "page_navigation": "blocked_by_75"
+  }
+}
