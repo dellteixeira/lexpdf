@@ -192,8 +192,8 @@ class _NotebookTwoFingerNavigationRegionState
     );
 
     controller.value = Matrix4.identity()
-      ..translate(translateX, translateY)
-      ..scale(targetScale, targetScale);
+      ..multiply(Matrix4.translationValues(translateX, translateY, 0))
+      ..multiply(Matrix4.diagonal3Values(targetScale, targetScale, 1));
   }
 
   double _clampTranslation(
@@ -222,7 +222,7 @@ class _NotebookTwoFingerNavigationRegionState
 
     // Reuse the existing notebook callback so the status bar and +/- zoom
     // controls stay synchronized with a pinch gesture performed here.
-    _viewer?.onInteractionEnd?.call(const ScaleEndDetails());
+    _viewer?.onInteractionEnd?.call(ScaleEndDetails(pointerCount: 2));
     _viewer = null;
     _viewerBox = null;
   }
@@ -248,7 +248,9 @@ class _NotebookTwoFingerNavigationRegionState
   @override
   Widget build(BuildContext context) {
     return Listener(
-      behavior: widget.active ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
+      behavior: widget.active
+          ? HitTestBehavior.opaque
+          : HitTestBehavior.deferToChild,
       onPointerDown: _handlePointerDown,
       onPointerMove: _handlePointerMove,
       onPointerUp: _handlePointerUp,
