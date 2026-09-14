@@ -30,8 +30,12 @@ void main() {
     final source = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
+    final normalized = source.replaceAll(RegExp(r'\s+'), ' ');
 
-    expect(source, contains('buildContextMenu: _stylusMode == _StylusMode.selectText'));
+    expect(
+      normalized,
+      contains('buildContextMenu: _stylusMode == _StylusMode.selectText'),
+    );
     expect(source, contains('showContextMenuAutomatically: true'));
 
     // Normal renderer keeps the pdfrx page paint callback. Windows 10 tiled

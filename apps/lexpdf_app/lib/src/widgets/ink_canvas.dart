@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/ink/ink_lasso.dart';
 import '../core/ink/ink_models.dart';
+import 'notebook_two_finger_navigation_region.dart';
 
 class InkCanvas extends StatefulWidget {
   const InkCanvas({
@@ -56,6 +57,7 @@ class InkCanvasState extends State<InkCanvas> {
   List<InkStroke> _clipboard = const [];
   int? _activePointer;
   bool _stylusActive = false;
+  bool _twoFingerNavigating = false;
 
   List<InkStroke> get strokes => List.unmodifiable(_strokes);
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
@@ -70,7 +72,8 @@ class InkCanvasState extends State<InkCanvas> {
   @override
   void didUpdateWidget(covariant InkCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialStrokes != widget.initialStrokes && _activePointer == null) {
+    if (oldWidget.initialStrokes != widget.initialStrokes &&
+        _activePointer == null) {
       _strokes
         ..clear()
         ..addAll(widget.initialStrokes);
@@ -139,7 +142,9 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   List<InkStroke> adjustSelectedWidth(double factor) {
-    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
+      return const [];
+    }
     return _transformSelected(
       (stroke) => _copyStroke(
         stroke,
@@ -190,14 +195,22 @@ class InkCanvasState extends State<InkCanvas> {
       return _copyStroke(
         stroke,
         points: stroke.points
-            .map((point) => _copyPoint(point, x: point.x + dx, y: point.y + dy))
+            .map(
+              (point) => _copyPoint(
+                point,
+                x: point.x + dx,
+                y: point.y + dy,
+              ),
+            )
             .toList(growable: false),
       );
     });
   }
 
   List<InkStroke> scaleSelected(double factor) {
-    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
+      return const [];
+    }
     final center = _selectionCenter();
     if (center == null) return const [];
     return _transformSelected((stroke) {
@@ -259,7 +272,9 @@ class InkCanvasState extends State<InkCanvas> {
     return Offset((minX + maxX) / 2, (minY + maxY) / 2);
   }
 
-  List<InkStroke> _transformSelected(InkStroke Function(InkStroke) transform) {
+  List<InkStroke> _transformSelected(
+    InkStroke Function(InkStroke) transform,
+  ) {
     final updated = <InkStroke>[];
     for (var index = 0; index < _strokes.length; index++) {
       final stroke = _strokes[index];
@@ -332,13 +347,30 @@ class InkCanvasState extends State<InkCanvas> {
       event.kind == PointerDeviceKind.invertedStylus;
 
   bool _accept(PointerEvent event) {
+    if (_twoFingerNavigating) return false;
     if (_isStylus(event)) return true;
     if (_stylusActive && event.kind == PointerDeviceKind.touch) return false;
     if (event.kind == PointerDeviceKind.mouse) return true;
     return !widget.stylusOnly && event.kind == PointerDeviceKind.touch;
   }
 
+  void _onTwoFingerNavigationChanged(bool active) {
+    if (_twoFingerNavigating == active) return;
+    if (active) {
+      _activePoints.clear();
+      _lassoPoints.clear();
+      _activePointer = null;
+      _ignoredTouchPointers.clear();
+    }
+    if (mounted) {
+      setState(() => _twoFingerNavigating = active);
+    } else {
+      _twoFingerNavigating = active;
+    }
+  }
+
   void _onPointerDown(PointerDownEvent event) {
+    if (_twoFingerNavigating) return;
     if (_isStylus(event)) _stylusActive = true;
     if (event.kind == PointerDeviceKind.touch && _stylusActive) {
       _ignoredTouchPointers.add(event.pointer);
@@ -365,6 +397,7 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    if (_twoFingerNavigating) return;
     if (_ignoredTouchPointers.contains(event.pointer)) return;
     if (_activePointer != event.pointer) return;
     if (widget.lassoMode) {
@@ -381,6 +414,10 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   void _onPointerUp(PointerUpEvent event) {
+    if (_twoFingerNavigating) {
+      _ignoredTouchPointers.remove(event.pointer);
+      return;
+    }
     if (_ignoredTouchPointers.remove(event.pointer)) return;
     if (_activePointer != event.pointer) {
       if (_isStylus(event)) _stylusActive = false;
@@ -419,7 +456,7 @@ class InkCanvasState extends State<InkCanvas> {
       _activePointer = null;
     }
     if (_isStylus(event)) _stylusActive = false;
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _clearSelection({bool notify = true}) {
@@ -542,23 +579,27 @@ class InkCanvasState extends State<InkCanvas> {
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: _onPointerDown,
-      onPointerMove: _onPointerMove,
-      onPointerUp: _onPointerUp,
-      onPointerCancel: _onPointerCancel,
-      child: CustomPaint(
-        painter: _InkPainter(
-          strokes: _strokes,
-          activePoints: _activePoints,
-          lassoPoints: _lassoPoints,
-          selectedStrokeIds: _selectedStrokeIds,
-          activeTool: widget.tool,
-          activeColorValue: widget.colorValue,
-          activeWidth: widget.strokeWidth,
+    return NotebookTwoFingerNavigationRegion(
+      active: true,
+      onNavigationChanged: _onTwoFingerNavigationChanged,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: _onPointerDown,
+        onPointerMove: _onPointerMove,
+        onPointerUp: _onPointerUp,
+        onPointerCancel: _onPointerCancel,
+        child: CustomPaint(
+          painter: _InkPainter(
+            strokes: _strokes,
+            activePoints: _activePoints,
+            lassoPoints: _lassoPoints,
+            selectedStrokeIds: _selectedStrokeIds,
+            activeTool: widget.tool,
+            activeColorValue: widget.colorValue,
+            activeWidth: widget.strokeWidth,
+          ),
+          child: const SizedBox.expand(),
         ),
-        child: const SizedBox.expand(),
       ),
     );
   }

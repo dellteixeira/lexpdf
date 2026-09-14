@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/notebook/notebook_object_models.dart';
+import 'notebook_two_finger_navigation_region.dart';
 
 enum _ResizeHandle { topLeft, topRight, bottomLeft, bottomRight }
 
@@ -34,24 +35,37 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
   static const double _handleExtent = 18;
 
   NotebookObject? _working;
+  bool _twoFingerNavigating = false;
 
   NotebookObject _effective(NotebookObject object) =>
       _working?.id == object.id ? _working! : object;
 
+  void _onTwoFingerNavigationChanged(bool active) {
+    if (_twoFingerNavigating == active) return;
+    if (active) _working = null;
+    if (mounted) setState(() => _twoFingerNavigating = active);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
-      ignoring: !widget.enabled,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: () => widget.onSelectionChanged(null),
-          ),
-          for (final raw in widget.objects)
-            _buildObject(_effective(raw), widget.selectedId == raw.id),
-        ],
+    return NotebookTwoFingerNavigationRegion(
+      active: widget.enabled,
+      onNavigationChanged: _onTwoFingerNavigationChanged,
+      child: IgnorePointer(
+        ignoring: !widget.enabled || _twoFingerNavigating,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                if (!_twoFingerNavigating) widget.onSelectionChanged(null);
+              },
+            ),
+            for (final raw in widget.objects)
+              _buildObject(_effective(raw), widget.selectedId == raw.id),
+          ],
+        ),
       ),
     );
   }
@@ -75,17 +89,28 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                 cursor: SystemMouseCursors.move,
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onTapDown: (_) => widget.onSelectionChanged(object.id),
-                  onTap: () => widget.onSelectionChanged(object.id),
+                  onTapDown: (_) {
+                    if (!_twoFingerNavigating) {
+                      widget.onSelectionChanged(object.id);
+                    }
+                  },
+                  onTap: () {
+                    if (!_twoFingerNavigating) {
+                      widget.onSelectionChanged(object.id);
+                    }
+                  },
                   onDoubleTap: () {
+                    if (_twoFingerNavigating) return;
                     widget.onSelectionChanged(object.id);
                     widget.onObjectDoubleTap?.call(object);
                   },
                   onPanStart: (_) {
+                    if (_twoFingerNavigating) return;
                     widget.onSelectionChanged(object.id);
                     _working = object;
                   },
                   onPanUpdate: (details) {
+                    if (_twoFingerNavigating) return;
                     final current = _working ?? object;
                     setState(() {
                       _working = current.copyWith(
@@ -95,7 +120,13 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
                       );
                     });
                   },
-                  onPanEnd: (_) => _commitWorking(),
+                  onPanEnd: (_) {
+                    if (_twoFingerNavigating) {
+                      _cancelWorking();
+                    } else {
+                      _commitWorking();
+                    }
+                  },
                   onPanCancel: _cancelWorking,
                   child: Stack(
                     fit: StackFit.expand,
@@ -164,16 +195,24 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onPanStart: (_) {
+            if (_twoFingerNavigating) return;
             widget.onSelectionChanged(object.id);
             _working = object;
           },
           onPanUpdate: (details) {
+            if (_twoFingerNavigating) return;
             final current = _working ?? object;
             setState(() {
               _working = _resize(current, handle, details.delta);
             });
           },
-          onPanEnd: (_) => _commitWorking(),
+          onPanEnd: (_) {
+            if (_twoFingerNavigating) {
+              _cancelWorking();
+            } else {
+              _commitWorking();
+            }
+          },
           onPanCancel: _cancelWorking,
           child: Container(
             width: _handleExtent,
@@ -235,7 +274,7 @@ class _NotebookObjectLayerState extends State<NotebookObjectLayer> {
   void _commitWorking() {
     final next = _working;
     _working = null;
-    if (next != null) widget.onObjectChanged(next);
+    if (next != null && !_twoFingerNavigating) widget.onObjectChanged(next);
     if (mounted) setState(() {});
   }
 

@@ -2,6 +2,8 @@ import 'package:fluent_editor/fluent_document.dart';
 import 'package:fluent_editor/widgets/fluent_document_widget.dart';
 import 'package:flutter/material.dart';
 
+import 'notebook_two_finger_navigation_region.dart';
+
 class NotebookRichDocumentSurface extends StatefulWidget {
   const NotebookRichDocumentSurface({
     required this.document,
@@ -19,6 +21,9 @@ class NotebookRichDocumentSurface extends StatefulWidget {
 
 class _NotebookRichDocumentSurfaceState
     extends State<NotebookRichDocumentSurface> {
+  bool _twoFingerNavigating = false;
+  bool _restoreFocusAfterNavigation = false;
+
   @override
   void initState() {
     super.initState();
@@ -43,7 +48,9 @@ class _NotebookRichDocumentSurfaceState
     }
     if (widget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.document.requestEditorFocus();
+        if (mounted && !_twoFingerNavigating) {
+          widget.document.requestEditorFocus();
+        }
       });
     } else {
       widget.document.editorFocusNode.unfocus();
@@ -54,6 +61,22 @@ class _NotebookRichDocumentSurfaceState
   void dispose() {
     widget.document.registry.detach(widget.document);
     super.dispose();
+  }
+
+  void _onTwoFingerNavigationChanged(bool active) {
+    if (_twoFingerNavigating == active) return;
+    if (active) {
+      _restoreFocusAfterNavigation = widget.document.editorFocusNode.hasFocus;
+      widget.document.editorFocusNode.unfocus();
+    }
+    setState(() => _twoFingerNavigating = active);
+    if (!active && _restoreFocusAfterNavigation && widget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.enabled && !_twoFingerNavigating) {
+          widget.document.requestEditorFocus();
+        }
+      });
+    }
   }
 
   @override
@@ -73,37 +96,46 @@ class _NotebookRichDocumentSurfaceState
         outline: Color(0xFFB8BEC7),
       ),
     );
-    return IgnorePointer(
-      ignoring: !widget.enabled,
-      child: FocusScope(
-        canRequestFocus: widget.enabled,
-        descendantsAreFocusable: widget.enabled,
-        child: Theme(
-          data: editorTheme,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // FluentDocumentWidget includes its own bottom-right diagnostics
-              // button. Give the child a larger clipped viewport so that package
-              // chrome falls outside the LexPDF paper while keeping its complete
-              // caret/IME/selection implementation intact.
-              final extendedHeight = constraints.maxHeight + 72;
-              return ClipRect(
-                child: OverflowBox(
-                  alignment: Alignment.topCenter,
-                  minHeight: extendedHeight,
-                  maxHeight: extendedHeight,
-                  child: SizedBox(
-                    width: constraints.maxWidth,
-                    height: extendedHeight,
-                    child: FluentDocumentWidget(
-                      document: widget.document,
-                      maxWidth: constraints.maxWidth,
-                      toolbarMode: FluentToolbarMode.bubble,
+    return NotebookTwoFingerNavigationRegion(
+      active: widget.enabled,
+      onNavigationChanged: _onTwoFingerNavigationChanged,
+      child: IgnorePointer(
+        ignoring: !widget.enabled || _twoFingerNavigating,
+        child: FocusScope(
+          canRequestFocus: widget.enabled && !_twoFingerNavigating,
+          descendantsAreFocusable: widget.enabled && !_twoFingerNavigating,
+          child: Theme(
+            data: editorTheme,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // FluentDocumentWidget includes its own bottom-right diagnostics
+                // button. Give the child a larger clipped viewport so that package
+                // chrome falls outside the LexPDF paper while keeping its complete
+                // caret/IME/selection implementation intact.
+                final extendedHeight = constraints.maxHeight + 72;
+                return ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.topCenter,
+                    minHeight: extendedHeight,
+                    maxHeight: extendedHeight,
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      height: extendedHeight,
+                      child: KeyedSubtree(
+                        key: ValueKey(
+                          'fluent-document-${widget.document.hashCode}-${_twoFingerNavigating ? 'navigation' : 'editing'}',
+                        ),
+                        child: FluentDocumentWidget(
+                          document: widget.document,
+                          maxWidth: constraints.maxWidth,
+                          toolbarMode: FluentToolbarMode.bubble,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),
