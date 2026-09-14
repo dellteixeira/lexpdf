@@ -27,7 +27,9 @@ import 'pdf_page_tools_screen.dart';
 import 'pdf_print_screen.dart';
 
 enum _PdfViewMode { continuous, horizontal, facing }
+
 enum _WorkspaceMoreAction { forms, export, print }
+
 enum _StylusMode { hand, selectText, note, pen, highlighter, eraser }
 
 class PdfWorkspaceScreen extends StatefulWidget {
@@ -93,6 +95,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _historyNavigation = false;
   bool _loadingInk = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
+  Offset? _zoomAnchorLocal;
 
   bool get _mobile =>
       defaultTargetPlatform == TargetPlatform.android ||
@@ -105,24 +108,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool get _windows10Tiles => isWindows10ManualTileRenderingEnabled();
 
   bool get _inkMode => switch (_stylusMode) {
-        _StylusMode.pen ||
-        _StylusMode.highlighter ||
-        _StylusMode.eraser => true,
-        _ => false,
-      };
+    _StylusMode.pen || _StylusMode.highlighter || _StylusMode.eraser => true,
+    _ => false,
+  };
 
   bool get _eraserMode => _stylusMode == _StylusMode.eraser;
 
   InkTool get _inkTool => switch (_stylusMode) {
-        _StylusMode.highlighter => InkTool.highlighter,
-        _ => InkTool.pen,
-      };
+    _StylusMode.highlighter => InkTool.highlighter,
+    _ => InkTool.pen,
+  };
 
   double get _effectiveInkWidth => switch (_inkTool) {
-        InkTool.pen => _inkWidth,
-        InkTool.pencil => _inkWidth * 0.8,
-        InkTool.highlighter => _inkWidth * 5.0,
-      };
+    InkTool.pen => _inkWidth,
+    InkTool.pencil => _inkWidth * 0.8,
+    InkTool.highlighter => _inkWidth * 5.0,
+  };
 
   @override
   void initState() {
@@ -150,7 +151,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     if (path == null || path.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('PDF')),
-        body: const Center(child: Text('O PDF precisa estar disponível offline.')),
+        body: const Center(
+          child: Text('O PDF precisa estar disponível offline.'),
+        ),
       );
     }
 
@@ -212,7 +215,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 child: Stack(
                   children: [
                     ColoredBox(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       child: PdfViewer.file(
                         path,
                         controller: _controller,
@@ -264,13 +269,30 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ? Duration.zero
                                 : const Duration(milliseconds: 60),
                           ),
+                          // Keep the document freely movable on both axes.
+                          // The extra finite boundary makes even an underflowing
+                          // page movable instead of forcing it back to the center.
+                          panAxis: PanAxis.free,
+                          boundaryMargin: EdgeInsets.all(
+                            _mobile ? 320.0 : 120.0,
+                          ),
                           panEnabled: _stylusMode == _StylusMode.note
                               ? false
                               : (!_inkMode || _mobile),
                           scaleEnabled: _stylusMode == _StylusMode.note
                               ? false
                               : (!_inkMode || _mobile),
-                          buildContextMenu: _stylusMode == _StylusMode.selectText
+                          onInteractionStart: (details) {
+                            _zoomAnchorLocal = details.localFocalPoint;
+                          },
+                          onInteractionUpdate: (details) {
+                            _zoomAnchorLocal = details.localFocalPoint;
+                          },
+                          onInteractionEnd: (_) {
+                            _syncZoomFromController();
+                          },
+                          buildContextMenu:
+                              _stylusMode == _StylusMode.selectText
                               ? _selectionMenu.buildContextMenu
                               : null,
                           textSelectionParams: PdfTextSelectionParams(
@@ -329,7 +351,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ),
                                 documentId: widget.document.id,
                                 pageNumber: page.pageNumber,
-                                strokes: _inkByPage[page.pageNumber] ?? const [],
+                                strokes:
+                                    _inkByPage[page.pageNumber] ?? const [],
                                 enabled: _inkMode,
                                 tool: _inkTool,
                                 colorValue: _inkColor,
@@ -351,7 +374,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 createEnabled: _stylusMode == _StylusMode.note,
                                 onNoteSaved: () {
                                   if (!mounted) return;
-                                  setState(() => _stylusMode = _StylusMode.hand);
+                                  setState(
+                                    () => _stylusMode = _StylusMode.hand,
+                                  );
                                   _controller.invalidate();
                                 },
                               ),
@@ -375,13 +400,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         bottom: 16,
                         child: Card(
                           child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 SizedBox.square(
                                   dimension: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                                 SizedBox(width: 8),
                                 Text('Carregando escrita'),
@@ -537,7 +567,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
               _CommandButton(
                 icon: Icons.grid_view_outlined,
                 label: 'Miniaturas',
-                onPressed: _document == null ? null : () => _showThumbnails(path),
+                onPressed: _document == null
+                    ? null
+                    : () => _showThumbnails(path),
               ),
               _CommandButton(
                 icon: Icons.account_tree_outlined,
@@ -684,7 +716,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       );
       final byPage = <int, List<PdfInkStroke>>{};
       for (final stroke in strokes) {
-        byPage.putIfAbsent(stroke.pageNumber, () => <PdfInkStroke>[]).add(stroke);
+        byPage
+            .putIfAbsent(stroke.pageNumber, () => <PdfInkStroke>[])
+            .add(stroke);
       }
       if (!mounted || generation != _inkLoadGeneration) return;
       setState(() {
@@ -710,7 +744,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _onStrokeCompleted(PdfInkStroke stroke) {
     setState(() {
-      _inkByPage.putIfAbsent(stroke.pageNumber, () => <PdfInkStroke>[]).add(stroke);
+      _inkByPage
+          .putIfAbsent(stroke.pageNumber, () => <PdfInkStroke>[])
+          .add(stroke);
       _inkCount++;
     });
     unawaited(_inkStore.addStroke(stroke));
@@ -720,7 +756,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void _onEraseApplied(PdfInkEraseResult result) {
     final strokes = _inkByPage[result.original.pageNumber];
     if (strokes == null) return;
-    final index = strokes.indexWhere((stroke) => stroke.id == result.original.id);
+    final index = strokes.indexWhere(
+      (stroke) => stroke.id == result.original.id,
+    );
     if (index < 0) return;
     strokes
       ..removeAt(index)
@@ -763,7 +801,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('S Pen / Stylus', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  'S Pen / Stylus',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 6),
                 const Text(
                   'A pressão da caneta controla o traço. O botão lateral da S Pen funciona como atalho temporário para a borracha quando o Android reporta o botão ao Flutter.',
@@ -801,7 +842,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                   value: width,
                   onChanged: (value) => setSheetState(() => width = value),
                 ),
-                Text('Espessura da borracha: ${eraserWidth.toStringAsFixed(0)}'),
+                Text(
+                  'Espessura da borracha: ${eraserWidth.toStringAsFixed(0)}',
+                ),
                 Slider(
                   min: 6,
                   max: 80,
@@ -853,7 +896,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
         constraints: BoxConstraints(minWidth: compact ? 56 : 68),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
         decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -877,10 +922,24 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     setState(() => _zoomPercent = percent);
   }
 
+  Offset _effectiveZoomLocalAnchor() {
+    final anchor = _zoomAnchorLocal;
+    if (anchor != null && anchor.dx.isFinite && anchor.dy.isFinite) {
+      return anchor;
+    }
+    return _controller.documentToLocal(_controller.centerPosition);
+  }
+
   Future<void> _setZoomPercent(int percent) async {
     if (!_controller.isReady) return;
-    final target = (percent / 100).clamp(_controller.minScale, _controller.maxScale);
-    await _controller.setZoom(_controller.centerPosition, target);
+    final target = (percent / 100)
+        .clamp(_controller.minScale, _controller.maxScale)
+        .toDouble();
+    await _controller.zoomOnLocalPosition(
+      localPosition: _effectiveZoomLocalAnchor(),
+      newZoom: target,
+      duration: Duration.zero,
+    );
     _syncZoomFromController();
   }
 
@@ -894,7 +953,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           controller: input,
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Zoom (%)', suffixText: '%'),
+          decoration: const InputDecoration(
+            labelText: 'Zoom (%)',
+            suffixText: '%',
+          ),
         ),
         actions: [
           TextButton(
@@ -902,7 +964,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(int.tryParse(input.text.trim())),
+            onPressed: () =>
+                Navigator.of(context).pop(int.tryParse(input.text.trim())),
             child: const Text('Aplicar'),
           ),
         ],
@@ -915,26 +978,36 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   Future<void> _zoomIn() async {
     if (!_controller.isReady) return;
-    await _controller.zoomUp();
+    await _controller.zoomUpOnLocalPosition(
+      localPosition: _effectiveZoomLocalAnchor(),
+    );
     _syncZoomFromController();
   }
 
   Future<void> _zoomOut() async {
     if (!_controller.isReady) return;
-    await _controller.zoomDown();
+    await _controller.zoomDownOnLocalPosition(
+      localPosition: _effectiveZoomLocalAnchor(),
+    );
     _syncZoomFromController();
   }
 
   Future<void> _previousPage() async {
     if (!_controller.isReady || _page <= 1) return;
-    await _controller.goToPage(pageNumber: _page - 1, anchor: PdfPageAnchor.top);
+    await _controller.goToPage(
+      pageNumber: _page - 1,
+      anchor: PdfPageAnchor.top,
+    );
   }
 
   Future<void> _nextPage() async {
     if (!_controller.isReady) return;
     final count = _document?.pages.length ?? _controller.pageCount;
     if (_page >= count) return;
-    await _controller.goToPage(pageNumber: _page + 1, anchor: PdfPageAnchor.top);
+    await _controller.goToPage(
+      pageNumber: _page + 1,
+      anchor: PdfPageAnchor.top,
+    );
   }
 
   Future<void> _scrollBy(double deltaY) async {
@@ -946,19 +1019,19 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   }
 
   Future<void> _openPageTools() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfPageToolsScreen(document: widget.document),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) => PdfPageToolsScreen(document: widget.document),
+    ),
+  );
 
   Future<void> _openOcr() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfOcrScreen(
-            document: widget.document,
-            navigationStore: widget.store,
-          ),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) => PdfOcrScreen(
+        document: widget.document,
+        navigationStore: widget.store,
+      ),
+    ),
+  );
 
   void _handleMoreAction(_WorkspaceMoreAction action) {
     switch (action) {
@@ -972,28 +1045,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   }
 
   Future<void> _openForms() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfFormsScreen(
-            document: widget.document,
-            store: LocalPdfFormStore(widget.store.db),
-          ),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) => PdfFormsScreen(
+        document: widget.document,
+        store: LocalPdfFormStore(widget.store.db),
+      ),
+    ),
+  );
 
   Future<void> _openExport() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfExportScreen(document: widget.document, db: widget.store.db),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          PdfExportScreen(document: widget.document, db: widget.store.db),
+    ),
+  );
 
   Future<void> _openPrint() => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PdfPrintScreen(
-            document: widget.document,
-            navigationStore: widget.store,
-          ),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) => PdfPrintScreen(
+        document: widget.document,
+        navigationStore: widget.store,
+      ),
+    ),
+  );
 
   Future<void> _openExternalLink(Uri uri) async {
     if (!mounted) return;
@@ -1095,7 +1169,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(int.tryParse(input.text)),
+            onPressed: () =>
+                Navigator.of(context).pop(int.tryParse(input.text)),
             child: const Text('Ir'),
           ),
         ],
@@ -1176,7 +1251,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       return ListTile(
         contentPadding: EdgeInsets.only(left: 12.0 + depth * 18, right: 8),
         title: Text(node.title),
-        subtitle: node.dest == null ? null : Text('Página ${node.dest!.pageNumber}'),
+        subtitle: node.dest == null
+            ? null
+            : Text('Página ${node.dest!.pageNumber}'),
         onTap: node.dest == null
             ? null
             : () {
@@ -1188,7 +1265,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     return ExpansionTile(
       tilePadding: EdgeInsets.only(left: 12.0 + depth * 18, right: 8),
       title: Text(node.title),
-      subtitle: node.dest == null ? null : Text('Página ${node.dest!.pageNumber}'),
+      subtitle: node.dest == null
+          ? null
+          : Text('Página ${node.dest!.pageNumber}'),
       children: [for (final child in children) _outlineTile(child, depth + 1)],
     );
   }
@@ -1257,7 +1336,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   }
 
   PdfPageLayout _horizontalLayout(List<PdfPage> pages, PdfViewerParams params) {
-    final height = pages.fold<double>(
+    final height =
+        pages.fold<double>(
           0,
           (previous, page) => math.max(previous, page.height),
         ) +
@@ -1266,12 +1346,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     var x = params.margin;
     for (final page in pages) {
       layouts.add(
-        Rect.fromLTWH(
-          x,
-          (height - page.height) / 2,
-          page.width,
-          page.height,
-        ),
+        Rect.fromLTWH(x, (height - page.height) / 2, page.width, page.height),
       );
       x += page.width + params.margin;
     }
@@ -1336,7 +1411,8 @@ class _SelectionMarkupOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SelectionMarkupOverlayPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _SelectionMarkupOverlayPainter oldDelegate) =>
+      true;
 }
 
 class _CommandButton extends StatelessWidget {
