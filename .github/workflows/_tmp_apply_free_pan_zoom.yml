@@ -1,0 +1,53 @@
+name: Temporary Free Pan Zoom Patch
+
+on:
+  push:
+    branches:
+      - fix/android-xiaomi-black-screen
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/android-xiaomi-black-screen
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply free pan and focal zoom patch
+        run: python3 .github/scripts/patch_free_pan_zoom.py
+      - name: Format
+        working-directory: apps/lexpdf_app
+        run: dart format lib/src/screens/pdf_workspace_stylus_screen.dart test/pdf_free_pan_zoom_contract_test.dart
+      - name: Resolve dependencies
+        working-directory: apps/lexpdf_app
+        run: flutter pub get
+      - name: Analyze
+        working-directory: apps/lexpdf_app
+        run: flutter analyze
+      - name: Test focused contract
+        working-directory: apps/lexpdf_app
+        run: flutter test test/pdf_free_pan_zoom_contract_test.dart
+      - name: Materialize patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/scripts/patch_free_pan_zoom.py
+          rm .github/workflows/_tmp_apply_free_pan_zoom.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart \
+                  apps/lexpdf_app/test/pdf_free_pan_zoom_contract_test.dart \
+                  .github/scripts/patch_free_pan_zoom.py \
+                  .github/workflows/_tmp_apply_free_pan_zoom.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(pdf): allow free pan and focal-point zoom'
+          git push origin HEAD:fix/android-xiaomi-black-screen
