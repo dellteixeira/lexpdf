@@ -35,7 +35,7 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    pdfrxFlutterInitialize();
+    await pdfrxFlutterInitialize();
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {
