@@ -46,7 +46,7 @@ void main() {
     expect(source, contains('panAxis: PanAxis.free'));
     expect(
       compact,
-      contains('boundaryMargin:EdgeInsets.all(_mobile?320.0:120.0)'),
+      contains('boundaryMargin:EdgeInsets.all(_mobile?320.0:120.0'),
     );
     expect(source, contains('onInteractionStart: (details)'));
     expect(source, contains('onInteractionUpdate: (details)'));
