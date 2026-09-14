@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
