@@ -72,7 +72,8 @@ class InkCanvasState extends State<InkCanvas> {
   @override
   void didUpdateWidget(covariant InkCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialStrokes != widget.initialStrokes && _activePointer == null) {
+    if (oldWidget.initialStrokes != widget.initialStrokes &&
+        _activePointer == null) {
       _strokes
         ..clear()
         ..addAll(widget.initialStrokes);
@@ -141,7 +142,9 @@ class InkCanvasState extends State<InkCanvas> {
   }
 
   List<InkStroke> adjustSelectedWidth(double factor) {
-    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
+      return const [];
+    }
     return _transformSelected(
       (stroke) => _copyStroke(
         stroke,
@@ -192,14 +195,22 @@ class InkCanvasState extends State<InkCanvas> {
       return _copyStroke(
         stroke,
         points: stroke.points
-            .map((point) => _copyPoint(point, x: point.x + dx, y: point.y + dy))
+            .map(
+              (point) => _copyPoint(
+                point,
+                x: point.x + dx,
+                y: point.y + dy,
+              ),
+            )
             .toList(growable: false),
       );
     });
   }
 
   List<InkStroke> scaleSelected(double factor) {
-    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) return const [];
+    if (_selectedStrokeIds.isEmpty || factor <= 0 || factor == 1) {
+      return const [];
+    }
     final center = _selectionCenter();
     if (center == null) return const [];
     return _transformSelected((stroke) {
@@ -261,7 +272,9 @@ class InkCanvasState extends State<InkCanvas> {
     return Offset((minX + maxX) / 2, (minY + maxY) / 2);
   }
 
-  List<InkStroke> _transformSelected(InkStroke Function(InkStroke) transform) {
+  List<InkStroke> _transformSelected(
+    InkStroke Function(InkStroke) transform,
+  ) {
     final updated = <InkStroke>[];
     for (var index = 0; index < _strokes.length; index++) {
       final stroke = _strokes[index];
@@ -294,7 +307,7 @@ class InkCanvasState extends State<InkCanvas> {
   }) {
     return InkStroke(
       id: stroke.id,
-      pageId: widget.pageId,
+      pageId: stroke.pageId,
       tool: stroke.tool,
       colorValue: colorValue ?? stroke.colorValue,
       opacity: stroke.opacity,
