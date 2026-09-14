@@ -8,6 +8,8 @@ void main() {
         .readAsStringSync();
     final compact = source.replaceAll(RegExp(r'\s+'), '');
 
+    // Regression contract: zoom must follow the interaction point and the page
+    // must remain movable on both axes instead of being locked to the center.
     expect(source, contains('panAxis: PanAxis.free'));
     expect(
       compact,
@@ -21,5 +23,7 @@ void main() {
     expect(source, contains('zoomUpOnLocalPosition('));
     expect(source, contains('zoomDownOnLocalPosition('));
     expect(source, isNot(contains('setZoom(_controller.centerPosition')));
+    expect(source, isNot(contains('await _controller.zoomUp();')));
+    expect(source, isNot(contains('await _controller.zoomDown();')));
   });
 }
