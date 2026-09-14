@@ -18,7 +18,7 @@ void main() {
     final source = File('lib/main.dart').readAsStringSync();
 
     final runAppIndex = source.indexOf('runApp(_LexPdfBootstrap');
-    final pdfInitIndex = source.indexOf('pdfrxFlutterInitialize();');
+    final pdfInitIndex = source.indexOf('await pdfrxFlutterInitialize();');
     final supabaseInitIndex = source.indexOf('await Supabase.initialize(');
     final storageInitIndex = source.indexOf('await getApplicationSupportDirectory()');
 
@@ -26,6 +26,7 @@ void main() {
     expect(pdfInitIndex, greaterThan(runAppIndex));
     expect(supabaseInitIndex, greaterThan(runAppIndex));
     expect(storageInitIndex, greaterThan(runAppIndex));
+    expect(source, contains('await pdfrxFlutterInitialize();'));
     expect(source, contains("'Preparando seus documentos…'"));
     expect(source, contains("'Não foi possível iniciar o LexPDF.'"));
     expect(source, contains("label: const Text('Tentar novamente')"));
