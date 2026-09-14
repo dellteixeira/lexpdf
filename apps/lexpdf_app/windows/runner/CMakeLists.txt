@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "render_core2_pdfium_channel.cpp"
   "render_core2_production_pdfium_channel_v2.cpp"
   "windows_native_pdf_surface.cpp"
+  "windows_pdf_compat_normalizer.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
