@@ -57,10 +57,9 @@ void main() {
       objectControls,
       contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"),
     );
-    expect(
-      objectLayer,
-      contains('onTapDown: (_) => widget.onSelectionChanged(object.id)'),
-    );
+    expect(objectLayer, contains('onTapDown: (_) {'));
+    expect(objectLayer, contains('if (!_twoFingerNavigating) {'));
+    expect(objectLayer, contains('widget.onSelectionChanged(object.id);'));
     expect(objectLayer, isNot(contains('_InlineNotebookTextEditor')));
     expect(objectLayer, contains('enum _ResizeHandle'));
     expect(styleControls, contains('width.toStringAsFixed(1)'));
