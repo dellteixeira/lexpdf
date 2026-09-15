@@ -16,6 +16,7 @@ import '../core/storage/local_pdf_form_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../widgets/pdf_android_finger_navigation_region.dart';
 import '../widgets/pdf_selection_action_menu.dart';
 import '../widgets/pdf_sticky_note_overlay.dart';
 import '../widgets/pdf_stylus_page_overlay.dart';
@@ -207,179 +208,196 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                       color: Theme.of(context)
                           .colorScheme
                           .surfaceContainerHighest,
-                      child: PdfViewer.file(
-                        path,
+                      child: PdfAndroidFingerNavigationRegion(
+                        active: _android,
                         controller: _controller,
-                        initialPageNumber: _page,
-                        useProgressiveLoading: true,
-                        params: PdfViewerParams(
-                          limitRenderingCache: true,
-                          maxImageBytesCachedOnMemory: _windows
-                              ? 100 * 1024 * 1024
-                              : HugePdfPolicy.viewerImageCacheBytes,
-                          horizontalCacheExtent: _windows ? 1.0 : 0.30,
-                          verticalCacheExtent: _windows ? 1.0 : 0.30,
-                          onePassRenderingSizeThreshold: _windows10Tiles
-                              ? 1000
-                              : (_windows ? 6000 : 1400),
-                          getPageRenderingScale: _windows
-                              ? (context, page, controller, estimatedScale) {
-                                  // The Win10 manual tile layer supplies the visible
-                                  // page pixels. Keep pdfrx's hidden backing page at
-                                  // 72 dpi so it never allocates the giant bitmap
-                                  // path that corrupts on affected Windows 10 PCs.
-                                  if (_windows10Tiles) return 1.0;
-                                  const maxRenderPixels = 6000.0;
-                                  final width = page.width * estimatedScale;
-                                  final height = page.height * estimatedScale;
-                                  if (width <= maxRenderPixels &&
-                                      height <= maxRenderPixels) {
-                                    return estimatedScale;
+                        onFocalPointChanged: (position) {
+                          _zoomAnchorLocal = position;
+                        },
+                        onNavigationEnd: _syncZoomFromController,
+                        child: PdfViewer.file(
+                          path,
+                          controller: _controller,
+                          initialPageNumber: _page,
+                          useProgressiveLoading: true,
+                          params: PdfViewerParams(
+                            limitRenderingCache: true,
+                            maxImageBytesCachedOnMemory: _windows
+                                ? 100 * 1024 * 1024
+                                : HugePdfPolicy.viewerImageCacheBytes,
+                            horizontalCacheExtent: _windows ? 1.0 : 0.30,
+                            verticalCacheExtent: _windows ? 1.0 : 0.30,
+                            onePassRenderingSizeThreshold: _windows10Tiles
+                                ? 1000
+                                : (_windows ? 6000 : 1400),
+                            getPageRenderingScale: _windows
+                                ? (context, page, controller, estimatedScale) {
+                                    // The Win10 manual tile layer supplies the visible
+                                    // page pixels. Keep pdfrx's hidden backing page at
+                                    // 72 dpi so it never allocates the giant bitmap
+                                    // path that corrupts on affected Windows 10 PCs.
+                                    if (_windows10Tiles) return 1.0;
+                                    const maxRenderPixels = 6000.0;
+                                    final width = page.width * estimatedScale;
+                                    final height = page.height * estimatedScale;
+                                    if (width <= maxRenderPixels &&
+                                        height <= maxRenderPixels) {
+                                      return estimatedScale;
+                                    }
+                                    return math.min(
+                                      maxRenderPixels / page.width,
+                                      maxRenderPixels / page.height,
+                                    );
                                   }
-                                  return math.min(
-                                    maxRenderPixels / page.width,
-                                    maxRenderPixels / page.height,
-                                  );
-                                }
-                              : null,
-                          behaviorControlParams: PdfViewerBehaviorControlParams(
-                            // Android internal PDF destinations are resolved against the full
-                            // page layout. For very large indexed PDFs, lazy dimensions can
-                            // make a destination matrix point at a stale/partial layout.
-                            loadPageDimensionsOnDemand: !_windows && !_android,
-                            enableLowResolutionPagePreview: !_windows,
-                            trailingPageLoadingDelay: _windows
-                                ? const Duration(milliseconds: 100)
-                                : const Duration(milliseconds: 250),
-                            pageImageCachingDelay: _windows
-                                ? const Duration(milliseconds: 20)
-                                : const Duration(milliseconds: 40),
-                            partialImageLoadingDelay: _windows
-                                ? Duration.zero
-                                : const Duration(milliseconds: 60),
-                          ),
-                          // Mobile touch navigation stays available independently
-                          // from the active tool. Desktop keeps the existing tool
-                          // ownership model.
-                          panAxis: PanAxis.free,
-                          boundaryMargin: EdgeInsets.all(
-                            _mobile ? 320.0 : 120.0,
-                          ),
-                          panEnabled:
-                              _mobile ||
-                              (_stylusMode != _StylusMode.note && !_inkMode),
-                          scaleEnabled:
-                              _mobile ||
-                              (_stylusMode != _StylusMode.note && !_inkMode),
-                          onInteractionStart: (details) {
-                            _zoomAnchorLocal = details.localFocalPoint;
-                          },
-                          onInteractionUpdate: (details) {
-                            _zoomAnchorLocal = details.localFocalPoint;
-                          },
-                          onInteractionEnd: (_) {
-                            _syncZoomFromController();
-                          },
-                          buildContextMenu:
-                              _stylusMode == _StylusMode.selectText
-                              ? _selectionMenu.buildContextMenu
-                              : null,
-                          textSelectionParams: PdfTextSelectionParams(
-                            enabled: _stylusMode == _StylusMode.selectText,
-                            showContextMenuAutomatically: true,
-                          ),
-                          pagePaintCallbacks: _windows10Tiles
-                              ? const []
-                              : [_selectionMenu.paint],
-                          layoutPages: switch (_viewMode) {
-                            _PdfViewMode.continuous => null,
-                            _PdfViewMode.horizontal => _horizontalLayout,
-                            _PdfViewMode.facing => _facingLayout,
-                          },
-                          linkHandlerParams: PdfLinkHandlerParams(
-                            onLinkTap: (link) {
-                              final url = link.url;
-                              if (url != null) {
-                                unawaited(_openExternalLink(url));
-                                return;
-                              }
-                              final dest = link.dest;
-                              if (dest != null) {
-                                unawaited(_goToInternalPdfDestination(dest));
-                              }
-                            },
-                          ),
-                          pageOverlaysBuilder: (context, pageRect, page) => [
-                            if (_windows10Tiles)
-                              Positioned.fill(
-                                child: Windows10PdfTileOverlay(
-                                  key: ValueKey(
-                                    'win10-tiles-${page.pageNumber}',
-                                  ),
-                                  page: page,
-                                  pageRect: pageRect,
-                                  controller: _controller,
+                                : null,
+                            behaviorControlParams:
+                                PdfViewerBehaviorControlParams(
+                                  // Android internal PDF destinations are resolved against the full
+                                  // page layout. For very large indexed PDFs, lazy dimensions can
+                                  // make a destination matrix point at a stale/partial layout.
+                                  loadPageDimensionsOnDemand:
+                                      !_windows && !_android,
+                                  enableLowResolutionPagePreview: !_windows,
+                                  trailingPageLoadingDelay: _windows
+                                      ? const Duration(milliseconds: 100)
+                                      : const Duration(milliseconds: 250),
+                                  pageImageCachingDelay: _windows
+                                      ? const Duration(milliseconds: 20)
+                                      : const Duration(milliseconds: 40),
+                                  partialImageLoadingDelay: _windows
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 60),
                                 ),
-                              ),
-                            if (_windows10Tiles)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: CustomPaint(
-                                    painter: _SelectionMarkupOverlayPainter(
-                                      menu: _selectionMenu,
-                                      pageRect: pageRect,
-                                      page: page,
+                            // Android touch is routed explicitly by
+                            // PdfAndroidFingerNavigationRegion. Disabling the
+                            // internal recognizer prevents duplicate pan/zoom and
+                            // makes S Pen + finger behavior deterministic on
+                            // Samsung tablets and Xiaomi phones.
+                            panAxis: PanAxis.free,
+                            boundaryMargin: EdgeInsets.all(
+                              _mobile ? 320.0 : 120.0,
+                            ),
+                            panEnabled:
+                                !_android &&
+                                (_mobile ||
+                                    (_stylusMode != _StylusMode.note &&
+                                        !_inkMode)),
+                            scaleEnabled:
+                                !_android &&
+                                (_mobile ||
+                                    (_stylusMode != _StylusMode.note &&
+                                        !_inkMode)),
+                            onInteractionStart: (details) {
+                              _zoomAnchorLocal = details.localFocalPoint;
+                            },
+                            onInteractionUpdate: (details) {
+                              _zoomAnchorLocal = details.localFocalPoint;
+                            },
+                            onInteractionEnd: (_) {
+                              _syncZoomFromController();
+                            },
+                            buildContextMenu:
+                                _stylusMode == _StylusMode.selectText
+                                ? _selectionMenu.buildContextMenu
+                                : null,
+                            textSelectionParams: PdfTextSelectionParams(
+                              enabled: _stylusMode == _StylusMode.selectText,
+                              showContextMenuAutomatically: true,
+                            ),
+                            pagePaintCallbacks: _windows10Tiles
+                                ? const []
+                                : [_selectionMenu.paint],
+                            layoutPages: switch (_viewMode) {
+                              _PdfViewMode.continuous => null,
+                              _PdfViewMode.horizontal => _horizontalLayout,
+                              _PdfViewMode.facing => _facingLayout,
+                            },
+                            linkHandlerParams: PdfLinkHandlerParams(
+                              onLinkTap: (link) {
+                                final url = link.url;
+                                if (url != null) {
+                                  unawaited(_openExternalLink(url));
+                                  return;
+                                }
+                                final dest = link.dest;
+                                if (dest != null) {
+                                  unawaited(_goToInternalPdfDestination(dest));
+                                }
+                              },
+                            ),
+                            pageOverlaysBuilder: (context, pageRect, page) => [
+                              if (_windows10Tiles)
+                                Positioned.fill(
+                                  child: Windows10PdfTileOverlay(
+                                    key: ValueKey(
+                                      'win10-tiles-${page.pageNumber}',
+                                    ),
+                                    page: page,
+                                    pageRect: pageRect,
+                                    controller: _controller,
+                                  ),
+                                ),
+                              if (_windows10Tiles)
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: CustomPaint(
+                                      painter: _SelectionMarkupOverlayPainter(
+                                        menu: _selectionMenu,
+                                        pageRect: pageRect,
+                                        page: page,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            Positioned.fill(
-                              child: PdfStylusPageOverlay(
-                                key: ValueKey(
-                                  'stylus-${page.pageNumber}-${_stylusMode.name}-$_inkCount-${_eraserWidth.toStringAsFixed(1)}',
+                              Positioned.fill(
+                                child: PdfStylusPageOverlay(
+                                  key: ValueKey(
+                                    'stylus-${page.pageNumber}-${_stylusMode.name}-$_inkCount-${_eraserWidth.toStringAsFixed(1)}',
+                                  ),
+                                  documentId: widget.document.id,
+                                  pageNumber: page.pageNumber,
+                                  strokes:
+                                      _inkByPage[page.pageNumber] ?? const [],
+                                  enabled: _inkMode,
+                                  tool: _inkTool,
+                                  colorValue: _inkColor,
+                                  strokeWidth: _effectiveInkWidth,
+                                  eraserMode: _eraserMode,
+                                  eraserRadius: _eraserWidth / 2,
+                                  onStrokeCompleted: _onStrokeCompleted,
+                                  onEraseApplied: _onEraseApplied,
                                 ),
-                                documentId: widget.document.id,
-                                pageNumber: page.pageNumber,
-                                strokes:
-                                    _inkByPage[page.pageNumber] ?? const [],
-                                enabled: _inkMode,
-                                tool: _inkTool,
-                                colorValue: _inkColor,
-                                strokeWidth: _effectiveInkWidth,
-                                eraserMode: _eraserMode,
-                                eraserRadius: _eraserWidth / 2,
-                                onStrokeCompleted: _onStrokeCompleted,
-                                onEraseApplied: _onEraseApplied,
                               ),
-                            ),
-                            Positioned.fill(
-                              child: PdfStickyNoteOverlay(
-                                key: ValueKey(
-                                  'sticky-${page.pageNumber}-${_stylusMode.name}',
+                              Positioned.fill(
+                                child: PdfStickyNoteOverlay(
+                                  key: ValueKey(
+                                    'sticky-${page.pageNumber}-${_stylusMode.name}',
+                                  ),
+                                  documentId: widget.document.id,
+                                  pageNumber: page.pageNumber,
+                                  store: widget.annotations.objectStore,
+                                  createEnabled:
+                                      _stylusMode == _StylusMode.note,
+                                  onNoteSaved: () {
+                                    if (!mounted) return;
+                                    setState(
+                                      () => _stylusMode = _StylusMode.hand,
+                                    );
+                                    _controller.invalidate();
+                                  },
                                 ),
-                                documentId: widget.document.id,
-                                pageNumber: page.pageNumber,
-                                store: widget.annotations.objectStore,
-                                createEnabled: _stylusMode == _StylusMode.note,
-                                onNoteSaved: () {
-                                  if (!mounted) return;
-                                  setState(
-                                    () => _stylusMode = _StylusMode.hand,
-                                  );
-                                  _controller.invalidate();
-                                },
                               ),
-                            ),
-                          ],
-                          onViewerReady: (document, controller) {
-                            _document = document;
-                            _syncZoomFromController();
-                            if (mounted) setState(() {});
-                            unawaited(_loadOutline(document));
-                            unawaited(_loadInkWindow(document, _page));
-                            unawaited(_selectionMenu.load(document));
-                          },
-                          onPageChanged: _onPageChanged,
+                            ],
+                            onViewerReady: (document, controller) {
+                              _document = document;
+                              _syncZoomFromController();
+                              if (mounted) setState(() {});
+                              unawaited(_loadOutline(document));
+                              unawaited(_loadInkWindow(document, _page));
+                              unawaited(_selectionMenu.load(document));
+                            },
+                            onPageChanged: _onPageChanged,
+                          ),
                         ),
                       ),
                     ),
