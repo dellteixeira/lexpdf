@@ -7,6 +7,7 @@ void main() {
     final source = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
+    final normalizedSource = source.replaceAll(RegExp(r'\s+'), ' ');
 
     expect(
       source,
@@ -28,7 +29,12 @@ void main() {
     expect(source, contains('if (_windows10Tiles) return 1.0;'));
     expect(source, contains('Windows10PdfTileOverlay('));
 
-    expect(source, contains('loadPageDimensionsOnDemand: !_windows'));
+    // Keep this contract semantic rather than formatter-sensitive. Dart format
+    // may wrap the boolean expression after the named argument colon.
+    expect(
+      normalizedSource,
+      contains('loadPageDimensionsOnDemand: !_windows && !_android'),
+    );
     expect(source, contains('enableLowResolutionPagePreview: !_windows'));
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
     expect(source, contains('? 100 * 1024 * 1024'));
