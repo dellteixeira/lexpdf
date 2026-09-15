@@ -10,9 +10,12 @@ void main() {
     final workspace = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
+    final router = File(
+      'lib/src/widgets/pdf_android_finger_navigation_region.dart',
+    ).readAsStringSync();
 
-    // Fingers belong to the PDF viewer on mobile; the ink overlay must only
-    // consume stylus-like input and must not install a competing pan recognizer.
+    // Ink belongs to S Pen/stylus. The overlay must not turn finger drags into
+    // ink or install a competing pan recognizer.
     expect(overlay, contains('PointerDeviceKind.stylus'));
     expect(overlay, contains('PointerDeviceKind.invertedStylus'));
     expect(overlay, isNot(contains('PointerDeviceKind.touch')));
@@ -21,12 +24,25 @@ void main() {
     expect(overlay, isNot(contains('onPanUpdate:')));
     expect(overlay, isNot(contains('onPanEnd:')));
 
-    // The viewer itself keeps touch navigation enabled on mobile regardless of
-    // the currently selected annotation tool.
+    // Android finger navigation is now explicit and independent of the active
+    // tool. pdfrx's internal Android pan/scale recognizers stay disabled so a
+    // single owner applies one-finger pan and two-finger focal pinch exactly
+    // once, including on the Galaxy Tab S6 Lite.
+    expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
+    expect(workspace, contains('active: _android'));
     expect(workspace, contains('panAxis: PanAxis.free'));
     expect(workspace, contains('panEnabled:'));
     expect(workspace, contains('scaleEnabled:'));
-    expect(workspace, contains('_mobile ||'));
+    expect(workspace, contains('!_android &&'));
+
+    expect(router, contains('PointerDeviceKind.touch'));
+    expect(router, contains('PointerDeviceKind.stylus'));
+    expect(router, contains('PointerDeviceKind.invertedStylus'));
+    expect(router, contains('_applySingleFingerPan'));
+    expect(router, contains('_applyTwoFingerPanAndZoom'));
+    expect(router, contains('_palmBlockedTouches'));
+    expect(router, contains('makeMatrixInSafeRange'));
+    expect(router, contains('zoomOnLocalPosition'));
 
     expect(
       workspace,
