@@ -6,10 +6,13 @@ void main() {
   test('Android internal PDF links use fully measured deterministic navigation', () {
     final source = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
+    final normalizedSource = source.replaceAll(RegExp(r'\s+'), ' ');
 
     expect(source, contains('bool get _android =>'));
+    // Dart format may wrap this named argument across lines. Normalize
+    // whitespace so the contract checks behavior, not source layout.
     expect(
-      source,
+      normalizedSource,
       contains('loadPageDimensionsOnDemand: !_windows && !_android'),
     );
     expect(source, contains('_goToInternalPdfDestination(dest)'));
