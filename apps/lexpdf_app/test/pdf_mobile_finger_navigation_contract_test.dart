@@ -26,33 +26,40 @@ void main() {
     expect(commandBar, contains('Icons.zoom_in'));
   });
 
-  test('mobile PDF navigation remains enabled in every active tool', () {
+  test('Android PDF navigation is routed independently from every active tool', () {
     final workspace = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
     final overlay = File('lib/src/widgets/pdf_stylus_page_overlay.dart')
         .readAsStringSync();
+    final router = File(
+      'lib/src/widgets/pdf_android_finger_navigation_region.dart',
+    ).readAsStringSync();
 
-    expect(
-      workspace,
-      contains(
-        'panEnabled:\n                              _mobile ||\n                              (_stylusMode != _StylusMode.note && !_inkMode)',
-      ),
-    );
-    expect(
-      workspace,
-      contains(
-        'scaleEnabled:\n                              _mobile ||\n                              (_stylusMode != _StylusMode.note && !_inkMode)',
-      ),
-    );
+    expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
+    expect(workspace, contains('active: _android'));
+    expect(workspace, contains('controller: _controller'));
+    expect(workspace, contains('onNavigationEnd: _syncZoomFromController'));
 
-    // Finger input must be left to the PdfViewer instead of being converted
-    // into ink on compact Android phones.
+    // Android no longer depends on pdfrx's internal gesture arena. The custom
+    // router is the single owner of finger pan/pinch while the S Pen tool stays
+    // selected. Other platforms retain the existing pdfrx gesture behavior.
+    expect(workspace, contains('panEnabled:'));
+    expect(workspace, contains('scaleEnabled:'));
+    expect(workspace, contains('!_android &&'));
+
+    expect(router, contains('PointerDeviceKind.touch'));
+    expect(router, contains('PointerDeviceKind.stylus'));
+    expect(router, contains('PointerDeviceKind.invertedStylus'));
+    expect(router, contains('_applySingleFingerPan'));
+    expect(router, contains('_applyTwoFingerPanAndZoom'));
+    expect(router, contains('makeMatrixInSafeRange'));
+    expect(router, contains('zoomOnLocalPosition'));
+    expect(router, contains('_palmBlockedTouches'));
+
+    // Finger input must never be converted into ink by the drawing overlay.
     expect(overlay, isNot(contains('_compactTouchDrawing')));
-    expect(overlay, isNot(contains('onPanStart:')));
-    expect(overlay, isNot(contains('onPanUpdate:')));
-    expect(overlay, isNot(contains('onPanEnd:')));
+    expect(overlay, isNot(contains('PointerDeviceKind.touch')));
     expect(overlay, contains('PointerDeviceKind.stylus'));
     expect(overlay, contains('PointerDeviceKind.invertedStylus'));
-    expect(overlay, contains('behavior: HitTestBehavior.translucent'));
   });
 }
