@@ -7,6 +7,9 @@ void main() {
     final workspace = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
+    final router = File(
+      'lib/src/widgets/pdf_android_finger_navigation_region.dart',
+    ).readAsStringSync();
 
     expect(workspace, contains('_StylusMode.hand'));
     expect(workspace, contains('_StylusMode.selectText'));
@@ -30,15 +33,14 @@ void main() {
     );
     expect(workspace, contains('_stylusMode == _StylusMode.note'));
 
-    // On Android/mobile, the active annotation tool must never disable finger
-    // pan or pinch. Desktop retains the tool-specific ownership rule.
-    expect(workspace, contains('panEnabled:'));
-    expect(workspace, contains('scaleEnabled:'));
-    expect(workspace, contains('_mobile ||'));
-    expect(
-      workspace,
-      contains('(_stylusMode != _StylusMode.note && !_inkMode)'),
-    );
+    // Android touch navigation has its own raw-pointer route, independent of
+    // the selected annotation tool and independent of pdfrx's gesture arena.
+    expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
+    expect(workspace, contains('active: _android'));
+    expect(workspace, contains('!_android &&'));
+    expect(router, contains('_applySingleFingerPan'));
+    expect(router, contains('_applyTwoFingerPanAndZoom'));
+    expect(router, contains('PointerDeviceKind.touch'));
   });
 
   test('stylus overlay rejects touch and keeps pressure-aware vector ink', () {
