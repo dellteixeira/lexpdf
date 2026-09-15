@@ -29,7 +29,16 @@ void main() {
       contains('enabled: _stylusMode == _StylusMode.selectText'),
     );
     expect(workspace, contains('_stylusMode == _StylusMode.note'));
-    expect(workspace, contains(': (!_inkMode || _mobile)'));
+
+    // On Android/mobile, the active annotation tool must never disable finger
+    // pan or pinch. Desktop retains the tool-specific ownership rule.
+    expect(workspace, contains('panEnabled:'));
+    expect(workspace, contains('scaleEnabled:'));
+    expect(workspace, contains('_mobile ||'));
+    expect(
+      workspace,
+      contains('(_stylusMode != _StylusMode.note && !_inkMode)'),
+    );
   });
 
   test('stylus overlay rejects touch and keeps pressure-aware vector ink', () {
@@ -45,6 +54,7 @@ void main() {
     expect(overlay, contains('event.tilt'));
     expect(overlay, contains('PdfInkEraser'));
     expect(overlay, contains('event.kind == PointerDeviceKind.invertedStylus'));
+    expect(overlay, contains('HitTestBehavior.translucent'));
   });
 
   test('highlighter is translucent and preserves glyph contrast', () {

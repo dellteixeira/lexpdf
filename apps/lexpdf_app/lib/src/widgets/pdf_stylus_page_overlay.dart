@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -8,11 +7,14 @@ import '../core/ink/pdf_ink_models.dart';
 
 /// Drawing surface for a PDF page.
 ///
-/// Large-screen Android keeps the stylus-first model used by tablets: the pen
-/// writes while touch remains available to the PDF viewer for navigation.
-/// Compact Android phones additionally accept finger drawing because there is
-/// usually no stylus input available. Touch drawing uses a child gesture
-/// recognizer so an active ink tool owns the drag instead of moving the PDF.
+/// Pointer ownership is intentionally split by device kind:
+/// - stylus / inverted stylus (and mouse on desktop) operate the active ink tool;
+/// - touch is never converted into ink here, so fingers remain available to
+///   the parent PDF viewer for pan/scroll/pinch gestures on every Android size.
+///
+/// This is especially important on Samsung tablets with S Pen and on compact
+/// Android phones such as the Poco F5, where the old phone-only finger drawing
+/// recognizer consumed the same drag gesture needed to move the PDF.
 class PdfStylusPageOverlay extends StatefulWidget {
   const PdfStylusPageOverlay({
     required this.documentId,
@@ -51,7 +53,6 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
   final List<InkPoint> _active = <InkPoint>[];
   int? _pointer;
   Size _size = Size.zero;
-  bool _compactTouchDrawing = false;
 
   bool _accept(PointerEvent event) =>
       event.kind == PointerDeviceKind.stylus ||
@@ -72,45 +73,24 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
       event.kind == PointerDeviceKind.invertedStylus ||
       _stylusButtonPressed(event);
 
-  InkPoint _normalizedPoint({
-    required Offset position,
-    required double pressure,
-    required double tilt,
-    required int timestampMicros,
-  }) {
-    return InkPoint(
-      x: _size.width == 0
-          ? 0
-          : (position.dx / _size.width).clamp(0.0, 1.0),
-      y: _size.height == 0
-          ? 0
-          : (position.dy / _size.height).clamp(0.0, 1.0),
-      pressure: pressure.clamp(0.0, 1.0),
-      tilt: tilt,
-      timestampMicros: timestampMicros,
-    );
-  }
-
   InkPoint _point(PointerEvent event) {
     final pressure = event.pressureMax > event.pressureMin
         ? ((event.pressure - event.pressureMin) /
                 (event.pressureMax - event.pressureMin))
             .clamp(0.0, 1.0)
         : 1.0;
-    return _normalizedPoint(
-      position: event.localPosition,
+    return InkPoint(
+      x: _size.width == 0
+          ? 0
+          : (event.localPosition.dx / _size.width).clamp(0.0, 1.0),
+      y: _size.height == 0
+          ? 0
+          : (event.localPosition.dy / _size.height).clamp(0.0, 1.0),
       pressure: pressure,
       tilt: event.tilt,
       timestampMicros: event.timeStamp.inMicroseconds,
     );
   }
-
-  InkPoint _touchPoint(Offset position) => _normalizedPoint(
-        position: position,
-        pressure: 1.0,
-        tilt: 0.0,
-        timestampMicros: DateTime.now().microsecondsSinceEpoch,
-      );
 
   void _down(PointerDownEvent event) {
     if (!widget.enabled || _pointer != null || !_accept(event)) return;
@@ -159,43 +139,6 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
     setState(() {});
   }
 
-  void _touchPanStart(DragStartDetails details) {
-    if (!widget.enabled || !_compactTouchDrawing) return;
-    if (widget.eraserMode) {
-      _active.clear();
-      _eraseAt(details.localPosition);
-    } else {
-      _active
-        ..clear()
-        ..add(_touchPoint(details.localPosition));
-    }
-    setState(() {});
-  }
-
-  void _touchPanUpdate(DragUpdateDetails details) {
-    if (!widget.enabled || !_compactTouchDrawing) return;
-    if (widget.eraserMode) {
-      _eraseAt(details.localPosition);
-      return;
-    }
-    _active.add(_touchPoint(details.localPosition));
-    setState(() {});
-  }
-
-  void _touchPanEnd(DragEndDetails details) {
-    if (!widget.enabled || !_compactTouchDrawing) return;
-    if (!widget.eraserMode) {
-      _completeStroke();
-    }
-    _active.clear();
-    setState(() {});
-  }
-
-  void _touchPanCancel() {
-    _active.clear();
-    if (mounted) setState(() {});
-  }
-
   void _completeStroke() {
     if (_active.length < 2) return;
     final now = DateTime.now().toUtc();
@@ -233,46 +176,30 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.maybeOf(context);
-    _compactTouchDrawing = defaultTargetPlatform == TargetPlatform.android &&
-        (media?.size.shortestSide ?? double.infinity) < 600;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         _size = Size(constraints.maxWidth, constraints.maxHeight);
-        final stylusLayer = Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: _down,
-          onPointerMove: _move,
-          onPointerUp: _up,
-          onPointerCancel: _cancel,
-          child: CustomPaint(
-            painter: _StylusInkPainter(
-              strokes: widget.strokes,
-              active: _active,
-              tool: widget.tool,
-              colorValue: widget.colorValue,
-              width: widget.strokeWidth,
-            ),
-            child: const SizedBox.expand(),
-          ),
-        );
-
-        final inputLayer = _compactTouchDrawing
-            ? GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                dragStartBehavior: DragStartBehavior.down,
-                onPanStart: _touchPanStart,
-                onPanUpdate: _touchPanUpdate,
-                onPanEnd: _touchPanEnd,
-                onPanCancel: _touchPanCancel,
-                child: stylusLayer,
-              )
-            : stylusLayer;
-
         return IgnorePointer(
           ignoring: !widget.enabled,
-          child: inputLayer,
+          child: Listener(
+            // Translucent keeps the page overlay observable by the stylus while
+            // allowing the PdfViewer ancestor to own touch navigation gestures.
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _down,
+            onPointerMove: _move,
+            onPointerUp: _up,
+            onPointerCancel: _cancel,
+            child: CustomPaint(
+              painter: _StylusInkPainter(
+                strokes: widget.strokes,
+                active: _active,
+                tool: widget.tool,
+                colorValue: widget.colorValue,
+                width: widget.strokeWidth,
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
         );
       },
     );

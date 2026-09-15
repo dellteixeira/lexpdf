@@ -172,17 +172,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Zoom -',
-            onPressed: _zoomOut,
-            icon: const Icon(Icons.zoom_out),
-          ),
-          _buildZoomMenu(compact: true),
-          IconButton(
-            tooltip: 'Zoom +',
-            onPressed: _zoomIn,
-            icon: const Icon(Icons.zoom_in),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Center(child: Text('Pág. $_page')),
@@ -269,19 +258,19 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ? Duration.zero
                                 : const Duration(milliseconds: 60),
                           ),
-                          // Keep the document freely movable on both axes.
-                          // The extra finite boundary makes even an underflowing
-                          // page movable instead of forcing it back to the center.
+                          // Mobile touch navigation stays available independently
+                          // from the active tool. Desktop keeps the existing tool
+                          // ownership model.
                           panAxis: PanAxis.free,
                           boundaryMargin: EdgeInsets.all(
                             _mobile ? 320.0 : 120.0,
                           ),
-                          panEnabled: _stylusMode == _StylusMode.note
-                              ? false
-                              : (!_inkMode || _mobile),
-                          scaleEnabled: _stylusMode == _StylusMode.note
-                              ? false
-                              : (!_inkMode || _mobile),
+                          panEnabled:
+                              _mobile ||
+                              (_stylusMode != _StylusMode.note && !_inkMode),
+                          scaleEnabled:
+                              _mobile ||
+                              (_stylusMode != _StylusMode.note && !_inkMode),
                           onInteractionStart: (details) {
                             _zoomAnchorLocal = details.localFocalPoint;
                           },

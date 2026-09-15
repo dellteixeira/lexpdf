@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('compact Android touch tools and bounded Windows rendering stay wired', () {
+  test('mobile touch navigation and bounded Windows rendering stay wired', () {
     final overlay = File(
       'lib/src/widgets/pdf_stylus_page_overlay.dart',
     ).readAsStringSync();
@@ -11,13 +11,22 @@ void main() {
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
 
-    expect(overlay, contains('TargetPlatform.android'));
-    expect(overlay, contains('size.shortestSide'));
-    expect(overlay, contains('< 600'));
-    expect(overlay, contains('onPanStart: _touchPanStart'));
-    expect(overlay, contains('onPanUpdate: _touchPanUpdate'));
-    expect(overlay, contains('onPanEnd: _touchPanEnd'));
+    // Fingers belong to the PDF viewer on mobile; the ink overlay must only
+    // consume stylus-like input and must not install a competing pan recognizer.
     expect(overlay, contains('PointerDeviceKind.stylus'));
+    expect(overlay, contains('PointerDeviceKind.invertedStylus'));
+    expect(overlay, isNot(contains('PointerDeviceKind.touch')));
+    expect(overlay, contains('HitTestBehavior.translucent'));
+    expect(overlay, isNot(contains('onPanStart:')));
+    expect(overlay, isNot(contains('onPanUpdate:')));
+    expect(overlay, isNot(contains('onPanEnd:')));
+
+    // The viewer itself keeps touch navigation enabled on mobile regardless of
+    // the currently selected annotation tool.
+    expect(workspace, contains('panAxis: PanAxis.free'));
+    expect(workspace, contains('panEnabled:'));
+    expect(workspace, contains('scaleEnabled:'));
+    expect(workspace, contains('_mobile ||'));
 
     expect(
       workspace,
