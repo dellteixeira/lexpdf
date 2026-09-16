@@ -1,0 +1,94 @@
+name: Windows Desktop Integration
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/lexpdf_app/windows/**'
+      - 'apps/lexpdf_app/lib/src/core/documents/native_pdf_open_service.dart'
+      - 'apps/lexpdf_app/lib/src/lexpdf_app.dart'
+      - 'apps/lexpdf_app/test/windows_desktop_integration_contract_test.dart'
+      - '.github/workflows/windows-desktop-integration.yml'
+  workflow_dispatch:
+
+jobs:
+  windows-desktop-integration:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - name: Verify lockfile is stable
+        run: git diff --exit-code -- pubspec.lock
+      - name: Run Windows desktop integration contracts
+        run: flutter test test/windows_desktop_integration_contract_test.dart
+      - name: Build Windows release
+        run: >-
+          flutter build windows --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Build LexPDF installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc -PathType Leaf)) {
+            choco install innosetup -y --no-progress
+          }
+          if (-not (Test-Path $iscc -PathType Leaf)) {
+            throw 'Inno Setup compiler not found.'
+          }
+
+          $source = (Resolve-Path 'build/windows/x64/runner/Release').Path
+          $output = Join-Path (Get-Location) 'build/windows/installer'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+          $versionLine = (Select-String -Path 'pubspec.yaml' -Pattern '^version:\s*([0-9]+\.[0-9]+\.[0-9]+)').Line
+          if ($versionLine -notmatch '^version:\s*([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw 'Unable to parse semantic version from pubspec.yaml.'
+          }
+          $appVersion = $Matches[1]
+
+          & $iscc "/DSourceDir=$source" "/DOutputDir=$output" "/DAppVersion=$appVersion" 'windows/installer/lexpdf.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+      - name: Smoke-test installer and PDF registration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = 'build/windows/installer/LexPDF-Setup.exe'
+          if (-not (Test-Path $installer -PathType Leaf)) { throw 'Missing LexPDF installer.' }
+          if ((Get-Item $installer).Length -le 0) { throw 'LexPDF installer is empty.' }
+
+          $smoke = Join-Path (Get-Location) 'build/windows/smoke-install'
+          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$smoke"
+          if ($LASTEXITCODE -ne 0) { throw "Installer smoke run failed: $LASTEXITCODE" }
+
+          $installedExe = Join-Path $smoke 'lexpdf_app.exe'
+          if (-not (Test-Path $installedExe -PathType Leaf)) { throw 'Installed LexPDF executable missing.' }
+
+          $commandKey = 'HKCU:\Software\Classes\LexPDF.PDF\shell\open\command'
+          if (-not (Test-Path $commandKey)) { throw 'LexPDF PDF ProgID was not registered.' }
+          $openCommand = (Get-Item $commandKey).GetValue('')
+          if ($openCommand -notmatch 'lexpdf_app\.exe') { throw 'PDF open command does not target LexPDF.' }
+
+          Get-FileHash $installer -Algorithm SHA256
+          $uninstaller = Join-Path $smoke 'unins000.exe'
+          if (Test-Path $uninstaller -PathType Leaf) {
+            & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-windows-installer
+          path: apps/lexpdf_app/build/windows/installer/LexPDF-Setup.exe
+          if-no-files-found: error
