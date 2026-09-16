@@ -19,8 +19,6 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
-# Apply the standard set of build settings. This can be removed for applications
-# that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
 # Add preprocessor definitions for the build version.
@@ -29,30 +27,23 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTT
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
-
-# Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
-# Add dependency libraries and include directories. Add any application-specific
-# dependencies here.
-#
 # Render Core 2 owns a PluginRegistrarWindows instance so it can safely retain
 # access to Flutter's BinaryMessenger and TextureRegistrar for the lifetime of
-# the hosted Flutter view. PluginRegistrar's constructor/destructor and plugin
-# cleanup symbols live in flutter_wrapper_plugin; without that target the
-# Windows runner compiles but fails at link time with LNK2019 unresolved
-# PluginRegistrar symbols.
+# the hosted Flutter view.
 target_link_libraries(${BINARY_NAME} PRIVATE
   flutter
   flutter_wrapper_app
   flutter_wrapper_plugin
 )
 
-# Windows.Data.Pdf is a system WinRT API. windowsapp resolves WinRT activation
-# and WindowsCodecs provides WIC decoding of the page stream before the native
-# child HWND paints the final BGRA pixels with GDI.
+# Windows.Data.Pdf is a system WinRT API. Shell32 provides CommandLineToArgvW,
+# Explorer drag/drop (DragAcceptFiles/DragQueryFile) and file association shell
+# integration used by the native desktop phase.
 target_link_libraries(${BINARY_NAME} PRIVATE
   "dwmapi.lib"
+  "shell32.lib"
   "windowsapp.lib"
   "windowscodecs.lib"
 )
