@@ -26,7 +26,7 @@ void main() {
     expect(commandBar, contains('Icons.zoom_in'));
   });
 
-  test('Android PDF navigation is routed independently from every active tool', () {
+  test('Android input routing adapts between S Pen tablets and touch phones', () {
     final workspace = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
     final overlay = File('lib/src/widgets/pdf_stylus_page_overlay.dart')
@@ -34,15 +34,18 @@ void main() {
     final router = File(
       'lib/src/widgets/pdf_android_finger_navigation_region.dart',
     ).readAsStringSync();
+    final policy = File(
+      'lib/src/widgets/pdf_android_touch_input_policy.dart',
+    ).readAsStringSync();
 
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
     expect(workspace, contains('active: _android'));
     expect(workspace, contains('controller: _controller'));
     expect(workspace, contains('onNavigationEnd: _syncZoomFromController'));
 
-    // Android no longer depends on pdfrx's internal gesture arena. The custom
-    // router is the single owner of finger pan/pinch while the S Pen tool stays
-    // selected. Other platforms retain the existing pdfrx gesture behavior.
+    // Android does not depend on pdfrx's internal gesture arena. The custom
+    // router owns finger navigation, while compact phones can temporarily give
+    // one touch pointer to the ink overlay when a pen tool is active.
     expect(workspace, contains('panEnabled:'));
     expect(workspace, contains('scaleEnabled:'));
     expect(workspace, contains('!_android &&'));
@@ -55,11 +58,20 @@ void main() {
     expect(router, contains('makeMatrixInSafeRange'));
     expect(router, contains('zoomOnLocalPosition'));
     expect(router, contains('_palmBlockedTouches'));
+    expect(router, contains('beginMultiTouchNavigation'));
 
-    // Finger input must never be converted into ink by the drawing overlay.
     expect(overlay, isNot(contains('_compactTouchDrawing')));
-    expect(overlay, isNot(contains('PointerDeviceKind.touch')));
+    expect(overlay, contains('PointerDeviceKind.touch'));
     expect(overlay, contains('PointerDeviceKind.stylus'));
     expect(overlay, contains('PointerDeviceKind.invertedStylus'));
+    expect(overlay, contains('PdfAndroidTouchInputPolicy.compactPhoneInkActive'));
+    expect(
+      overlay,
+      contains('PdfAndroidTouchInputPolicy.multiTouchNavigationActive'),
+    );
+
+    expect(policy, contains('compactPhoneShortestSide = 600'));
+    expect(policy, contains('MediaQuery.sizeOf(context).shortestSide'));
+    expect(policy, contains('TargetPlatform.android'));
   });
 }
