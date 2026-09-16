@@ -192,16 +192,17 @@ class LocalPdfInkStore {
     final row = rows.first;
     final before = _decodeStrokeList(row['before_json'] as String);
     final after = _decodeStrokeList(row['after_json'] as String);
-    db.database.execute('BEGIN IMMEDIATE;');
+    db.database.execute('SAVEPOINT lexpdf_pdf_ink_undo;');
     try {
       _applyHistoryState(target: before, counterpart: after);
       db.database.execute(
         'UPDATE pdf_ink_history SET undone = 1 WHERE id = ?;',
         [row['id']],
       );
-      db.database.execute('COMMIT;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_undo;');
     } catch (_) {
-      db.database.execute('ROLLBACK;');
+      db.database.execute('ROLLBACK TO SAVEPOINT lexpdf_pdf_ink_undo;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_undo;');
       rethrow;
     }
     return PdfInkHistoryResult(
@@ -230,16 +231,17 @@ class LocalPdfInkStore {
     final row = rows.first;
     final before = _decodeStrokeList(row['before_json'] as String);
     final after = _decodeStrokeList(row['after_json'] as String);
-    db.database.execute('BEGIN IMMEDIATE;');
+    db.database.execute('SAVEPOINT lexpdf_pdf_ink_redo;');
     try {
       _applyHistoryState(target: after, counterpart: before);
       db.database.execute(
         'UPDATE pdf_ink_history SET undone = 0 WHERE id = ?;',
         [row['id']],
       );
-      db.database.execute('COMMIT;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_redo;');
     } catch (_) {
-      db.database.execute('ROLLBACK;');
+      db.database.execute('ROLLBACK TO SAVEPOINT lexpdf_pdf_ink_redo;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_redo;');
       rethrow;
     }
     return PdfInkHistoryResult(
@@ -258,7 +260,7 @@ class LocalPdfInkStore {
     if (pageNumber < 1) {
       throw ArgumentError.value(pageNumber, 'pageNumber', 'Must be >= 1');
     }
-    db.database.execute('BEGIN IMMEDIATE;');
+    db.database.execute('SAVEPOINT lexpdf_pdf_ink_mutation;');
     try {
       // A new edit after Undo creates a new branch of history. Discard the old
       // redo tail just like desktop editors do.
@@ -278,9 +280,10 @@ class LocalPdfInkStore {
         _encodeStrokeList(after),
         DateTime.now().toUtc().toIso8601String(),
       ]);
-      db.database.execute('COMMIT;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_mutation;');
     } catch (_) {
-      db.database.execute('ROLLBACK;');
+      db.database.execute('ROLLBACK TO SAVEPOINT lexpdf_pdf_ink_mutation;');
+      db.database.execute('RELEASE SAVEPOINT lexpdf_pdf_ink_mutation;');
       rethrow;
     }
   }
