@@ -15,6 +15,17 @@ void main() {
     expect(workflow, contains(r'sha256sum "$apk"'));
   });
 
+  test('release hardening publishes a smaller ARM64 Android artifact', () {
+    final workflow = File('../../.github/workflows/release-hardening.yml')
+        .readAsStringSync();
+
+    expect(workflow, contains('flutter build apk --release --split-per-abi'));
+    expect(workflow, contains('app-arm64-v8a-release.apk'));
+    expect(workflow, contains('ANDROID_TARGET_SDK_ARM64.txt'));
+    expect(workflow, contains('name: lexpdf-android-arm64'));
+    expect(workflow, contains('ARM64 APK must be smaller than the universal APK.'));
+  });
+
   test('release hardening smoke-checks Windows release bundle', () {
     final workflow = File('../../.github/workflows/release-hardening.yml')
         .readAsStringSync();
