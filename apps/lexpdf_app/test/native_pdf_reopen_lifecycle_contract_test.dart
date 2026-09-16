@@ -6,9 +6,16 @@ void main() {
   test('native PDF gate resets after reader closes so the same file can reopen', () {
     final source = File('lib/src/lexpdf_app.dart').readAsStringSync();
 
-    expect(source, contains('if (!mounted || _lastNativePath == path) return;'));
+    expect(
+      source,
+      contains('if (requested.isEmpty || _lastNativePath == requested.first) return;'),
+    );
     expect(source, contains('await navigator.push('));
-    expect(source, contains('if (_lastNativePath == path) _lastNativePath = null;'));
+    expect(
+      source,
+      contains('if (_lastNativePath == active.localPath) _lastNativePath = null;'),
+    );
+    expect(source, contains('catch (error) {\n      _lastNativePath = null;'));
   });
 
   test('Android native content imports persist outside cache storage', () {
