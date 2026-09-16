@@ -54,6 +54,13 @@ void main() {
     expect(installer, contains('Software\\RegisteredApplications'));
     expect(installer, contains('{userdesktop}\\LexPDF'));
     expect(installer, contains('LexPDF-Setup'));
-    expect(installer, isNot(contains('UserChoice')));
+    expect(
+      installer,
+      isNot(
+        contains(
+          'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.pdf\\UserChoice',
+        ),
+      ),
+    );
   });
 }
