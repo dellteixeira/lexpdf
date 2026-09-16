@@ -21,6 +21,11 @@ class PdfAndroidTouchInputPolicy {
   static bool multiTouchNavigationActive = false;
   static bool? stylusHardwareAvailable;
 
+  // Compatibility alias retained for the existing overlay/tests while input
+  // ownership is no longer determined only by screen size.
+  static bool get compactPhoneInkActive => touchInkActive;
+  static set compactPhoneInkActive(bool value) => touchInkActive = value;
+
   static bool isCompactAndroidPhone(BuildContext context) =>
       defaultTargetPlatform == TargetPlatform.android &&
       MediaQuery.sizeOf(context).shortestSide < compactPhoneShortestSide;
