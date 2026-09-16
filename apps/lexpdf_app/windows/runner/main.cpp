@@ -1,11 +1,20 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <shellapi.h>
 #include <windows.h>
+
+#include <cwctype>
+#include <string>
+#include <vector>
 
 #include "flutter_window.h"
 #include "utils.h"
 
 namespace {
+
+constexpr wchar_t kSingleInstanceMutexName[] =
+    L"Local\\LexPDF.SingleInstance.2026";
+constexpr ULONG_PTR kLexPdfCopyDataId = 0x4C505044;  // 'LPPD'
 
 bool ForceSoftwareRenderingRequested() {
   wchar_t value[8] = {};
@@ -22,19 +31,6 @@ void ConfigureWindowsRenderer() {
   // Keep Impeller disabled on Windows because LexPDF's PDF pages are large
   // raster surfaces with independent vector/stylus overlays. Skia is the
   // validated compositor for that path.
-  //
-  // IMPORTANT: do not select software rendering automatically by Windows
-  // version. A PDF page rendered by PDFium is uploaded/scaled by Flutter as a
-  // large image. Forcing Flutter's software backend on Windows 10 can leave
-  // those page bitmaps soft or geometrically corrupted while ordinary Flutter
-  // widgets and vector overlays remain sharp. That symptom matches the real
-  // Win10 failures observed in LexPDF.
-  //
-  // Hardware-accelerated Skia is therefore the default on both Windows 10 and
-  // Windows 11, matching the strategy used by mature PDF viewers that prefer
-  // accelerated 2D composition when the GPU is available. A software fallback
-  // remains available only as an explicit diagnostic escape hatch:
-  //   LEXPDF_FORCE_SOFTWARE_RENDERING=1
   if (ForceSoftwareRenderingRequested()) {
     ::SetEnvironmentVariableW(L"FLUTTER_ENGINE_SWITCHES", L"2");
     ::SetEnvironmentVariableW(L"FLUTTER_ENGINE_SWITCH_1",
@@ -49,33 +45,88 @@ void ConfigureWindowsRenderer() {
                             L"enable-impeller=false");
 }
 
+bool LooksLikePdf(const std::wstring& value) {
+  if (value.size() < 4) return false;
+  std::wstring tail = value.substr(value.size() - 4);
+  for (auto& ch : tail) ch = static_cast<wchar_t>(std::towlower(ch));
+  return tail == L".pdf";
+}
+
+std::wstring FirstPdfCommandLineArgument() {
+  int argc = 0;
+  wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+  if (argv == nullptr) return std::wstring();
+
+  std::wstring result;
+  for (int index = 1; index < argc; ++index) {
+    const std::wstring candidate(argv[index]);
+    if (LooksLikePdf(candidate)) {
+      result = candidate;
+      break;
+    }
+  }
+  ::LocalFree(argv);
+  return result;
+}
+
+void ForwardToExistingInstance() {
+  HWND existing = nullptr;
+  // The mutex is created before the primary window. Allow a short startup race
+  // so a double-click during cold start is not silently lost.
+  for (int attempt = 0; attempt < 50 && existing == nullptr; ++attempt) {
+    existing = ::FindWindowW(nullptr, L"LexPDF");
+    if (existing == nullptr) ::Sleep(100);
+  }
+  if (existing == nullptr) return;
+
+  const std::wstring pdf = FirstPdfCommandLineArgument();
+  if (!pdf.empty()) {
+    COPYDATASTRUCT data = {};
+    data.dwData = kLexPdfCopyDataId;
+    data.cbData = static_cast<DWORD>((pdf.size() + 1) * sizeof(wchar_t));
+    data.lpData = const_cast<wchar_t*>(pdf.c_str());
+    DWORD_PTR ignored = 0;
+    ::SendMessageTimeoutW(existing, WM_COPYDATA, 0,
+                          reinterpret_cast<LPARAM>(&data),
+                          SMTO_ABORTIFHUNG | SMTO_BLOCK, 3000, &ignored);
+  }
+
+  if (::IsIconic(existing)) ::ShowWindow(existing, SW_RESTORE);
+  ::SetForegroundWindow(existing);
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
-                      _In_ wchar_t *command_line, _In_ int show_command) {
+                      _In_ wchar_t* command_line, _In_ int show_command) {
+  HANDLE single_instance_mutex =
+      ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
+  if (single_instance_mutex != nullptr &&
+      ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    ForwardToExistingInstance();
+    ::CloseHandle(single_instance_mutex);
+    return EXIT_SUCCESS;
+  }
+
   ConfigureWindowsRenderer();
 
-  // Attach to console when present (e.g., 'flutter run') or create a
-  // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
     CreateAndAttachConsole();
   }
 
-  // Initialize COM, so that it is available for use in the library and/or
-  // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   flutter::DartProject project(L"data");
-
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
-
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"LexPDF", origin, size)) {
+    if (single_instance_mutex != nullptr) ::CloseHandle(single_instance_mutex);
+    ::CoUninitialize();
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
@@ -87,5 +138,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  if (single_instance_mutex != nullptr) ::CloseHandle(single_instance_mutex);
   return EXIT_SUCCESS;
 }
