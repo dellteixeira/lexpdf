@@ -11,111 +11,106 @@ import '../lib/src/widgets/pdf_android_touch_input_policy.dart';
 import '../lib/src/widgets/pdf_stylus_page_overlay.dart';
 
 void main() {
-  setUp(() {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    PdfAndroidTouchInputPolicy.reset();
-  });
-
-  tearDown(() {
-    PdfAndroidTouchInputPolicy.reset();
-    debugDefaultTargetPlatformOverride = null;
-  });
-
   testWidgets('compact Android phone uses one finger as ink', (tester) async {
-    final completed = <PdfInkStroke>[];
+    await _withAndroidPlatform(() async {
+      final completed = <PdfInkStroke>[];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MediaQuery(
-          data: const MediaQueryData(size: Size(400, 800)),
-          child: Scaffold(
-            body: SizedBox(
-              width: 400,
-              height: 700,
-              child: PdfStylusPageOverlay(
-                documentId: 'doc',
-                pageNumber: 1,
-                strokes: const <PdfInkStroke>[],
-                enabled: true,
-                tool: InkTool.pen,
-                colorValue: 0xFF000000,
-                strokeWidth: 3,
-                eraserMode: false,
-                onStrokeCompleted: completed.add,
-                onEraseApplied: (_) {},
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(400, 800)),
+            child: Scaffold(
+              body: SizedBox(
+                width: 400,
+                height: 700,
+                child: PdfStylusPageOverlay(
+                  documentId: 'doc',
+                  pageNumber: 1,
+                  strokes: const <PdfInkStroke>[],
+                  enabled: true,
+                  tool: InkTool.pen,
+                  colorValue: 0xFF000000,
+                  strokeWidth: 3,
+                  eraserMode: false,
+                  onStrokeCompleted: completed.add,
+                  onEraseApplied: (_) {},
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(PdfAndroidTouchInputPolicy.compactPhoneInkActive, isTrue);
+      expect(PdfAndroidTouchInputPolicy.compactPhoneInkActive, isTrue);
 
-    final finger = await tester.createGesture(kind: PointerDeviceKind.touch);
-    await finger.down(const Offset(80, 120));
-    await finger.moveTo(const Offset(140, 180));
-    await finger.moveTo(const Offset(180, 220));
-    await finger.up();
-    await tester.pump();
+      final finger = await tester.createGesture(kind: PointerDeviceKind.touch);
+      await finger.down(const Offset(80, 120));
+      await finger.moveTo(const Offset(140, 180));
+      await finger.moveTo(const Offset(180, 220));
+      await finger.up();
+      await tester.pump();
 
-    expect(completed, hasLength(1));
-    expect(completed.single.points.length, greaterThanOrEqualTo(3));
+      expect(completed, hasLength(1));
+      expect(completed.single.points.length, greaterThanOrEqualTo(3));
+    });
   });
 
   testWidgets('large Android tablet keeps touch out of ink but S Pen writes', (
     tester,
   ) async {
-    final completed = <PdfInkStroke>[];
+    await _withAndroidPlatform(() async {
+      final completed = <PdfInkStroke>[];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MediaQuery(
-          data: const MediaQueryData(size: Size(800, 1200)),
-          child: Scaffold(
-            body: SizedBox(
-              width: 500,
-              height: 600,
-              child: PdfStylusPageOverlay(
-                documentId: 'doc',
-                pageNumber: 1,
-                strokes: const <PdfInkStroke>[],
-                enabled: true,
-                tool: InkTool.pen,
-                colorValue: 0xFF000000,
-                strokeWidth: 3,
-                eraserMode: false,
-                onStrokeCompleted: completed.add,
-                onEraseApplied: (_) {},
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 1200)),
+            child: Scaffold(
+              body: SizedBox(
+                width: 500,
+                height: 600,
+                child: PdfStylusPageOverlay(
+                  documentId: 'doc',
+                  pageNumber: 1,
+                  strokes: const <PdfInkStroke>[],
+                  enabled: true,
+                  tool: InkTool.pen,
+                  colorValue: 0xFF000000,
+                  strokeWidth: 3,
+                  eraserMode: false,
+                  onStrokeCompleted: completed.add,
+                  onEraseApplied: (_) {},
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(PdfAndroidTouchInputPolicy.compactPhoneInkActive, isFalse);
+      expect(PdfAndroidTouchInputPolicy.compactPhoneInkActive, isFalse);
 
-    final finger = await tester.createGesture(kind: PointerDeviceKind.touch);
-    await finger.down(const Offset(80, 120));
-    await finger.moveTo(const Offset(150, 200));
-    await finger.up();
-    await tester.pump();
-    expect(completed, isEmpty);
+      final finger = await tester.createGesture(kind: PointerDeviceKind.touch);
+      await finger.down(const Offset(80, 120));
+      await finger.moveTo(const Offset(150, 200));
+      await finger.up();
+      await tester.pump();
+      expect(completed, isEmpty);
 
-    final sPen = await tester.createGesture(kind: PointerDeviceKind.stylus);
-    await sPen.down(const Offset(100, 140));
-    await sPen.moveTo(const Offset(170, 210));
-    await sPen.moveTo(const Offset(210, 250));
-    await sPen.up();
-    await tester.pump();
+      final sPen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await sPen.down(const Offset(100, 140));
+      await sPen.moveTo(const Offset(170, 210));
+      await sPen.moveTo(const Offset(210, 250));
+      await sPen.up();
+      await tester.pump();
 
-    expect(completed, hasLength(1));
+      expect(completed, hasLength(1));
+    });
   });
 
   testWidgets('compact phone reserves two fingers for PDF navigation', (
     tester,
   ) async {
+    PdfAndroidTouchInputPolicy.reset();
     final controller = _FakePdfViewerController();
     PdfAndroidTouchInputPolicy.compactPhoneInkActive = true;
 
@@ -161,7 +156,19 @@ void main() {
     await first.up();
     await tester.pump();
     expect(PdfAndroidTouchInputPolicy.multiTouchNavigationActive, isFalse);
+    PdfAndroidTouchInputPolicy.reset();
   });
+}
+
+Future<void> _withAndroidPlatform(Future<void> Function() body) async {
+  PdfAndroidTouchInputPolicy.reset();
+  debugDefaultTargetPlatformOverride = TargetPlatform.android;
+  try {
+    await body();
+  } finally {
+    debugDefaultTargetPlatformOverride = null;
+    PdfAndroidTouchInputPolicy.reset();
+  }
 }
 
 class _FakePdfViewerController extends PdfViewerController {
