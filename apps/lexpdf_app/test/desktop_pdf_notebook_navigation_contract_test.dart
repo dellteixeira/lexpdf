@@ -23,7 +23,11 @@ void main() {
     ).readAsStringSync();
     final source = '$entrypoint\n$implementation';
 
-    expect(source, contains("export 'pdf_workspace_stylus_screen.dart';"));
+    expect(
+      entrypoint,
+      contains("import 'pdf_workspace_stylus_screen.dart' as editor;"),
+    );
+    expect(entrypoint, contains('editor.PdfWorkspaceScreen('));
     expect(source, contains('LogicalKeyboardKey.arrowLeft'));
     expect(source, contains('LogicalKeyboardKey.arrowRight'));
     expect(source, contains('LogicalKeyboardKey.arrowUp'));
