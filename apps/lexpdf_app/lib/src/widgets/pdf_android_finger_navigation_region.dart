@@ -5,13 +5,18 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'pdf_android_touch_input_policy.dart';
+
 /// Android pointer router for the PDF workspace.
 ///
 /// The contract is intentionally explicit instead of relying on the gesture
 /// arena inside [PdfViewer]:
 /// - S Pen / stylus remains available to the active PDF tool;
-/// - one touch pointer pans the PDF in X/Y;
-/// - two touch pointers pan and pinch-zoom around their live focal point;
+/// - on tablets, one touch pointer pans and two touch pointers pan/pinch;
+/// - on compact phones with an ink tool active, one touch pointer is reserved
+///   for ink and navigation starts when a second finger joins;
+/// - once compact-phone multi-touch navigation starts it owns the sequence
+///   until every finger is lifted;
 /// - while a stylus is down, touch contacts are treated as palm input and do
 ///   not move the document until those contacts are lifted and placed again.
 ///
@@ -59,6 +64,12 @@ class _PdfAndroidFingerNavigationRegionState
     }
   }
 
+  @override
+  void dispose() {
+    PdfAndroidTouchInputPolicy.reset();
+    super.dispose();
+  }
+
   bool _isStylus(PointerEvent event) =>
       event.kind == PointerDeviceKind.stylus ||
       event.kind == PointerDeviceKind.invertedStylus;
@@ -75,6 +86,7 @@ class _PdfAndroidFingerNavigationRegionState
       // require a fresh finger-down event instead.
       _palmBlockedTouches.addAll(_touchPositions.keys);
       _touchPositions.clear();
+      PdfAndroidTouchInputPolicy.finishTouchSequence();
       _finishNavigation();
       return;
     }
@@ -87,6 +99,21 @@ class _PdfAndroidFingerNavigationRegionState
 
     _touchPositions[event.pointer] = event.localPosition;
     widget.controller.stopInteractiveViewerAnimation();
+
+    if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
+        !PdfAndroidTouchInputPolicy.multiTouchNavigationActive &&
+        _touchPositions.length < 2) {
+      // A single finger belongs to the active ink tool on phones without an
+      // active stylus. Keep tracking its position in case a second finger joins.
+      _rebaseGesture();
+      return;
+    }
+
+    if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
+        _touchPositions.length >= 2) {
+      PdfAndroidTouchInputPolicy.beginMultiTouchNavigation();
+    }
+
     _beginNavigationIfNeeded();
     _rebaseGesture();
   }
@@ -98,6 +125,19 @@ class _PdfAndroidFingerNavigationRegionState
 
     _touchPositions[event.pointer] = event.localPosition;
     if (_stylusPointers.isNotEmpty || !widget.controller.isReady) return;
+
+    if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
+        !PdfAndroidTouchInputPolicy.multiTouchNavigationActive &&
+        _touchPositions.length < 2) {
+      return;
+    }
+
+    if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
+        _touchPositions.length >= 2 &&
+        !PdfAndroidTouchInputPolicy.multiTouchNavigationActive) {
+      PdfAndroidTouchInputPolicy.beginMultiTouchNavigation();
+      _rebaseGesture();
+    }
 
     _beginNavigationIfNeeded();
     if (!_navigating) return;
@@ -143,6 +183,7 @@ class _PdfAndroidFingerNavigationRegionState
 
   void _afterTouchDeparture() {
     if (_touchPositions.isEmpty) {
+      PdfAndroidTouchInputPolicy.finishTouchSequence();
       _finishNavigation();
       return;
     }
@@ -258,6 +299,7 @@ class _PdfAndroidFingerNavigationRegionState
     _touchPositions.clear();
     _stylusPointers.clear();
     _palmBlockedTouches.clear();
+    PdfAndroidTouchInputPolicy.finishTouchSequence();
     if (notifyEnd) {
       _finishNavigation();
     } else {
