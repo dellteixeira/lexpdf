@@ -34,29 +34,43 @@ void main() {
     expect(workspace, contains('_stylusMode == _StylusMode.note'));
 
     // Android touch navigation has its own raw-pointer route, independent of
-    // the selected annotation tool and independent of pdfrx's gesture arena.
+    // pdfrx's gesture arena. Compact phones can reserve one finger for ink and
+    // promote a two-finger sequence to navigation.
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
     expect(workspace, contains('active: _android'));
     expect(workspace, contains('!_android &&'));
     expect(router, contains('_applySingleFingerPan'));
     expect(router, contains('_applyTwoFingerPanAndZoom'));
     expect(router, contains('PointerDeviceKind.touch'));
+    expect(router, contains('beginMultiTouchNavigation'));
   });
 
-  test('stylus overlay rejects touch and keeps pressure-aware vector ink', () {
+  test('stylus overlay supports tablet S Pen and compact-phone touch ink', () {
     final overlay = File(
       'lib/src/widgets/pdf_stylus_page_overlay.dart',
+    ).readAsStringSync();
+    final policy = File(
+      'lib/src/widgets/pdf_android_touch_input_policy.dart',
     ).readAsStringSync();
 
     expect(overlay, contains('PointerDeviceKind.stylus'));
     expect(overlay, contains('PointerDeviceKind.invertedStylus'));
     expect(overlay, contains('PointerDeviceKind.mouse'));
-    expect(overlay, isNot(contains('PointerDeviceKind.touch')));
+    expect(overlay, contains('PointerDeviceKind.touch'));
+    expect(overlay, contains('PdfAndroidTouchInputPolicy.compactPhoneInkActive'));
+    expect(
+      overlay,
+      contains('PdfAndroidTouchInputPolicy.multiTouchNavigationActive'),
+    );
     expect(overlay, contains('event.pressure'));
     expect(overlay, contains('event.tilt'));
     expect(overlay, contains('PdfInkEraser'));
     expect(overlay, contains('event.kind == PointerDeviceKind.invertedStylus'));
     expect(overlay, contains('HitTestBehavior.translucent'));
+
+    expect(policy, contains('compactPhoneShortestSide = 600'));
+    expect(policy, contains('TargetPlatform.android'));
+    expect(policy, contains('MediaQuery.sizeOf(context).shortestSide'));
   });
 
   test('highlighter is translucent and preserves glyph contrast', () {
