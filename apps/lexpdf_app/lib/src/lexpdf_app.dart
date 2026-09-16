@@ -10,6 +10,7 @@ import 'core/storage/local_database.dart';
 import 'core/storage/local_document_catalog.dart';
 import 'core/storage/local_ink_store.dart';
 import 'core/storage/local_pdf_navigation_store.dart';
+import 'core/storage/local_pdf_workspace_session_store.dart';
 import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
@@ -38,6 +39,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
   late final LocalInkStore _inkStore = LocalInkStore(widget.database);
   late final LocalPdfNavigationStore _navigationStore =
       LocalPdfNavigationStore(widget.database);
+  late final LocalPdfWorkspaceSessionStore _workspaceSessionStore =
+      LocalPdfWorkspaceSessionStore(widget.database);
   final DocumentPickerService _picker = const DocumentPickerService();
   final NativePdfOpenService _nativeOpen = NativePdfOpenService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -53,52 +56,82 @@ class _LexPdfAppState extends State<LexPdfApp> {
   Future<void> _bootstrapNativeOpen() async {
     final initialPath = widget.initialPdfPath;
     if (initialPath != null) await _openNativePdf(initialPath);
-    await _nativeOpen.start(_openNativePdf);
+    await _nativeOpen.start(
+      _openNativePdf,
+      onOpenMany: _openNativePdfBatch,
+    );
   }
 
-  Future<void> _openNativePdf(String path) async {
-    if (!mounted || _lastNativePath == path) return;
-    _lastNativePath = path;
+  Future<void> _openNativePdf(String path) => _openNativePdfBatch([path]);
+
+  Future<void> _openNativePdfBatch(List<String> paths) async {
+    if (!mounted || paths.isEmpty) return;
+    final requested = paths.toSet().take(10).toList(growable: false);
+    if (requested.isEmpty || _lastNativePath == requested.first) return;
+    _lastNativePath = requested.first;
 
     try {
-      final file = File(path);
-      if (!await file.exists()) {
-        throw StateError('arquivo não encontrado');
+      final documents = <DocumentRef>[];
+      for (final path in requested) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        if (!path.toLowerCase().endsWith('.pdf')) continue;
+        final document = DocumentRef(
+          id: path,
+          name: path.split(Platform.pathSeparator).last,
+          provider: DocumentProviderKind.local,
+          localPath: path,
+          availableOffline: true,
+          syncState: DocumentSyncState.localOnly,
+        );
+        await _catalog.upsert(document);
+        documents.add(document);
       }
-      if (!path.toLowerCase().endsWith('.pdf')) {
-        throw StateError('arquivo recebido não é PDF');
+      if (documents.isEmpty) {
+        throw StateError('nenhum PDF válido foi recebido');
       }
 
-      final document = DocumentRef(
-        id: path,
-        name: path.split(Platform.pathSeparator).last,
-        provider: DocumentProviderKind.local,
-        localPath: path,
-        availableOffline: true,
-        syncState: DocumentSyncState.localOnly,
+      // Windows drag/drop may deliver several PDFs at once. Merge them into the
+      // persistent workspace session before opening the shell so they appear as
+      // real tabs instead of spawning several application windows/routes.
+      final current = await _workspaceSessionStore.load();
+      final merged = <PdfWorkspaceTabState>[];
+      final seen = <String>{};
+      for (final tab in current.tabs) {
+        if (seen.add(tab.document.id)) merged.add(tab);
+      }
+      for (final document in documents) {
+        if (seen.add(document.id)) {
+          merged.add(PdfWorkspaceTabState(document: document, initialPage: 1));
+        }
+      }
+      while (merged.length > 10) {
+        merged.removeAt(0);
+      }
+      final active = documents.first;
+      await _workspaceSessionStore.save(
+        tabs: merged,
+        activeDocumentId: active.id,
       );
-      await _catalog.upsert(document);
+
       final navigator = _navigatorKey.currentState;
       if (!mounted || navigator == null) return;
-
-      // Native/Open-with paths converge on the same workspace used by Biblioteca.
-      // The catalog timestamp must not delay the first workspace frame.
-      unawaited(_catalog.markOpened(document.id));
+      unawaited(_catalog.markOpened(active.id));
       try {
         await navigator.push(
           MaterialPageRoute<void>(
             builder: (_) => PdfWorkspaceScreen(
-              document: document,
+              document: active,
               store: _navigationStore,
               annotations: _annotations,
             ),
           ),
         );
       } finally {
-        if (_lastNativePath == path) _lastNativePath = null;
+        if (_lastNativePath == active.localPath) _lastNativePath = null;
       }
     } catch (error) {
-      if (_lastNativePath == path) _lastNativePath = null;
+      _lastNativePath = null;
       final context = _navigatorKey.currentContext;
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
