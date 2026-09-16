@@ -23,9 +23,15 @@ void main() {
   });
 
   test('workspace groups navigation editing OCR and zoom controls', () {
+    final entrypoint =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
     final workspace = _workspaceSource();
 
-    expect(workspace, contains("export 'pdf_workspace_stylus_screen.dart';"));
+    expect(
+      entrypoint,
+      contains("import 'pdf_workspace_stylus_screen.dart' as editor;"),
+    );
+    expect(entrypoint, contains('editor.PdfWorkspaceScreen('));
     expect(workspace, contains('PdfViewer.file('));
     expect(workspace, contains('useProgressiveLoading: true'));
     expect(workspace, contains('_controller.zoomUpOnLocalPosition('));
