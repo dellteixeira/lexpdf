@@ -24,12 +24,14 @@ void main() {
     final app = File('lib/src/lexpdf_app.dart').readAsStringSync();
 
     expect(service, contains("MethodChannel('lexpdf/native_pdf_open')"));
-    expect(service, contains("call.method != 'openPdfPath'"));
+    expect(service, contains("call.method == 'openPdfPath'"));
+    expect(service, contains("call.method == 'openPdfPaths'"));
+    expect(service, contains('.where(_looksLikePdf)'));
     expect(service, contains("invokeMethod<String>('getInitialPdfPath')"));
     expect(app, contains('NativePdfOpenService _nativeOpen'));
     expect(app, contains('PdfWorkspaceScreen('));
     expect(app, contains('await _catalog.upsert(document)'));
-    expect(app, contains('_catalog.markOpened(document.id)'));
+    expect(app, contains('_catalog.markOpened(active.id)'));
     expect(app, isNot(contains('PdfReaderScreen(')));
   });
 }
