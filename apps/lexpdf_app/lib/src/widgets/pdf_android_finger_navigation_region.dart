@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdfrx/pdfrx.dart';
 
@@ -12,11 +14,12 @@ import 'pdf_android_touch_input_policy.dart';
 /// The contract is intentionally explicit instead of relying on the gesture
 /// arena inside [PdfViewer]:
 /// - S Pen / stylus remains available to the active PDF tool;
-/// - on tablets, one touch pointer pans and two touch pointers pan/pinch;
-/// - on compact phones with an ink tool active, one touch pointer is reserved
-///   for ink and navigation starts when a second finger joins;
-/// - once compact-phone multi-touch navigation starts it owns the sequence
-///   until every finger is lifted;
+/// - on active-stylus devices, one touch pointer pans and two touch pointers
+///   pan/pinch;
+/// - on touch-only Android devices, one touch pointer is reserved for ink when
+///   an ink tool is active and navigation starts when a second finger joins;
+/// - once touch-ink multi-touch navigation starts it owns the sequence until
+///   every finger is lifted;
 /// - while a stylus is down, touch contacts are treated as palm input and do
 ///   not move the document until those contacts are lifted and placed again.
 ///
@@ -48,6 +51,10 @@ class PdfAndroidFingerNavigationRegion extends StatefulWidget {
 
 class _PdfAndroidFingerNavigationRegionState
     extends State<PdfAndroidFingerNavigationRegion> {
+  static const MethodChannel _inputCapabilities = MethodChannel(
+    'lexpdf/input_capabilities',
+  );
+
   final Map<int, Offset> _touchPositions = <int, Offset>{};
   final Set<int> _stylusPointers = <int>{};
   final Set<int> _palmBlockedTouches = <int>{};
@@ -57,8 +64,33 @@ class _PdfAndroidFingerNavigationRegionState
   double? _lastDistance;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_probeInputCapabilities());
+  }
+
+  Future<void> _probeInputCapabilities() async {
+    if (!widget.active || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    try {
+      final hasStylus = await _inputCapabilities.invokeMethod<bool>('hasStylus');
+      PdfAndroidTouchInputPolicy.setStylusHardwareAvailable(hasStylus);
+    } on MissingPluginException {
+      // Keep the validated size heuristic as a safe fallback for tests and
+      // unusual Android embeddings without the native capability channel.
+    } on PlatformException {
+      // Capability probing must never block PDF input. Runtime pointer kinds
+      // still upgrade the policy when an active stylus is actually used.
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant PdfAndroidFingerNavigationRegion oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      unawaited(_probeInputCapabilities());
+    }
     if (oldWidget.active && !widget.active) {
       _resetTouchState(notifyEnd: true);
     }
@@ -78,6 +110,7 @@ class _PdfAndroidFingerNavigationRegionState
     if (!widget.active) return;
 
     if (_isStylus(event)) {
+      PdfAndroidTouchInputPolicy.registerStylusContact();
       _stylusPointers.add(event.pointer);
       widget.controller.stopInteractiveViewerAnimation();
 
@@ -103,8 +136,8 @@ class _PdfAndroidFingerNavigationRegionState
     if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
         !PdfAndroidTouchInputPolicy.multiTouchNavigationActive &&
         _touchPositions.length < 2) {
-      // A single finger belongs to the active ink tool on phones without an
-      // active stylus. Keep tracking its position in case a second finger joins.
+      // A single finger belongs to the active ink tool on touch-only Android
+      // devices. Keep tracking its position in case a second finger joins.
       _rebaseGesture();
       return;
     }
@@ -228,14 +261,10 @@ class _PdfAndroidFingerNavigationRegionState
 
     widget.onFocalPointChanged?.call(currentFocal);
 
-    // Move the document with the centroid first. This makes a two-finger drag
-    // behave like a normal pan even when the finger spacing does not change.
     if (previousFocal != null) {
       _panBy(currentFocal - previousFocal);
     }
 
-    // Then apply the incremental pinch around the current centroid. pdfrx's
-    // helper keeps the document point under the fingers stationary.
     if (previousDistance != null && previousDistance > 0) {
       final scaleDelta = currentDistance / previousDistance;
       if (scaleDelta.isFinite && (scaleDelta - 1.0).abs() > 0.0001) {

@@ -3,6 +3,7 @@ package com.lexpdf.lexpdf_app
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,16 +11,18 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     companion object {
-        private const val CHANNEL = "lexpdf/native_pdf_open"
+        private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
+        private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
     }
 
     private var channel: MethodChannel? = null
+    private var inputCapabilitiesChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).also { methodChannel ->
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PDF_CHANNEL).also { methodChannel ->
             methodChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getInitialPdfPath" -> {
@@ -31,6 +34,17 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        inputCapabilitiesChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            INPUT_CAPABILITIES_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "hasStylus" -> result.success(hasStylusInputDevice())
+                    else -> result.notImplemented()
+                }
+            }
+        }
         processIntent(intent)
     }
 
@@ -38,6 +52,15 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    private fun hasStylusInputDevice(): Boolean {
+        return InputDevice.getDeviceIds().any { deviceId ->
+            val device = InputDevice.getDevice(deviceId) ?: return@any false
+            val sources = device.sources
+            (sources and InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS ||
+                (sources and InputDevice.SOURCE_BLUETOOTH_STYLUS) == InputDevice.SOURCE_BLUETOOTH_STYLUS
+        }
     }
 
     private fun processIntent(sourceIntent: Intent?) {

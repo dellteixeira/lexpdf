@@ -111,6 +111,43 @@ jobs:
             apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
             apps/lexpdf_app/ANDROID_TARGET_SDK.txt
           if-no-files-found: error
+      - name: Build lightweight ABI-specific Android APKs
+        run: >-
+          flutter build apk --release --split-per-abi
+          --dart-define=LEXPDF_ENVIRONMENT=production
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Verify lightweight ARM64 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          universal='build/app/outputs/flutter-apk/app-release.apk'
+          arm64='build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'
+          test -s "$arm64"
+          unzip -l "$arm64" | grep -q 'AndroidManifest.xml'
+          unzip -l "$arm64" | grep -q 'classes.dex'
+          unzip -l "$arm64" | grep -q 'lib/arm64-v8a/libapp.so'
+          if unzip -l "$arm64" | grep -q 'lib/x86_64/libapp.so'; then
+            echo 'ARM64 APK unexpectedly contains x86_64 app code.' >&2
+            exit 1
+          fi
+          if [ "$(stat -c%s "$arm64")" -ge "$(stat -c%s "$universal")" ]; then
+            echo 'ARM64 APK must be smaller than the universal APK.' >&2
+            exit 1
+          fi
+          MINIMUM_TARGET_SDK=36 \
+          ANDROID_TARGET_SDK_REPORT=ANDROID_TARGET_SDK_ARM64.txt \
+          bash tool/verify_android_target_sdk.sh "$arm64"
+          sha256sum "$arm64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-android-arm64
+          path: |
+            apps/lexpdf_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            apps/lexpdf_app/ANDROID_TARGET_SDK_ARM64.txt
+          if-no-files-found: error
 
   windows-release:
     needs: prerelease-invariants
