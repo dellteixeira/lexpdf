@@ -4,17 +4,17 @@ import 'package:flutter/material.dart';
 import '../core/ink/ink_models.dart';
 import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
+import 'pdf_android_touch_input_policy.dart';
 
 /// Drawing surface for a PDF page.
 ///
-/// Pointer ownership is intentionally split by device kind:
+/// Pointer ownership is intentionally adaptive on Android:
 /// - stylus / inverted stylus (and mouse on desktop) operate the active ink tool;
-/// - touch is never converted into ink here, so fingers remain available to
-///   the parent PDF viewer for pan/scroll/pinch gestures on every Android size.
-///
-/// This is especially important on Samsung tablets with S Pen and on compact
-/// Android phones such as the Poco F5, where the old phone-only finger drawing
-/// recognizer consumed the same drag gesture needed to move the PDF.
+/// - on larger Android tablets, touch stays reserved for PDF navigation so an
+///   S Pen can write while fingers pan/zoom;
+/// - on compact Android phones, where an active stylus is commonly unavailable,
+///   one finger operates Caneta/Marca-texto/Borracha and two fingers switch the
+///   whole gesture sequence to PDF navigation.
 class PdfStylusPageOverlay extends StatefulWidget {
   const PdfStylusPageOverlay({
     required this.documentId,
@@ -52,12 +52,19 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   final List<InkPoint> _active = <InkPoint>[];
   int? _pointer;
+  PointerDeviceKind? _pointerKind;
   Size _size = Size.zero;
 
-  bool _accept(PointerEvent event) =>
-      event.kind == PointerDeviceKind.stylus ||
-      event.kind == PointerDeviceKind.invertedStylus ||
-      event.kind == PointerDeviceKind.mouse;
+  bool _accept(PointerEvent event) {
+    if (event.kind == PointerDeviceKind.stylus ||
+        event.kind == PointerDeviceKind.invertedStylus ||
+        event.kind == PointerDeviceKind.mouse) {
+      return true;
+    }
+    return event.kind == PointerDeviceKind.touch &&
+        PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
+        !PdfAndroidTouchInputPolicy.multiTouchNavigationActive;
+  }
 
   bool _stylusButtonPressed(PointerEvent event) {
     if (event.kind != PointerDeviceKind.stylus &&
@@ -72,6 +79,10 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
       widget.eraserMode ||
       event.kind == PointerDeviceKind.invertedStylus ||
       _stylusButtonPressed(event);
+
+  bool get _touchStrokeWasPromotedToNavigation =>
+      _pointerKind == PointerDeviceKind.touch &&
+      PdfAndroidTouchInputPolicy.multiTouchNavigationActive;
 
   InkPoint _point(PointerEvent event) {
     final pressure = event.pressureMax > event.pressureMin
@@ -95,6 +106,7 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
   void _down(PointerDownEvent event) {
     if (!widget.enabled || _pointer != null || !_accept(event)) return;
     _pointer = event.pointer;
+    _pointerKind = event.kind;
     if (_isErasing(event)) {
       _active.clear();
       _eraseAt(event.localPosition);
@@ -109,6 +121,10 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   void _move(PointerMoveEvent event) {
     if (_pointer != event.pointer) return;
+    if (_touchStrokeWasPromotedToNavigation) {
+      _cancelActiveTouchStroke();
+      return;
+    }
     if (_isErasing(event)) {
       if (_active.isNotEmpty) {
         _active.clear();
@@ -123,20 +139,33 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   void _up(PointerUpEvent event) {
     if (_pointer != event.pointer) return;
+    if (_touchStrokeWasPromotedToNavigation) {
+      _cancelActiveTouchStroke();
+      return;
+    }
     if (!_isErasing(event) && _active.isNotEmpty) {
       _active.add(_point(event));
       _completeStroke();
     }
-    _pointer = null;
-    _active.clear();
+    _clearActivePointer();
     setState(() {});
   }
 
   void _cancel(PointerCancelEvent event) {
     if (_pointer != event.pointer) return;
-    _pointer = null;
-    _active.clear();
+    _clearActivePointer();
     setState(() {});
+  }
+
+  void _cancelActiveTouchStroke() {
+    _clearActivePointer();
+    if (mounted) setState(() {});
+  }
+
+  void _clearActivePointer() {
+    _pointer = null;
+    _pointerKind = null;
+    _active.clear();
   }
 
   void _completeStroke() {
@@ -176,14 +205,16 @@ class _PdfStylusPageOverlayState extends State<PdfStylusPageOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    PdfAndroidTouchInputPolicy.configureInk(
+      context: context,
+      inkEnabled: widget.enabled,
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         _size = Size(constraints.maxWidth, constraints.maxHeight);
         return IgnorePointer(
           ignoring: !widget.enabled,
           child: Listener(
-            // Translucent keeps the page overlay observable by the stylus while
-            // allowing the PdfViewer ancestor to own touch navigation gestures.
             behavior: HitTestBehavior.translucent,
             onPointerDown: _down,
             onPointerMove: _move,

@@ -13,21 +13,34 @@ void main() {
     final router = File(
       'lib/src/widgets/pdf_android_finger_navigation_region.dart',
     ).readAsStringSync();
+    final policy = File(
+      'lib/src/widgets/pdf_android_touch_input_policy.dart',
+    ).readAsStringSync();
 
-    // Ink belongs to S Pen/stylus. The overlay must not turn finger drags into
-    // ink or install a competing pan recognizer.
+    // S Pen/stylus remains the primary ink source on tablets. Compact Android
+    // phones may use one touch pointer as ink, while two fingers are promoted
+    // to navigation for devices such as the Poco F5 that have no active pen.
     expect(overlay, contains('PointerDeviceKind.stylus'));
     expect(overlay, contains('PointerDeviceKind.invertedStylus'));
-    expect(overlay, isNot(contains('PointerDeviceKind.touch')));
+    expect(overlay, contains('PointerDeviceKind.touch'));
+    expect(overlay, contains('PdfAndroidTouchInputPolicy.compactPhoneInkActive'));
+    expect(
+      overlay,
+      contains('PdfAndroidTouchInputPolicy.multiTouchNavigationActive'),
+    );
     expect(overlay, contains('HitTestBehavior.translucent'));
     expect(overlay, isNot(contains('onPanStart:')));
     expect(overlay, isNot(contains('onPanUpdate:')));
     expect(overlay, isNot(contains('onPanEnd:')));
 
-    // Android finger navigation is now explicit and independent of the active
-    // tool. pdfrx's internal Android pan/scale recognizers stay disabled so a
-    // single owner applies one-finger pan and two-finger focal pinch exactly
-    // once, including on the Galaxy Tab S6 Lite.
+    expect(policy, contains('compactPhoneShortestSide = 600'));
+    expect(policy, contains('MediaQuery.sizeOf(context).shortestSide'));
+    expect(policy, contains('TargetPlatform.android'));
+
+    // Android finger navigation remains explicit and independent of pdfrx's
+    // gesture arena. Tablets keep one-finger navigation; compact phones reserve
+    // one finger for ink only while an ink tool is active and use two fingers
+    // for pan/pinch.
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
     expect(workspace, contains('active: _android'));
     expect(workspace, contains('panAxis: PanAxis.free'));
@@ -41,6 +54,7 @@ void main() {
     expect(router, contains('_applySingleFingerPan'));
     expect(router, contains('_applyTwoFingerPanAndZoom'));
     expect(router, contains('_palmBlockedTouches'));
+    expect(router, contains('beginMultiTouchNavigation'));
     expect(router, contains('makeMatrixInSafeRange'));
     expect(router, contains('zoomOnLocalPosition'));
 
