@@ -144,7 +144,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       await _sessionStore.clear();
       return;
     }
-    final safeIndex = _activeIndex.clamp(0, _tabs.length - 1);
+    final safeIndex = _activeIndex.clamp(0, _tabs.length - 1).toInt();
     await _sessionStore.save(
       tabs: [
         for (final tab in _tabs)
@@ -225,9 +225,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       return;
     }
     setState(() {
-      tab
-        ..initialPage = result.pageNumber
-        ..generation++;
+      tab.initialPage = result.pageNumber;
+      tab.generation += 1;
     });
     await _saveSession();
   }
@@ -244,9 +243,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       return;
     }
     setState(() {
-      tab
-        ..initialPage = result.pageNumber
-        ..generation++;
+      tab.initialPage = result.pageNumber;
+      tab.generation += 1;
     });
     await _saveSession();
   }
@@ -405,10 +403,9 @@ class _WorkspaceTab {
   _WorkspaceTab({
     required this.document,
     required this.initialPage,
-    this.generation = 0,
   });
 
   final DocumentRef document;
   int initialPage;
-  int generation;
+  int generation = 0;
 }
