@@ -149,6 +149,11 @@ class LocalStudyNotebookStore {
   }
 
   int? _inferSourcePage(String documentId, String sourceText) {
+    final hasIndex = db.database.select(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pdf_page_text_index' LIMIT 1;",
+    ).isNotEmpty;
+    if (!hasIndex) return null;
+
     final normalized = sourceText.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normalized.isEmpty) return null;
     final probe = normalized.length <= 96
