@@ -31,6 +31,7 @@ class LocalModelAiStudyEngine implements AiStudyEngine {
     required AiStudyAction action,
     required String text,
     int itemCount = 8,
+    AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
   }) async {
     if (!await runner.isAvailable()) {
       throw StateError('Nenhum modelo local compatível está disponível neste dispositivo.');

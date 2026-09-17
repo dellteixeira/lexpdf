@@ -9,7 +9,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
   RemoteAiStudyEngine({
     required Uri endpoint,
     this.bearerToken,
-    this.inputPolicy = const AiInputPolicy(maxCharacters: 60000),
+    this.inputPolicy = const AiInputPolicy(maxCharacters: 12000),
     HttpClient? httpClient,
   })  : endpoint = _validatedEndpoint(endpoint),
         _http = httpClient ?? HttpClient();
@@ -52,6 +52,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     required AiStudyAction action,
     required String text,
     int itemCount = 8,
+    AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
   }) async {
     final input = inputPolicy.prepare(text, itemCount);
     final request = await _http.postUrl(endpoint);
@@ -65,18 +66,35 @@ class RemoteAiStudyEngine implements AiStudyEngine {
       'action': action.name,
       'text': input.text,
       'itemCount': input.itemCount,
+      'depth': explanationDepth.name,
     }));
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401) {
+        throw StateError('Entre na sua conta LexPDF para usar a IA online.');
+      }
+      if (response.statusCode == 429) {
+        throw StateError(
+          'Limite temporário da IA atingido. Aguarde um pouco ou tente novamente amanhã.',
+        );
+      }
       throw HttpException('${response.statusCode}: $body', uri: endpoint);
     }
     final decoded = (jsonDecode(body) as Map).cast<String, dynamic>();
+    final quota = decoded['quota'] is Map
+        ? (decoded['quota'] as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
     return AiStudyResult(
       action: action,
       engine: kind,
       sourceText: input.text,
       text: decoded['text']?.toString(),
+      explanationDepth: explanationDepth,
+      model: decoded['model']?.toString(),
+      fallbackUsed: decoded['fallbackUsed'] == true,
+      quotaRemaining: _asInt(quota['creditsRemaining']),
+      quotaLimit: _asInt(quota['dailyCreditLimit']),
       flashcards: ((decoded['flashcards'] as List?) ?? const [])
           .map((item) {
             final map = (item as Map).cast<String, dynamic>();
@@ -94,5 +112,10 @@ class RemoteAiStudyEngine implements AiStudyEngine {
           .take(input.itemCount)
           .toList(growable: false),
     );
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
   }
 }
