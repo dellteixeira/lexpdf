@@ -1,4 +1,5 @@
 import '../ai/ai_models.dart';
+import 'local_advanced_study_store.dart';
 import 'local_database.dart';
 
 class StudyNotebookSaveResult {
@@ -11,11 +12,8 @@ class StudyNotebookSaveResult {
   final int savedItems;
 }
 
-/// Persists generated study material into the existing notebook model.
-///
-/// No parallel study database is introduced: each source PDF receives a stable
-/// notebook and generated material is appended as ordinary text objects. The
-/// notebook therefore remains editable/exportable by the normal notebook UI.
+/// Persists generated study material into the existing notebook model and the
+/// structured Phase 9 study index. Both live in the same encrypted database.
 class LocalStudyNotebookStore {
   const LocalStudyNotebookStore(this.db);
 
@@ -25,6 +23,9 @@ class LocalStudyNotebookStore {
     required String documentId,
     required String documentTitle,
     required AiStudyResult result,
+    int? sourcePage,
+    String subject = '',
+    List<String> tags = const [],
   }) async {
     final entries = _entriesFor(result);
     if (entries.isEmpty) {
@@ -108,6 +109,22 @@ class LocalStudyNotebookStore {
         saved++;
       }
 
+      // Older callers/tests can persist study notebooks for a logical source id
+      // before that PDF has been catalogued. Keep that behavior intact. The
+      // structured review index is attached only when the source document is a
+      // real catalog entry, which also guarantees navigation back to the PDF.
+      if (_documentExists(documentId)) {
+        await LocalAdvancedStudyStore(db).saveGeneratedResult(
+          documentId: documentId,
+          documentTitle: documentTitle,
+          notebookId: notebookId,
+          result: result,
+          sourcePage: sourcePage ?? _inferSourcePage(documentId, result.sourceText),
+          subject: subject,
+          tags: tags,
+        );
+      }
+
       db.database.execute(
         'UPDATE notebooks SET updated_at = ? WHERE id = ?;',
         [DateTime.now().toUtc().toIso8601String(), notebookId],
@@ -122,6 +139,40 @@ class LocalStudyNotebookStore {
       db.database.execute('RELEASE SAVEPOINT $savepoint;');
       rethrow;
     }
+  }
+
+  bool _documentExists(String documentId) {
+    return db.database.select(
+      'SELECT 1 FROM documents WHERE id = ? LIMIT 1;',
+      [documentId],
+    ).isNotEmpty;
+  }
+
+  int? _inferSourcePage(String documentId, String sourceText) {
+    final hasIndex = db.database.select(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pdf_page_text_index' LIMIT 1;",
+    ).isNotEmpty;
+    if (!hasIndex) return null;
+
+    final normalized = sourceText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return null;
+    final probe = normalized.length <= 96
+        ? normalized
+        : normalized.substring(0, 96);
+    final rows = db.database.select(
+      '''
+      SELECT page_number
+      FROM pdf_page_text_index
+      WHERE document_id = ?
+        AND instr(lower(replace(content, char(10), ' ')), lower(?)) > 0
+      ORDER BY page_number
+      LIMIT 1;
+      ''',
+      [documentId, probe],
+    );
+    if (rows.isEmpty) return null;
+    final raw = rows.first['page_number'];
+    return raw is int ? raw : int.tryParse(raw.toString());
   }
 
   List<_StudyEntry> _entriesFor(AiStudyResult result) {
@@ -207,7 +258,8 @@ class LocalStudyNotebookStore {
   }
 
   String _notebookId(String documentId) => 'study-notebook-$documentId';
-  String _pageId(String notebookId, int pageNumber) => '$notebookId-page-$pageNumber';
+  String _pageId(String notebookId, int pageNumber) =>
+      '$notebookId-page-$pageNumber';
   String _layerId(String pageId) => '$pageId-layer-0';
 }
 
