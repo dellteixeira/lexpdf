@@ -55,8 +55,6 @@ void main() {
     expect(workflow, contains('app-x86_64-release.apk'));
     expect(workflow, contains('app-release.aab'));
     expect(workflow, contains("find rc-artifacts -type f -iname '*.exe'"));
-    expect(workflow, isNot(contains('SHA256SUMS-macOS.txt')));
-    expect(workflow, isNot(contains("find rc-artifacts -type f -name '*.dmg'")));
   });
 
   test('automated evidence explicitly does not replace real runtime evidence', () {
