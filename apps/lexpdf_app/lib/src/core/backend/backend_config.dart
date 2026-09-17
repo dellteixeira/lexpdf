@@ -44,10 +44,10 @@ class BackendConfig {
       defaultValue:
           _isProduction ? 'https://lexpdf-api.d3-concursos.workers.dev' : '',
     ),
-    aiGatewayUrl: _configuredAiGatewayUrl.isNotEmpty
-        ? _configuredAiGatewayUrl
-        : (_isProduction
+    aiGatewayUrl: _configuredAiGatewayUrl == ''
+        ? (_isProduction
             ? 'https://lexpdf-api.d3-concursos.workers.dev/v1/ai/explain'
-            : ''),
+            : '')
+        : _configuredAiGatewayUrl,
   );
 }
