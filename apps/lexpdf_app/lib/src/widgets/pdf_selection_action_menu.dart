@@ -6,7 +6,9 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/ai/ai_models.dart';
 import '../core/annotations/pdf_annotation_object.dart';
+import '../core/storage/local_study_notebook_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../screens/ai_study_screen.dart';
 
 typedef PdfSelectionStudyAction = Future<void> Function(
   BuildContext context,
@@ -16,10 +18,9 @@ typedef PdfSelectionStudyAction = Future<void> Function(
 
 /// Selection actions shared by the unified PDF workspace.
 ///
-/// PDF page text is immutable in the viewer, so destructive cut/paste are
-/// intentionally exposed as disabled actions rather than pretending to edit
-/// the PDF content stream. Copy, markup, notes and study actions are fully
-/// functional without changing the underlying PDF content stream.
+/// PDF page text is immutable in the viewer, so destructive cut/paste are not
+/// offered. Copy, markup, notes and study actions work on the selected text
+/// without changing the PDF content stream.
 class PdfSelectionActionMenu {
   PdfSelectionActionMenu({
     required this.documentId,
@@ -136,35 +137,33 @@ class PdfSelectionActionMenu {
           unawaited(_createNoteFromSelection(context, delegate));
         },
       ),
-      if (onStudyAction != null) ...[
-        ContextMenuButtonItem(
-          label: 'Flashcard',
-          onPressed: () {
-            params.dismissContextMenu();
-            unawaited(
-              _runStudyAction(context, delegate, AiStudyAction.flashcards),
-            );
-          },
-        ),
-        ContextMenuButtonItem(
-          label: 'Questão',
-          onPressed: () {
-            params.dismissContextMenu();
-            unawaited(
-              _runStudyAction(context, delegate, AiStudyAction.questions),
-            );
-          },
-        ),
-        ContextMenuButtonItem(
-          label: 'Explicar',
-          onPressed: () {
-            params.dismissContextMenu();
-            unawaited(
-              _runStudyAction(context, delegate, AiStudyAction.explain),
-            );
-          },
-        ),
-      ],
+      ContextMenuButtonItem(
+        label: 'Flashcard',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(
+            _runStudyAction(context, delegate, AiStudyAction.flashcards),
+          );
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Questão',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(
+            _runStudyAction(context, delegate, AiStudyAction.questions),
+          );
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Explicar',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(
+            _runStudyAction(context, delegate, AiStudyAction.explain),
+          );
+        },
+      ),
       ContextMenuButtonItem(
         label: 'Sublinhado',
         onPressed: () {
@@ -205,13 +204,53 @@ class PdfSelectionActionMenu {
     PdfTextSelectionDelegate delegate,
     AiStudyAction action,
   ) async {
-    final callback = onStudyAction;
-    if (callback == null) return;
     final ranges = await delegate.getSelectedTextRanges();
     final selectedText = _selectionText(ranges);
     if (selectedText.isEmpty) return;
     await delegate.clearTextSelection();
-    await callback(context, selectedText, action);
+
+    final callback = onStudyAction;
+    if (callback != null) {
+      await callback(context, selectedText, action);
+      return;
+    }
+
+    final rows = store.db.database.select(
+      '''
+      SELECT title, filename, local_path
+      FROM documents
+      WHERE id = ?
+      LIMIT 1;
+      ''',
+      [documentId],
+    );
+    final row = rows.isEmpty ? null : rows.first;
+    final title = (row?['title'] as String?)?.trim();
+    final filename = (row?['filename'] as String?)?.trim();
+    final localPath = (row?['local_path'] as String?)?.trim();
+    final documentTitle = title?.isNotEmpty == true
+        ? title!
+        : (filename?.isNotEmpty == true ? filename! : 'PDF');
+
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AiStudyScreen(
+          initialText: selectedText,
+          documentPath: localPath,
+          initialAction: action,
+          studyStore: LocalStudyNotebookStore(store.db),
+          sourceDocumentId: documentId,
+          sourceDocumentTitle: documentTitle,
+          title: switch (action) {
+            AiStudyAction.flashcards => 'Flashcards do trecho',
+            AiStudyAction.questions => 'Questões do trecho',
+            AiStudyAction.explain => 'Explicar trecho',
+            AiStudyAction.summarize => 'Resumir trecho',
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _createNoteFromSelection(
