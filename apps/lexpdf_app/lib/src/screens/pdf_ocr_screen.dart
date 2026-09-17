@@ -106,7 +106,7 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
         ? widget.document.name.substring(0, widget.document.name.length - 4)
         : widget.document.name;
     final suggested = '${baseName}_pesquisavel.pdf';
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       final location = await getSaveLocation(suggestedName: suggested);
       return location?.path;
     }
