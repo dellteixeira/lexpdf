@@ -24,7 +24,7 @@ The structural PDF check intentionally uses a pure-Dart parser. `flutter test` i
 
 ## Device-level acceptance
 
-Headless CI cannot truthfully validate native PDFium packaging, human-perceived scroll fluidity or stylus latency. Before a production release, Android, Windows and macOS builds must therefore be exercised with a real 500+ page PDF and verify:
+Headless CI cannot truthfully validate native PDFium packaging, human-perceived scroll fluidity or stylus latency. Before a production release, Android and Windows builds must therefore be exercised with a real 500+ page PDF and verify:
 
 - the installed app loads PDFium and opens the document without crash;
 - page count and navigation reach the first, middle and final pages;
