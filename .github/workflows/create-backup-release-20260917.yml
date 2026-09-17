@@ -1,0 +1,96 @@
+name: Create Backup Release 2026-09-17
+
+on:
+  push:
+    branches:
+      - ops/create-backup-release-20260917
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BACKUP_TAG: backup-1.0.0-rc.1-2026-09-17
+      TARGET_SHA: 9ecddc132133a0f6d3ed051ca0361e3630f3991c
+      SOURCE_RUN_ID: '35243989381'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+
+      - name: Download validated release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup/android-universal backup/android-arm64 backup/windows
+          gh run download "$SOURCE_RUN_ID" -n lexpdf-android-release -D backup/android-universal
+          gh run download "$SOURCE_RUN_ID" -n lexpdf-android-arm64 -D backup/android-arm64
+          gh run download "$SOURCE_RUN_ID" -n lexpdf-windows-release -D backup/windows
+
+      - name: Package backup artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd backup/android-universal && zip -qr ../../LexPDF-1.0.0-rc.1-Android-Universal.zip .)
+          (cd backup/android-arm64 && zip -qr ../../LexPDF-1.0.0-rc.1-Android-ARM64.zip .)
+          (cd backup/windows && zip -qr ../../LexPDF-1.0.0-rc.1-Windows.zip .)
+          sha256sum \
+            LexPDF-1.0.0-rc.1-Android-Universal.zip \
+            LexPDF-1.0.0-rc.1-Android-ARM64.zip \
+            LexPDF-1.0.0-rc.1-Windows.zip \
+            > BACKUP-SHA256SUMS.txt
+
+      - name: Write release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > BACKUP-MANIFEST.md <<'EOF'
+          # LexPDF Backup Release — 1.0.0-rc.1+1
+
+          Frozen checkpoint before the optional AI explanation integration.
+
+          - Snapshot commit: `9ecddc132133a0f6d3ed051ca0361e3630f3991c`
+          - Source branch at freeze: `develop`
+          - Permanent backup branch: `backup/release-1.0.0-rc.1-2026-09-17`
+          - App version: `1.0.0-rc.1+1`
+          - Supported platforms: Android + Windows
+          - Flutter: `3.47.2`
+
+          ## CI evidence on the frozen feature head
+          - Backend Foundation #310: success
+          - Flutter Foundation #613: success
+          - Phase 3 Exit Gate #190: success
+          - Release Hardening #306: success
+          - Release Hardening run ID: `35243989381`
+
+          ## Original Actions artifact digests
+          - `lexpdf-android-release`: `sha256:b8b69a211d04e7a540ed2a8622a33359843b55ea22dea2092d914ba4a317fb6c`
+          - `lexpdf-android-arm64`: `sha256:36b0a2dd8e67d9a3f677b8bec153f98c70d207d350ecd5730577911fcce457d5`
+          - `lexpdf-windows-release`: `sha256:4b4f9f97c7ea7c56f9058d1909bcdb08ec7cd3d651d30143a4a2f3cbb942cb45`
+
+          GitHub automatically exposes source-code ZIP/TAR archives for this tag in addition to the attached binary backup packages.
+          EOF
+
+      - name: Create immutable backup release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$BACKUP_TAG" >/dev/null 2>&1; then
+            echo "Release already exists: $BACKUP_TAG"
+            exit 0
+          fi
+          gh release create "$BACKUP_TAG" \
+            --target "$TARGET_SHA" \
+            --title "LexPDF Backup 1.0.0-rc.1 — 2026-09-17" \
+            --notes-file BACKUP-MANIFEST.md \
+            --prerelease \
+            LexPDF-1.0.0-rc.1-Android-Universal.zip \
+            LexPDF-1.0.0-rc.1-Android-ARM64.zip \
+            LexPDF-1.0.0-rc.1-Windows.zip \
+            BACKUP-SHA256SUMS.txt \
+            BACKUP-MANIFEST.md
