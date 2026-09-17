@@ -303,6 +303,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             textSelectionParams: PdfTextSelectionParams(
                               enabled: _stylusMode == _StylusMode.selectText,
                               showContextMenuAutomatically: true,
+                              onTextSelectionChange: (_) {
+                                if (_controller.isReady) {
+                                  _controller.invalidate();
+                                }
+                              },
                             ),
                             pagePaintCallbacks: _windows10Tiles
                                 ? const []

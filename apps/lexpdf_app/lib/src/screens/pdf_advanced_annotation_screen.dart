@@ -114,8 +114,15 @@ class _PdfAdvancedAnnotationScreenState
             params: PdfViewerParams(
               panEnabled: !_editMode,
               scaleEnabled: !_editMode,
-              textSelectionParams:
-                  PdfTextSelectionParams(enabled: !_editMode),
+              textSelectionParams: PdfTextSelectionParams(
+                enabled: !_editMode,
+                showContextMenuAutomatically: true,
+                onTextSelectionChange: (_) {
+                  if (_controller.isReady) {
+                    _controller.invalidate();
+                  }
+                },
+              ),
               pagePaintCallbacks: [_paintTextAnnotations],
               pageOverlaysBuilder: (context, pageRect, page) => [
                 Positioned.fill(
