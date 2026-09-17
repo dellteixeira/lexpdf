@@ -18,7 +18,7 @@ jobs:
           ref: fix/automatic-selection-actions
           fetch-depth: 0
       - name: Apply selection menu behavior across all PDF viewers
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
 
@@ -31,9 +31,6 @@ jobs:
               text = text.replace(old, new, 1)
               path.write_text(text)
 
-          # Unified stylus workspace: already opted into automatic menus; add an
-          # explicit selection-change invalidation so the toolbar is rebuilt as
-          # soon as the drag/handles settle, without requiring a second tap.
           p = root / 'lib/src/screens/pdf_workspace_stylus_screen.dart'
           replace_once(
               p,
@@ -41,7 +38,6 @@ jobs:
               '''textSelectionParams: PdfTextSelectionParams(\n                              enabled: _stylusMode == _StylusMode.selectText,\n                              showContextMenuAutomatically: true,\n                              onTextSelectionChange: (_) {\n                                if (_controller.isReady) {\n                                  _controller.invalidate();\n                                }\n                              },\n                            ),''',
           )
 
-          # General reader.
           p = root / 'lib/src/screens/pdf_reader_screen.dart'
           replace_once(
               p,
@@ -49,7 +45,6 @@ jobs:
               '''textSelectionParams: PdfTextSelectionParams(\n                  enabled: !_inkMode,\n                  showContextMenuAutomatically: true,\n                  onTextSelectionChange: (_) {\n                    if (_viewerController.isReady) {\n                      _viewerController.invalidate();\n                    }\n                  },\n                ),''',
           )
 
-          # Advanced annotation viewer.
           p = root / 'lib/src/screens/pdf_advanced_annotation_screen.dart'
           replace_once(
               p,
@@ -57,8 +52,6 @@ jobs:
               '''textSelectionParams: PdfTextSelectionParams(\n                enabled: !_editMode,\n                showContextMenuAutomatically: true,\n                onTextSelectionChange: (_) {\n                  if (_controller.isReady) {\n                    _controller.invalidate();\n                  }\n                },\n              ),''',
           )
 
-          # Navigation-only viewer still has text selection enabled by pdfrx by
-          # default. Make automatic actions explicit here as well.
           p = root / 'lib/src/screens/pdf_navigation_screen.dart'
           replace_once(
               p,
@@ -66,8 +59,6 @@ jobs:
               '''params: PdfViewerParams(\n          textSelectionParams: PdfTextSelectionParams(\n            showContextMenuAutomatically: true,\n            onTextSelectionChange: (_) {\n              if (_controller.isReady) {\n                _controller.invalidate();\n              }\n            },\n          ),\n          layoutPages:''',
           )
 
-          # Strengthen the existing source contract so every selectable PDF
-          # surface must retain automatic post-selection actions.
           p = root / 'test/pdf_selection_spen_eraser_contract_test.dart'
           text = p.read_text()
           marker = "  test('eraser has adjustable width and side-button shortcut', () {"
@@ -99,8 +90,6 @@ jobs:
 '''
           p.write_text(text.replace(marker, test + marker, 1))
 
-          # This helper workflow is only a transport for the atomic codemod and
-          # must not remain in the product repository.
           Path('.github/workflows/selection-auto-codemod.yml').unlink()
       - name: Commit codemod
         run: |
