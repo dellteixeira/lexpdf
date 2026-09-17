@@ -6,7 +6,7 @@ workers_dev = true
 [ai]
 binding = "AI"
 
-# Runtime bindings. Secrets must be configured in Cloudflare and are never committed.
+# Runtime bindings. Private credentials must be configured as encrypted secrets.
 
 [[r2_buckets]]
 binding = "DOCUMENTS"
@@ -27,6 +27,7 @@ retry_delay = 30
 [vars]
 ENVIRONMENT = "production"
 SUPABASE_URL = "https://ibffselezupggrovfruz.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_LQGpMuuZbowHktUOW-TTrw_4F6e6k-d"
 MAX_UPLOAD_BYTES = "262144000"
 AI_DAILY_CREDIT_LIMIT = "240"
 AI_RATE_LIMIT_PER_MINUTE = "12"
@@ -34,6 +35,5 @@ AI_MAX_INPUT_CHARS = "12000"
 AI_QUICK_MODEL = "@cf/zai-org/glm-4.7-flash"
 AI_DEEP_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 
-# Configure in Cloudflare as encrypted secrets:
-# SUPABASE_PUBLISHABLE_KEY
+# Configure in Cloudflare as an encrypted secret:
 # SUPABASE_SECRET_KEY
