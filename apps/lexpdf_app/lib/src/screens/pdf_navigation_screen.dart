@@ -167,6 +167,14 @@ class _PdfNavigationScreenState extends State<PdfNavigationScreen> {
         controller: _controller,
         initialPageNumber: _page,
         params: PdfViewerParams(
+          textSelectionParams: PdfTextSelectionParams(
+            showContextMenuAutomatically: true,
+            onTextSelectionChange: (_) {
+              if (_controller.isReady) {
+                _controller.invalidate();
+              }
+            },
+          ),
           layoutPages: switch (_viewMode) {
             _PdfViewMode.continuous => null,
             _PdfViewMode.horizontal => _horizontalLayout,

@@ -286,7 +286,15 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 // zoom the page without leaving writing mode.
                 panEnabled: !_inkMode || _mobileTouchNavigationEnabled,
                 scaleEnabled: !_inkMode || _mobileTouchNavigationEnabled,
-                textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),
+                textSelectionParams: PdfTextSelectionParams(
+                  enabled: !_inkMode,
+                  showContextMenuAutomatically: true,
+                  onTextSelectionChange: (_) {
+                    if (_viewerController.isReady) {
+                      _viewerController.invalidate();
+                    }
+                  },
+                ),
                 customizeContextMenuItems:
                     _inkMode ? null : _customizeContextMenuItems,
                 loadingBannerBuilder: (context, bytesDownloaded, totalBytes) =>
