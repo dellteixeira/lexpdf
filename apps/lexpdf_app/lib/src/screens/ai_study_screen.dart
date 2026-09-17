@@ -8,17 +8,26 @@ import '../core/ai/local_study_engine.dart';
 import '../core/ai/pdf_ai_text_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/backend/backend_config.dart';
+import '../core/storage/local_study_notebook_store.dart';
 
 class AiStudyScreen extends StatefulWidget {
   const AiStudyScreen({
     this.initialText,
     this.documentPath,
+    this.initialAction,
+    this.studyStore,
+    this.sourceDocumentId,
+    this.sourceDocumentTitle,
     this.title = 'Estudo assistido',
     super.key,
   });
 
   final String? initialText;
   final String? documentPath;
+  final AiStudyAction? initialAction;
+  final LocalStudyNotebookStore? studyStore;
+  final String? sourceDocumentId;
+  final String? sourceDocumentTitle;
   final String title;
 
   @override
@@ -32,6 +41,7 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
   AiEngineKind _engineKind = AiEngineKind.local;
   AiStudyResult? _result;
   bool _loading = false;
+  bool _saving = false;
   Object? _error;
   int _itemCount = 8;
 
@@ -40,7 +50,11 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     super.initState();
     _textController.text = widget.initialText?.trim() ?? '';
     if (_textController.text.isEmpty && widget.documentPath != null) {
-      unawaited(_loadDocumentText());
+      unawaited(_loadDocumentText(runInitialActionAfterLoad: true));
+    } else if (_textController.text.isNotEmpty && widget.initialAction != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_run(widget.initialAction!));
+      });
     }
   }
 
@@ -50,7 +64,7 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     super.dispose();
   }
 
-  Future<void> _loadDocumentText() async {
+  Future<void> _loadDocumentText({bool runInitialActionAfterLoad = false}) async {
     final path = widget.documentPath;
     if (path == null) return;
     setState(() => _loading = true);
@@ -67,6 +81,12 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       if (mounted) setState(() => _error = error);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+    if (mounted &&
+        runInitialActionAfterLoad &&
+        _textController.text.trim().isNotEmpty &&
+        widget.initialAction != null) {
+      unawaited(_run(widget.initialAction!));
     }
   }
 
@@ -100,9 +120,47 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     }
   }
 
+  Future<void> _saveResultToNotebook() async {
+    final result = _result;
+    final store = widget.studyStore;
+    final documentId = widget.sourceDocumentId;
+    final documentTitle = widget.sourceDocumentTitle;
+    if (result == null ||
+        store == null ||
+        documentId == null ||
+        documentTitle == null ||
+        _saving) {
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final saved = await store.saveResult(
+        documentId: documentId,
+        documentTitle: documentTitle,
+        result: result,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${saved.savedItems} item(ns) salvo(s) no caderno “Estudo — $documentTitle”.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const config = BackendConfig.fromEnvironment;
+    final canSaveToNotebook = widget.studyStore != null &&
+        widget.sourceDocumentId != null &&
+        widget.sourceDocumentTitle != null;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: ListView(
@@ -237,6 +295,22 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
           if (_result != null) ...[
             const SizedBox(height: 16),
             _ResultView(result: _result!),
+            if (canSaveToNotebook) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _saveResultToNotebook,
+                  icon: _saving
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.menu_book_outlined),
+                  label: const Text('Salvar no caderno'),
+                ),
+              ),
+            ],
           ],
         ],
       ),
