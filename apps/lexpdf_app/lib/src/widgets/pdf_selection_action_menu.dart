@@ -18,9 +18,9 @@ typedef PdfSelectionStudyAction = Future<void> Function(
 
 /// Selection actions shared by the unified PDF workspace.
 ///
-/// PDF page text is immutable in the viewer, so destructive cut/paste are not
-/// offered. Copy, markup, notes and study actions work on the selected text
-/// without changing the PDF content stream.
+/// PDF page text is immutable in the viewer, so destructive cut/paste remain
+/// visible but disabled. Copy, markup, notes and study actions work on the
+/// selected text without changing the PDF content stream.
 class PdfSelectionActionMenu {
   PdfSelectionActionMenu({
     required this.documentId,
@@ -124,11 +124,20 @@ class PdfSelectionActionMenu {
               }
             : null,
       ),
+      const ContextMenuButtonItem(label: 'Recortar', onPressed: null),
+      const ContextMenuButtonItem(label: 'Colar', onPressed: null),
       ContextMenuButtonItem(
-        label: 'Destacar',
+        label: 'Marca-texto',
         onPressed: () => unawaited(
           _configureAndApplyHighlight(context, params, delegate),
         ),
+      ),
+      ContextMenuButtonItem(
+        label: 'Destacar',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(_annotate(delegate, TextAnnotationType.highlight));
+        },
       ),
       ContextMenuButtonItem(
         label: 'Anotar',
