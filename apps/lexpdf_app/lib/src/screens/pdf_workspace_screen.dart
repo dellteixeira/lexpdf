@@ -13,6 +13,7 @@ import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_pdf_workspace_session_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../core/storage/local_workspace_ui_preferences.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
 /// Persistent multi-document shell for the unified PDF editor.
@@ -20,6 +21,8 @@ import 'pdf_workspace_stylus_screen.dart' as editor;
 /// Every tab owns its own editor State through an IndexedStack, so switching
 /// documents does not destroy the active PDF viewer. OCR/indexing is performed
 /// incrementally in the background by this shell so navigation remains usable.
+/// Phase 7 keeps productivity chrome outside the editor so stylus, touch,
+/// selection, rendering and annotation input contracts remain isolated.
 class PdfWorkspaceScreen extends StatefulWidget {
   const PdfWorkspaceScreen({
     required this.document,
@@ -41,6 +44,8 @@ class PdfWorkspaceScreen extends StatefulWidget {
 class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     with WidgetsBindingObserver {
   static const int _maxTabs = 10;
+  static const double _sidePanelBreakpoint = 760;
+  static const double _desktopMenuBreakpoint = 920;
 
   final DocumentPickerService _picker = const DocumentPickerService();
   final FocusNode _shortcutFocus = FocusNode(debugLabel: 'pdf-tab-shell');
@@ -54,6 +59,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   late final LocalReadingProgressStore _progressStore =
       LocalReadingProgressStore(widget.store.db);
   late final LocalOcrStore _ocrStore = LocalOcrStore(widget.store.db);
+  late final LocalWorkspaceUiPreferences _uiPreferences =
+      LocalWorkspaceUiPreferences(widget.store.db);
   late final MobilePdfOcrService _ocrService = MobilePdfOcrService(
     ocrStore: _ocrStore,
     navigationStore: widget.store,
@@ -62,11 +69,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   int _activeIndex = 0;
   bool _restoring = true;
   bool _picking = false;
+  bool _panelVisible = true;
+  bool _statusBarVisible = true;
+  bool _denseToolbar = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _uiPreferences.ensureSchema();
+    _panelVisible = _uiPreferences.readBool(
+      LocalWorkspaceUiPreferences.panelVisibleKey,
+      fallback: true,
+    );
+    _statusBarVisible = _uiPreferences.readBool(
+      LocalWorkspaceUiPreferences.statusBarVisibleKey,
+      fallback: true,
+    );
+    _denseToolbar = _uiPreferences.readBool(
+      LocalWorkspaceUiPreferences.denseToolbarKey,
+      fallback: false,
+    );
     _tabs.add(
       _WorkspaceTab(
         document: widget.document,
@@ -221,6 +244,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     await _saveSession();
   }
 
+  Future<void> _closeActiveTab() async {
+    if (_tabs.isEmpty) return;
+    await _closeTab(_activeIndex);
+  }
+
   Future<void> _activateTab(int index) async {
     if (index < 0 || index >= _tabs.length || index == _activeIndex) return;
     setState(() => _activeIndex = index);
@@ -336,6 +364,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
+  void _startActiveIndexing() {
+    if (_tabs.isEmpty) return;
+    unawaited(_startBackgroundIndexing(_tabs[_activeIndex].document));
+  }
+
   void _cancelActiveIndexing() {
     if (_tabs.isEmpty) return;
     final task = _ocrTasks[_tabs[_activeIndex].document.id];
@@ -445,7 +478,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   String _searchSnippet(String content, String query) {
     final lower = content.toLowerCase();
     final index = lower.indexOf(query.toLowerCase());
-    if (index < 0) return content.length <= 180 ? content : '${content.substring(0, 180)}…';
+    if (index < 0) {
+      return content.length <= 180 ? content : '${content.substring(0, 180)}…';
+    }
     final start = (index - 70).clamp(0, content.length);
     final end = (index + query.length + 100).clamp(0, content.length);
     return '${start > 0 ? '…' : ''}${content.substring(start, end)}${end < content.length ? '…' : ''}';
@@ -461,6 +496,286 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     unawaited(_saveSession());
   }
 
+  void _toggleWorkspacePanel() {
+    final value = !_panelVisible;
+    setState(() => _panelVisible = value);
+    _uiPreferences.writeBool(
+      LocalWorkspaceUiPreferences.panelVisibleKey,
+      value,
+    );
+  }
+
+  void _toggleStatusBar() {
+    final value = !_statusBarVisible;
+    setState(() => _statusBarVisible = value);
+    _uiPreferences.writeBool(
+      LocalWorkspaceUiPreferences.statusBarVisibleKey,
+      value,
+    );
+  }
+
+  void _toggleDenseToolbar() {
+    final value = !_denseToolbar;
+    setState(() => _denseToolbar = value);
+    _uiPreferences.writeBool(
+      LocalWorkspaceUiPreferences.denseToolbarKey,
+      value,
+    );
+  }
+
+  List<_WorkspaceCommand> _commands() {
+    final activeTask = _tabs.isEmpty ? null : _ocrTasks[_tabs[_activeIndex].document.id];
+    return [
+      _WorkspaceCommand(
+        label: 'Abrir outro PDF',
+        shortcut: 'Ctrl+O',
+        icon: Icons.add_box_outlined,
+        action: () => unawaited(_openAnotherPdf()),
+      ),
+      _WorkspaceCommand(
+        label: 'Pesquisar no PDF',
+        shortcut: 'Ctrl+F',
+        icon: Icons.search,
+        action: () => unawaited(_showDocumentSearch()),
+      ),
+      _WorkspaceCommand(
+        label: 'Desfazer anotação',
+        shortcut: 'Ctrl+Z',
+        icon: Icons.undo,
+        action: () => unawaited(_undo()),
+      ),
+      _WorkspaceCommand(
+        label: 'Refazer anotação',
+        shortcut: 'Ctrl+Y',
+        icon: Icons.redo,
+        action: () => unawaited(_redo()),
+      ),
+      _WorkspaceCommand(
+        label: _panelVisible ? 'Ocultar painel do workspace' : 'Mostrar painel do workspace',
+        shortcut: 'Ctrl+B',
+        icon: Icons.view_sidebar_outlined,
+        action: _toggleWorkspacePanel,
+      ),
+      _WorkspaceCommand(
+        label: 'Iniciar ou retomar OCR/indexação',
+        shortcut: 'Ctrl+Shift+I',
+        icon: Icons.document_scanner_outlined,
+        action: _startActiveIndexing,
+      ),
+      if (activeTask?.running == true)
+        _WorkspaceCommand(
+          label: 'Cancelar OCR preservando progresso',
+          shortcut: '',
+          icon: Icons.stop_circle_outlined,
+          action: _cancelActiveIndexing,
+        ),
+      _WorkspaceCommand(
+        label: 'Fechar aba atual',
+        shortcut: 'Ctrl+W',
+        icon: Icons.tab_unselected,
+        action: () => unawaited(_closeActiveTab()),
+      ),
+      _WorkspaceCommand(
+        label: _statusBarVisible ? 'Ocultar barra de status' : 'Mostrar barra de status',
+        shortcut: '',
+        icon: Icons.space_bar,
+        action: _toggleStatusBar,
+      ),
+      _WorkspaceCommand(
+        label: _denseToolbar ? 'Usar barra de ferramentas confortável' : 'Usar barra de ferramentas compacta',
+        shortcut: '',
+        icon: Icons.density_small,
+        action: _toggleDenseToolbar,
+      ),
+      _WorkspaceCommand(
+        label: 'Ver atalhos do workspace',
+        shortcut: '',
+        icon: Icons.keyboard_outlined,
+        action: () => unawaited(_showShortcutsHelp()),
+      ),
+    ];
+  }
+
+  Future<void> _showCommandPalette() async {
+    final commands = _commands();
+    var query = '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final normalized = query.trim().toLowerCase();
+          final filtered = normalized.isEmpty
+              ? commands
+              : commands.where((command) {
+                  return command.label.toLowerCase().contains(normalized) ||
+                      command.shortcut.toLowerCase().contains(normalized);
+                }).toList();
+          return AlertDialog(
+            titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            contentPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            title: const Row(
+              children: [
+                Icon(Icons.terminal_outlined, size: 20),
+                SizedBox(width: 8),
+                Text('Paleta de comandos'),
+              ],
+            ),
+            content: SizedBox(
+              width: 560,
+              height: 430,
+              child: Column(
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Digite uma ação…',
+                    ),
+                    onChanged: (value) => setDialogState(() => query = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('Nenhum comando encontrado.'))
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final command = filtered[index];
+                              return ListTile(
+                                leading: Icon(command.icon),
+                                title: Text(command.label),
+                                trailing: command.shortcut.isEmpty
+                                    ? null
+                                    : _ShortcutBadge(command.shortcut),
+                                onTap: () {
+                                  Navigator.of(dialogContext).pop();
+                                  command.action();
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showShortcutsHelp() {
+    const shortcuts = [
+      ('Ctrl/Cmd+O', 'Abrir outro PDF'),
+      ('Ctrl/Cmd+W', 'Fechar aba atual'),
+      ('Ctrl/Cmd+F', 'Pesquisar no PDF'),
+      ('Ctrl/Cmd+Z', 'Desfazer'),
+      ('Ctrl/Cmd+Y', 'Refazer'),
+      ('Ctrl/Cmd+Shift+Z', 'Refazer alternativo'),
+      ('Ctrl/Cmd+B', 'Mostrar/ocultar painel'),
+      ('Ctrl/Cmd+Shift+I', 'Iniciar/retomar OCR'),
+      ('Ctrl/Cmd+Shift+P', 'Paleta de comandos'),
+    ];
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Atalhos do workspace'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final item in shortcuts)
+                ListTile(
+                  dense: true,
+                  title: Text(item.$2),
+                  trailing: _ShortcutBadge(item.$1),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Fechar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showStudyModeHelp() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Modo de estudo integrado'),
+        content: const Text(
+          'Selecione um trecho dentro do PDF para acessar Destacar, Anotar, '
+          'Flashcard, Questão e Explicar. O material gerado permanece ligado '
+          'ao fluxo local de cadernos do LexPDF.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Entendi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _runMenuAction(String action) {
+    switch (action) {
+      case 'open':
+        unawaited(_openAnotherPdf());
+      case 'close':
+        unawaited(_closeActiveTab());
+      case 'undo':
+        unawaited(_undo());
+      case 'redo':
+        unawaited(_redo());
+      case 'search':
+        unawaited(_showDocumentSearch());
+      case 'panel':
+        _toggleWorkspacePanel();
+      case 'status':
+        _toggleStatusBar();
+      case 'dense':
+        _toggleDenseToolbar();
+      case 'index':
+        _startActiveIndexing();
+      case 'cancel-index':
+        _cancelActiveIndexing();
+      case 'palette':
+        unawaited(_showCommandPalette());
+      case 'study-help':
+        unawaited(_showStudyModeHelp());
+      case 'shortcuts':
+        unawaited(_showShortcutsHelp());
+    }
+  }
+
+  Map<ShortcutActivator, VoidCallback> _shortcutBindings() {
+    final bindings = <ShortcutActivator, VoidCallback>{};
+    void bind(LogicalKeyboardKey key, VoidCallback action,
+        {bool shift = false}) {
+      bindings[SingleActivator(key, control: true, shift: shift)] = action;
+      bindings[SingleActivator(key, meta: true, shift: shift)] = action;
+    }
+
+    bind(LogicalKeyboardKey.keyZ, () => unawaited(_undo()));
+    bind(LogicalKeyboardKey.keyY, () => unawaited(_redo()));
+    bind(LogicalKeyboardKey.keyZ, () => unawaited(_redo()), shift: true);
+    bind(LogicalKeyboardKey.keyO, () => unawaited(_openAnotherPdf()));
+    bind(LogicalKeyboardKey.keyT, () => unawaited(_openAnotherPdf()));
+    bind(LogicalKeyboardKey.keyW, () => unawaited(_closeActiveTab()));
+    bind(LogicalKeyboardKey.keyF, () => unawaited(_showDocumentSearch()));
+    bind(LogicalKeyboardKey.keyB, _toggleWorkspacePanel);
+    bind(LogicalKeyboardKey.keyI, _startActiveIndexing, shift: true);
+    bind(LogicalKeyboardKey.keyP, () => unawaited(_showCommandPalette()), shift: true);
+    return bindings;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_restoring) {
@@ -474,62 +789,394 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
     final activeTask = _ocrTasks[_tabs[_activeIndex].document.id];
     return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () =>
-            unawaited(_undo()),
-        const SingleActivator(LogicalKeyboardKey.keyY, control: true): () =>
-            unawaited(_redo()),
-        const SingleActivator(
-          LogicalKeyboardKey.keyZ,
-          control: true,
-          shift: true,
-        ): () => unawaited(_redo()),
-        const SingleActivator(LogicalKeyboardKey.keyT, control: true): () =>
-            unawaited(_openAnotherPdf()),
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () =>
-            unawaited(_showDocumentSearch()),
-      },
+      bindings: _shortcutBindings(),
       child: Focus(
         focusNode: _shortcutFocus,
         autofocus: true,
-        child: Scaffold(
-          body: Column(
-            children: [
-              _buildTabStrip(),
-              const Divider(height: 1),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IndexedStack(
-                        index: _activeIndex,
-                        children: [
-                          for (final tab in _tabs)
-                            editor.PdfWorkspaceScreen(
-                              key: ValueKey(
-                                'pdf-tab-${tab.document.id}-${tab.generation}',
-                              ),
-                              document: tab.document,
-                              store: widget.store,
-                              annotations: widget.annotations,
-                              initialPage: tab.initialPage,
-                            ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final sidePanelCapable = width >= _sidePanelBreakpoint;
+            final desktopMenus = width >= _desktopMenuBreakpoint;
+            final showSidePanel = sidePanelCapable && _panelVisible;
+            return Scaffold(
+              body: Column(
+                children: [
+                  if (desktopMenus) _buildDesktopMenuBar(activeTask),
+                  _buildTabStrip(
+                    sidePanelCapable: sidePanelCapable,
+                    activeTask: activeTask,
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        if (showSidePanel) ...[
+                          SizedBox(
+                            width: 268,
+                            child: _buildWorkspacePanel(activeTask),
+                          ),
+                          const VerticalDivider(width: 1),
                         ],
-                      ),
-                    ),
-                    if (activeTask != null &&
-                        (activeTask.running || activeTask.summary != null || activeTask.error != null))
-                      Positioned(
-                        right: 16,
-                        bottom: 16,
-                        child: _OcrProgressCard(
-                          task: activeTask,
-                          onCancel: activeTask.running ? _cancelActiveIndexing : null,
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: IndexedStack(
+                                  index: _activeIndex,
+                                  children: [
+                                    for (final tab in _tabs)
+                                      editor.PdfWorkspaceScreen(
+                                        key: ValueKey(
+                                          'pdf-tab-${tab.document.id}-${tab.generation}',
+                                        ),
+                                        document: tab.document,
+                                        store: widget.store,
+                                        annotations: widget.annotations,
+                                        initialPage: tab.initialPage,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              if (activeTask != null &&
+                                  (activeTask.running ||
+                                      activeTask.summary != null ||
+                                      activeTask.error != null))
+                                Positioned(
+                                  right: 16,
+                                  bottom: _statusBarVisible ? 42 : 16,
+                                  child: _OcrProgressCard(
+                                    task: activeTask,
+                                    onCancel: activeTask.running
+                                        ? _cancelActiveIndexing
+                                        : null,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                  ],
-                ),
+                      ],
+                    ),
+                  ),
+                  if (_statusBarVisible) _buildStatusBar(activeTask),
+                ],
               ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopMenuBar(_WorkspaceOcrTask? activeTask) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        children: [
+          _WorkspaceMenuButton(
+            label: 'Arquivo',
+            onSelected: _runMenuAction,
+            items: const [
+              _WorkspaceMenuItem('open', 'Abrir PDF', 'Ctrl+O'),
+              _WorkspaceMenuItem('close', 'Fechar aba', 'Ctrl+W'),
+            ],
+          ),
+          _WorkspaceMenuButton(
+            label: 'Editar',
+            onSelected: _runMenuAction,
+            items: const [
+              _WorkspaceMenuItem('undo', 'Desfazer', 'Ctrl+Z'),
+              _WorkspaceMenuItem('redo', 'Refazer', 'Ctrl+Y'),
+              _WorkspaceMenuItem('search', 'Pesquisar', 'Ctrl+F'),
+            ],
+          ),
+          _WorkspaceMenuButton(
+            label: 'Exibir',
+            onSelected: _runMenuAction,
+            items: [
+              _WorkspaceMenuItem(
+                'panel',
+                _panelVisible ? 'Ocultar painel lateral' : 'Mostrar painel lateral',
+                'Ctrl+B',
+              ),
+              _WorkspaceMenuItem(
+                'status',
+                _statusBarVisible ? 'Ocultar barra de status' : 'Mostrar barra de status',
+                '',
+              ),
+              _WorkspaceMenuItem(
+                'dense',
+                _denseToolbar ? 'Barra confortável' : 'Barra compacta',
+                '',
+              ),
+            ],
+          ),
+          _WorkspaceMenuButton(
+            label: 'Ferramentas',
+            onSelected: _runMenuAction,
+            items: [
+              const _WorkspaceMenuItem(
+                'index',
+                'Iniciar/retomar OCR',
+                'Ctrl+Shift+I',
+              ),
+              if (activeTask?.running == true)
+                const _WorkspaceMenuItem(
+                  'cancel-index',
+                  'Cancelar OCR',
+                  '',
+                ),
+              const _WorkspaceMenuItem(
+                'palette',
+                'Paleta de comandos',
+                'Ctrl+Shift+P',
+              ),
+            ],
+          ),
+          _WorkspaceMenuButton(
+            label: 'Estudo',
+            onSelected: _runMenuAction,
+            items: const [
+              _WorkspaceMenuItem(
+                'study-help',
+                'Como usar o modo de estudo',
+                '',
+              ),
+            ],
+          ),
+          _WorkspaceMenuButton(
+            label: 'Ajuda',
+            onSelected: _runMenuAction,
+            items: const [
+              _WorkspaceMenuItem('shortcuts', 'Atalhos do workspace', ''),
+            ],
+          ),
+          const Spacer(),
+          const Icon(Icons.lock_outline, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            'Offline-first',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkspacePanel(_WorkspaceOcrTask? activeTask) {
+    final tab = _tabs[_activeIndex];
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLowest,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 10, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.space_dashboard_outlined, size: 19),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Workspace',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Ocultar painel (Ctrl+B)',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _toggleWorkspacePanel,
+                  icon: const Icon(Icons.chevron_left, size: 20),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tab.document.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Página de retomada: ${tab.initialPage}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _PanelAction(
+            icon: Icons.search,
+            label: 'Pesquisar no documento',
+            shortcut: 'Ctrl+F',
+            onTap: () => unawaited(_showDocumentSearch()),
+          ),
+          _PanelAction(
+            icon: Icons.document_scanner_outlined,
+            label: activeTask?.running == true
+                ? 'OCR/indexação em andamento'
+                : 'Executar OCR/indexação',
+            shortcut: activeTask?.running == true ? '' : 'Ctrl+Shift+I',
+            onTap: activeTask?.running == true
+                ? _cancelActiveIndexing
+                : _startActiveIndexing,
+          ),
+          _PanelAction(
+            icon: Icons.school_outlined,
+            label: 'Ajuda do modo de estudo',
+            shortcut: '',
+            onTap: () => unawaited(_showStudyModeHelp()),
+          ),
+          _PanelAction(
+            icon: Icons.terminal_outlined,
+            label: 'Paleta de comandos',
+            shortcut: 'Ctrl+Shift+P',
+            onTap: () => unawaited(_showCommandPalette()),
+          ),
+          const Divider(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'PDFs abertos',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+              itemCount: _tabs.length,
+              itemBuilder: (context, index) {
+                final item = _tabs[index];
+                final selected = index == _activeIndex;
+                return ListTile(
+                  dense: true,
+                  selected: selected,
+                  selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.55),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  leading: const Icon(Icons.picture_as_pdf_outlined, size: 19),
+                  title: Text(
+                    item.document.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text('Página ${item.initialPage}'),
+                  onTap: () => unawaited(_activateTab(index)),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showWorkspacePanelSheet(_WorkspaceOcrTask? activeTask) {
+    final tab = _tabs[_activeIndex];
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.72,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            children: [
+              Text(
+                'Workspace',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                tab.document.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.search),
+                title: const Text('Pesquisar no documento'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_showDocumentSearch());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.document_scanner_outlined),
+                title: Text(
+                  activeTask?.running == true
+                      ? 'Cancelar OCR preservando progresso'
+                      : 'Iniciar/retomar OCR',
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  if (activeTask?.running == true) {
+                    _cancelActiveIndexing();
+                  } else {
+                    _startActiveIndexing();
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.school_outlined),
+                title: const Text('Modo de estudo integrado'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_showStudyModeHelp());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.terminal_outlined),
+                title: const Text('Paleta de comandos'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_showCommandPalette());
+                },
+              ),
+              const Divider(),
+              Text(
+                'PDFs abertos',
+                style: Theme.of(sheetContext).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              for (var index = 0; index < _tabs.length; index++)
+                ListTile(
+                  selected: index == _activeIndex,
+                  leading: const Icon(Icons.picture_as_pdf_outlined),
+                  title: Text(
+                    _tabs[index].document.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(_activateTab(index));
+                  },
+                ),
             ],
           ),
         ),
@@ -537,18 +1184,104 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildTabStrip() {
+  Widget _buildStatusBar(_WorkspaceOcrTask? activeTask) {
+    final tab = _tabs[_activeIndex];
+    final progress = activeTask?.progress;
+    final running = activeTask?.running == true;
     final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 28,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Row(
+        children: [
+          const Icon(Icons.picture_as_pdf_outlined, size: 14),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              tab.document.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '${_tabs.length} aba${_tabs.length == 1 ? '' : 's'}',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+          const Spacer(),
+          if (running) ...[
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                value: progress != null && progress.totalInRange > 0
+                    ? progress.completedInRange / progress.totalInRange
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              progress == null
+                  ? 'OCR preparando…'
+                  : 'OCR ${progress.completedInRange}/${progress.totalInRange}',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            const SizedBox(width: 12),
+          ] else if (activeTask?.summary != null) ...[
+            const Icon(Icons.check_circle_outline, size: 14),
+            const SizedBox(width: 5),
+            Text(
+              'Índice atualizado',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            const SizedBox(width: 12),
+          ],
+          Text(
+            'Ctrl+Shift+P comandos',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabStrip({
+    required bool sidePanelCapable,
+    required _WorkspaceOcrTask? activeTask,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final height = _denseToolbar ? 40.0 : 48.0;
     return SafeArea(
       bottom: false,
       child: SizedBox(
-        height: 48,
+        height: height,
         child: Row(
           children: [
+            IconButton(
+              tooltip: sidePanelCapable
+                  ? 'Mostrar/ocultar workspace (Ctrl+B)'
+                  : 'Abrir workspace',
+              visualDensity: _denseToolbar
+                  ? VisualDensity.compact
+                  : VisualDensity.standard,
+              onPressed: sidePanelCapable
+                  ? _toggleWorkspacePanel
+                  : () => unawaited(_showWorkspacePanelSheet(activeTask)),
+              icon: const Icon(Icons.space_dashboard_outlined, size: 20),
+            ),
             Expanded(
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: _denseToolbar ? 3 : 5,
+                ),
                 itemCount: _tabs.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 4),
                 itemBuilder: (context, index) {
@@ -603,22 +1336,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
             ),
             IconButton(
+              tooltip: 'Paleta de comandos (Ctrl+Shift+P)',
+              visualDensity:
+                  _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
+              onPressed: _showCommandPalette,
+              icon: const Icon(Icons.terminal_outlined, size: 20),
+            ),
+            IconButton(
               tooltip: 'Pesquisar no PDF (Ctrl+F)',
+              visualDensity:
+                  _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
               onPressed: _showDocumentSearch,
               icon: const Icon(Icons.search, size: 20),
             ),
             IconButton(
               tooltip: 'Desfazer (Ctrl+Z)',
+              visualDensity:
+                  _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
               onPressed: _undo,
               icon: const Icon(Icons.undo, size: 20),
             ),
             IconButton(
               tooltip: 'Refazer (Ctrl+Y)',
+              visualDensity:
+                  _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
               onPressed: _redo,
               icon: const Icon(Icons.redo, size: 20),
             ),
             IconButton(
               tooltip: 'Nova aba de PDF (Ctrl+T)',
+              visualDensity:
+                  _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
               onPressed: _picking ? null : _openAnotherPdf,
               icon: _picking
                   ? const SizedBox.square(
@@ -652,6 +1400,120 @@ class _WorkspaceOcrTask {
   PdfOcrProgress? progress;
   PdfOcrSummary? summary;
   Object? error;
+}
+
+class _WorkspaceCommand {
+  const _WorkspaceCommand({
+    required this.label,
+    required this.shortcut,
+    required this.icon,
+    required this.action,
+  });
+
+  final String label;
+  final String shortcut;
+  final IconData icon;
+  final VoidCallback action;
+}
+
+class _WorkspaceMenuItem {
+  const _WorkspaceMenuItem(this.value, this.label, this.shortcut);
+
+  final String value;
+  final String label;
+  final String shortcut;
+}
+
+class _WorkspaceMenuButton extends StatelessWidget {
+  const _WorkspaceMenuButton({
+    required this.label,
+    required this.items,
+    required this.onSelected,
+  });
+
+  final String label;
+  final List<_WorkspaceMenuItem> items;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: label,
+      onSelected: onSelected,
+      position: PopupMenuPosition.under,
+      itemBuilder: (context) => [
+        for (final item in items)
+          PopupMenuItem<String>(
+            value: item.value,
+            child: SizedBox(
+              width: 260,
+              child: Row(
+                children: [
+                  Expanded(child: Text(item.label)),
+                  if (item.shortcut.isNotEmpty)
+                    Text(
+                      item.shortcut,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        child: Text(label),
+      ),
+    );
+  }
+}
+
+class _PanelAction extends StatelessWidget {
+  const _PanelAction({
+    required this.icon,
+    required this.label,
+    required this.shortcut,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String shortcut;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      leading: Icon(icon, size: 20),
+      title: Text(label),
+      trailing: shortcut.isEmpty ? null : _ShortcutBadge(shortcut),
+      onTap: onTap,
+    );
+  }
+}
+
+class _ShortcutBadge extends StatelessWidget {
+  const _ShortcutBadge(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+    );
+  }
 }
 
 class _OcrProgressCard extends StatelessWidget {
