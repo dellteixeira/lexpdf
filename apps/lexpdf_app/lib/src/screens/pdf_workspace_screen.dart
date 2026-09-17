@@ -1364,7 +1364,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               icon: const Icon(Icons.redo, size: 20),
             ),
             IconButton(
-              tooltip: 'Nova aba de PDF (Ctrl+O)',
+              tooltip: 'Nova aba de PDF (Ctrl+T)',
               visualDensity:
                   _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
               onPressed: _picking ? null : _openAnotherPdf,
