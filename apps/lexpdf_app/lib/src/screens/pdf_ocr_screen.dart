@@ -28,12 +28,15 @@ class PdfOcrScreen extends StatefulWidget {
 class _PdfOcrScreenState extends State<PdfOcrScreen> {
   late final LocalOcrStore _store;
   late final MobilePdfOcrService _service;
+  final TextEditingController _startPage = TextEditingController(text: '1');
+  final TextEditingController _endPage = TextEditingController();
   List<OcrPageResult> _results = const [];
   PdfOcrProgress? _progress;
   PdfOcrSummary? _summary;
   ({int completed, int total})? _exportProgress;
   bool _processing = false;
   bool _exporting = false;
+  bool _cancelRequested = false;
   Object? _error;
 
   @override
@@ -47,6 +50,14 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
     unawaited(_reload());
   }
 
+  @override
+  void dispose() {
+    _cancelRequested = true;
+    _startPage.dispose();
+    _endPage.dispose();
+    super.dispose();
+  }
+
   Future<void> _reload() async {
     final values = await _store.listForDocument(widget.document.id);
     if (!mounted) return;
@@ -56,8 +67,16 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
   Future<void> _run() async {
     final path = widget.document.localPath;
     if (path == null || path.isEmpty || _processing) return;
+    final start = int.tryParse(_startPage.text.trim()) ?? 1;
+    final endText = _endPage.text.trim();
+    final end = endText.isEmpty ? null : int.tryParse(endText);
+    if (start < 1 || (end != null && end < start)) {
+      setState(() => _error = 'Intervalo de páginas inválido.');
+      return;
+    }
     setState(() {
       _processing = true;
+      _cancelRequested = false;
       _progress = null;
       _summary = null;
       _error = null;
@@ -66,6 +85,9 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
       final summary = await _service.process(
         documentId: widget.document.id,
         filePath: path,
+        startPage: start,
+        endPage: end,
+        isCancelled: () => _cancelRequested,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
         },
@@ -146,7 +168,7 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
     final progress = _progress;
     final exportProgress = _exportProgress;
     return Scaffold(
-      appBar: AppBar(title: const Text('OCR offline')),
+      appBar: AppBar(title: const Text('OCR e indexação offline')),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -161,10 +183,39 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             const SizedBox(height: 8),
             Text(
               _service.nativeOcrSupported
-                  ? 'OCR local e offline. Páginas que já contêm texto são indexadas sem rasterização; páginas digitalizadas usam OCR nativo com memória limitada.'
+                  ? 'Processamento local e offline. Texto incorporado é indexado sem rasterização; páginas digitalizadas usam OCR nativo página a página, com memória limitada e retomada.'
                   : 'Nesta plataforma o LexPDF indexa o texto já incorporado ao PDF.',
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _startPage,
+                    enabled: !_processing,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Página inicial',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _endPage,
+                    enabled: !_processing,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Página final',
+                      hintText: 'até o fim',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -177,8 +228,16 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.document_scanner_outlined),
-                  label: const Text('Processar documento'),
+                  label: Text(_processing ? 'Processando…' : 'Processar intervalo'),
                 ),
+                if (_processing)
+                  OutlinedButton.icon(
+                    onPressed: _cancelRequested
+                        ? null
+                        : () => setState(() => _cancelRequested = true),
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: Text(_cancelRequested ? 'Cancelando…' : 'Cancelar'),
+                  ),
                 OutlinedButton.icon(
                   onPressed: _exporting || _processing || _results.isEmpty
                       ? null
@@ -196,12 +255,16 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             if (progress != null) ...[
               const SizedBox(height: 12),
               LinearProgressIndicator(
-                value: progress.pageCount == 0
+                value: progress.totalInRange == 0
                     ? null
-                    : progress.pageNumber / progress.pageCount,
+                    : progress.completedInRange / progress.totalInRange,
               ),
               const SizedBox(height: 4),
-              Text('OCR: página ${progress.pageNumber} de ${progress.pageCount}'),
+              Text(
+                'Página ${progress.pageNumber}/${progress.pageCount} • '
+                '${progress.completedInRange}/${progress.totalInRange} no intervalo'
+                '${progress.skipped ? ' • já processada' : ''}',
+              ),
             ],
             if (exportProgress != null) ...[
               const SizedBox(height: 12),
@@ -218,9 +281,10 @@ class _PdfOcrScreenState extends State<PdfOcrScreen> {
             if (_summary != null) ...[
               const SizedBox(height: 12),
               Text(
-                '${_summary!.recognizedPages}/${_summary!.pageCount} páginas com texto • '
+                '${_summary!.recognizedPages} página(s) com texto neste processamento • '
                 '${_summary!.embeddedTextPages} sem rasterização • '
-                '${_summary!.rasterizedPages} com OCR raster • ${_summary!.engine}',
+                '${_summary!.rasterizedPages} com OCR raster • '
+                '${_summary!.cancelled ? 'interrompido e salvo para retomada' : 'concluído'}',
               ),
             ],
             if (_error != null) ...[

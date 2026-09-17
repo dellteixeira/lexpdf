@@ -8,6 +8,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:platform_ocr/platform_ocr.dart';
 
 import '../pdf/huge_pdf_policy.dart';
+import '../storage/local_global_search_fts.dart';
 import '../storage/local_ocr_store.dart';
 import '../storage/local_pdf_navigation_store.dart';
 
@@ -16,11 +17,15 @@ class PdfOcrProgress {
     required this.pageNumber,
     required this.pageCount,
     this.skipped = false,
+    this.completedInRange = 0,
+    this.totalInRange = 0,
   });
 
   final int pageNumber;
   final int pageCount;
   final bool skipped;
+  final int completedInRange;
+  final int totalInRange;
 }
 
 class PdfOcrSummary {
@@ -32,6 +37,8 @@ class PdfOcrSummary {
     this.embeddedTextPages = 0,
     this.rasterizedPages = 0,
     this.cancelled = false,
+    this.startPage = 1,
+    this.endPage,
   });
 
   final int pageCount;
@@ -41,6 +48,25 @@ class PdfOcrSummary {
   final int embeddedTextPages;
   final int rasterizedPages;
   final bool cancelled;
+  final int startPage;
+  final int? endPage;
+}
+
+class PdfTextAvailability {
+  const PdfTextAvailability({
+    required this.pageCount,
+    required this.sampledPages,
+    required this.pagesWithUsefulText,
+    required this.charactersFound,
+  });
+
+  final int pageCount;
+  final int sampledPages;
+  final int pagesWithUsefulText;
+  final int charactersFound;
+
+  bool get likelyScanned => sampledPages > 0 && pagesWithUsefulText == 0;
+  bool get hasUsefulText => pagesWithUsefulText > 0;
 }
 
 class MobilePdfOcrService {
@@ -63,19 +89,61 @@ class MobilePdfOcrService {
     return 'embedded-text-fallback';
   }
 
+  /// Samples only a small bounded set of pages. It never rasterizes and never
+  /// loads every page's text into memory merely to decide whether OCR is useful.
+  Future<PdfTextAvailability> inspectTextAvailability({
+    required String filePath,
+    int maxSamplePages = 4,
+  }) async {
+    final document = await PdfDocument.openFile(filePath);
+    try {
+      final count = document.pages.length;
+      if (count == 0 || maxSamplePages <= 0) {
+        return PdfTextAvailability(
+          pageCount: count,
+          sampledPages: 0,
+          pagesWithUsefulText: 0,
+          charactersFound: 0,
+        );
+      }
+      final sampleCount = maxSamplePages.clamp(1, count);
+      final indexes = <int>{0};
+      if (sampleCount > 1) {
+        for (var i = 1; i < sampleCount; i++) {
+          indexes.add(((count - 1) * i / (sampleCount - 1)).round());
+        }
+      }
+      var useful = 0;
+      var characters = 0;
+      for (final index in indexes) {
+        final text = await _loadEmbeddedText(document.pages[index]);
+        characters += text.length;
+        if (text.length >= HugePdfPolicy.ocrEmbeddedTextMinChars) useful++;
+        await Future<void>.delayed(Duration.zero);
+      }
+      return PdfTextAvailability(
+        pageCount: count,
+        sampledPages: indexes.length,
+        pagesWithUsefulText: useful,
+        charactersFound: characters,
+      );
+    } finally {
+      await document.dispose();
+    }
+  }
+
   /// Runs OCR with a bounded per-page working set and incremental persistence.
   ///
-  /// For born-digital PDFs, embedded text is used before rasterization. This is
-  /// both faster and dramatically cheaper in memory for 2,000–5,000+ pages.
-  /// [resume] probes only page-number metadata, never all stored OCR text.
-  /// [isCancelled] is checked before and after expensive page work so completed
-  /// pages remain durable and a later run can resume without starting over.
+  /// [startPage] and [endPage] allow selective OCR. Completed pages remain
+  /// durable, and [resume] skips pages already processed by a compatible engine.
   Future<PdfOcrSummary> process({
     required String documentId,
     required String filePath,
     void Function(PdfOcrProgress progress)? onProgress,
     bool resume = true,
     bool Function()? isCancelled,
+    int startPage = 1,
+    int? endPage,
   }) async {
     final document = await PdfDocument.openFile(filePath);
     TextRecognizer? recognizer;
@@ -86,6 +154,13 @@ class MobilePdfOcrService {
     var rasterizedPages = 0;
     var cancelled = false;
     final engine = _engineName;
+    final pageCount = document.pages.length;
+    final safeStart = pageCount == 0 ? 1 : startPage.clamp(1, pageCount);
+    final requestedEnd = endPage ?? pageCount;
+    final safeEnd = pageCount == 0 ? 0 : requestedEnd.clamp(safeStart, pageCount);
+    final rangeTotal = safeEnd < safeStart ? 0 : safeEnd - safeStart + 1;
+    var completedInRange = 0;
+    final fts = LocalGlobalSearchFts(navigationStore.db);
 
     try {
       if (mlKitOcrSupported) {
@@ -101,29 +176,31 @@ class MobilePdfOcrService {
             )
           : const <int, bool>{};
 
-      for (var index = 0; index < document.pages.length; index++) {
+      for (var pageNumber = safeStart; pageNumber <= safeEnd; pageNumber++) {
         if (isCancelled?.call() == true) {
           cancelled = true;
           break;
         }
 
-        final pageNumber = index + 1;
         final alreadyProcessed = resumeState[pageNumber];
         if (alreadyProcessed != null) {
           if (alreadyProcessed) recognizedPages++;
           skippedPages++;
+          completedInRange++;
           onProgress?.call(
             PdfOcrProgress(
               pageNumber: pageNumber,
-              pageCount: document.pages.length,
+              pageCount: pageCount,
               skipped: true,
+              completedInRange: completedInRange,
+              totalInRange: rangeTotal,
             ),
           );
           await _yieldIfNeeded(pageNumber);
           continue;
         }
 
-        final page = document.pages[index];
+        final page = document.pages[pageNumber - 1];
         String text = '';
         String pageEngine = engine;
         List<OcrTextLine> lines = const [];
@@ -226,10 +303,18 @@ class MobilePdfOcrService {
           pageNumber: pageNumber,
           text: text,
         );
+        await fts.upsertPdfPage(
+          documentId: documentId,
+          pageNumber: pageNumber,
+          content: text,
+        );
+        completedInRange++;
         onProgress?.call(
           PdfOcrProgress(
             pageNumber: pageNumber,
-            pageCount: document.pages.length,
+            pageCount: pageCount,
+            completedInRange: completedInRange,
+            totalInRange: rangeTotal,
           ),
         );
         await _yieldIfNeeded(pageNumber);
@@ -241,13 +326,15 @@ class MobilePdfOcrService {
       }
 
       return PdfOcrSummary(
-        pageCount: document.pages.length,
+        pageCount: pageCount,
         recognizedPages: recognizedPages,
         engine: engine,
         skippedPages: skippedPages,
         embeddedTextPages: embeddedTextPages,
         rasterizedPages: rasterizedPages,
         cancelled: cancelled,
+        startPage: safeStart,
+        endPage: safeEnd,
       );
     } finally {
       await recognizer?.close();
