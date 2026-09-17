@@ -4,7 +4,7 @@ This document is the final integration gate after roadmap Phases 1–13.
 
 ## Product scope
 
-LexPDF is an offline-first PDF reader/editor and digital notebook for Android, Windows and macOS. Core local functionality must remain usable without Internet access. Cloud sync and remote AI are optional extensions.
+LexPDF is an offline-first PDF reader/editor and digital notebook for Android and Windows. Core local functionality must remain usable without Internet access. Cloud sync and remote AI are optional extensions.
 
 ## Mandatory acceptance gates
 
@@ -21,24 +21,22 @@ LexPDF is an offline-first PDF reader/editor and digital notebook for Android, W
 11. Cloudflare Worker typecheck passes.
 12. Android release APK builds successfully.
 13. Windows release application builds successfully.
-14. macOS release application builds successfully.
-15. Release artifacts are produced by CI for all three target platforms.
+14. Release artifacts are produced by CI for both target platforms.
 
 ## Cross-platform host generation
 
-The repository keeps the Flutter application source compact. The release workflow generates the standard Flutter host wrapper for each target platform in the CI workspace before compiling. Generated host wrappers are build products, not application-domain source of truth.
+The repository keeps the Flutter application source compact. The release workflow uses the versioned host wrappers for each supported target platform.
 
-The build commands are equivalent to:
+The release build commands are equivalent to:
 
-- Android: `flutter create . --platforms=android` then `flutter build apk --release`
-- Windows: `flutter create . --platforms=windows` then `flutter build windows --release`
-- macOS: `flutter create . --platforms=macos` then `flutter build macos --release`
+- Android: `flutter build apk --release`
+- Windows: `flutter build windows --release`
 
 ## Release readiness rules
 
 A release candidate is ready only if every mandatory job in `Release Hardening` is green. A failed platform build blocks release even when unit tests pass. A backend gate failure also blocks release.
 
-Signing/notarization and store distribution credentials are intentionally outside repository source control. Unsigned CI artifacts validate compilability and packaging; production signing is a separate deployment step.
+Signing and distribution credentials are intentionally outside repository source control. CI artifacts validate compilability and packaging; production signing follows the policies documented for each supported platform.
 
 ## Offline-first invariants
 
