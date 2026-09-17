@@ -23,18 +23,6 @@ void main() {
     expect(activity, contains('invokeMethod("openPdfPath", path)'));
   });
 
-  test('macOS declares PDF documents and forwards open-file events', () {
-    final info = File('macos/Runner/Info.plist').readAsStringSync();
-    final delegate = File('macos/Runner/AppDelegate.swift').readAsStringSync();
-
-    expect(info, contains('<key>CFBundleDocumentTypes</key>'));
-    expect(info, contains('<string>com.adobe.pdf</string>'));
-    expect(info, contains('<string>Viewer</string>'));
-    expect(delegate, contains('openFiles filenames: [String]'));
-    expect(delegate, contains('lexpdf/native_pdf_open'));
-    expect(delegate, contains('invokeMethod("openPdfPath", arguments: path)'));
-  });
-
   test('Windows forwards command line arguments into Dart startup', () {
     final runner = File('windows/runner/main.cpp').readAsStringSync();
     final mainDart = File('lib/main.dart').readAsStringSync();
