@@ -35,9 +35,7 @@ The delegated permission is `Files.ReadWrite`, plus `openid profile offline_acce
 
 ## Apple File Provider / iCloud
 
-LexPDF uses the operating-system file picker (`file_selector`). On Apple platforms the system document picker exposes iCloud Drive and installed File Providers. The selected PDF is copied into LexPDF's local cache, so later reading remains offline.
-
-When native macOS runners are committed, enable the appropriate user-selected file entitlement (`com.apple.security.files.user-selected.read-write` when read/write export is required). iOS/macOS URL scheme configuration is also required for OAuth providers.
+LexPDF may use the operating-system file picker (`file_selector`) in a future iOS/iPadOS target. The system document picker can expose iCloud Drive and installed File Providers. A selected PDF would be copied into LexPDF's local cache so later reading remains offline.
 
 ## LexPDF Cloud / Cloudflare R2
 
