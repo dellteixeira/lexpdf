@@ -4,13 +4,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../core/ai/ai_models.dart';
+import '../core/annotations/pdf_annotation_object.dart';
 import '../core/storage/local_text_annotation_store.dart';
+
+typedef PdfSelectionStudyAction = Future<void> Function(
+  BuildContext context,
+  String selectedText,
+  AiStudyAction action,
+);
 
 /// Selection actions shared by the unified PDF workspace.
 ///
 /// PDF page text is immutable in the viewer, so destructive cut/paste are
 /// intentionally exposed as disabled actions rather than pretending to edit
-/// the PDF content stream. Copy and text-markup actions are fully functional.
+/// the PDF content stream. Copy, markup, notes and study actions are fully
+/// functional without changing the underlying PDF content stream.
 class PdfSelectionActionMenu {
   PdfSelectionActionMenu({
     required this.documentId,
@@ -18,6 +27,7 @@ class PdfSelectionActionMenu {
     required this.controller,
     required this.colorValue,
     required this.onChanged,
+    this.onStudyAction,
   });
 
   static const _highlightPalette = <int>[
@@ -36,6 +46,7 @@ class PdfSelectionActionMenu {
   final PdfViewerController controller;
   final int Function() colorValue;
   final VoidCallback onChanged;
+  final PdfSelectionStudyAction? onStudyAction;
 
   final Map<int, List<_RenderedTextAnnotation>> _rendered =
       <int, List<_RenderedTextAnnotation>>{};
@@ -112,14 +123,48 @@ class PdfSelectionActionMenu {
               }
             : null,
       ),
-      const ContextMenuButtonItem(label: 'Recortar', onPressed: null),
-      const ContextMenuButtonItem(label: 'Colar', onPressed: null),
       ContextMenuButtonItem(
-        label: 'Marca-texto',
+        label: 'Destacar',
         onPressed: () => unawaited(
           _configureAndApplyHighlight(context, params, delegate),
         ),
       ),
+      ContextMenuButtonItem(
+        label: 'Anotar',
+        onPressed: () {
+          params.dismissContextMenu();
+          unawaited(_createNoteFromSelection(context, delegate));
+        },
+      ),
+      if (onStudyAction != null) ...[
+        ContextMenuButtonItem(
+          label: 'Flashcard',
+          onPressed: () {
+            params.dismissContextMenu();
+            unawaited(
+              _runStudyAction(context, delegate, AiStudyAction.flashcards),
+            );
+          },
+        ),
+        ContextMenuButtonItem(
+          label: 'Questão',
+          onPressed: () {
+            params.dismissContextMenu();
+            unawaited(
+              _runStudyAction(context, delegate, AiStudyAction.questions),
+            );
+          },
+        ),
+        ContextMenuButtonItem(
+          label: 'Explicar',
+          onPressed: () {
+            params.dismissContextMenu();
+            unawaited(
+              _runStudyAction(context, delegate, AiStudyAction.explain),
+            );
+          },
+        ),
+      ],
       ContextMenuButtonItem(
         label: 'Sublinhado',
         onPressed: () {
@@ -153,6 +198,116 @@ class PdfSelectionActionMenu {
         buttonItems: items,
       ),
     );
+  }
+
+  Future<void> _runStudyAction(
+    BuildContext context,
+    PdfTextSelectionDelegate delegate,
+    AiStudyAction action,
+  ) async {
+    final callback = onStudyAction;
+    if (callback == null) return;
+    final ranges = await delegate.getSelectedTextRanges();
+    final selectedText = _selectionText(ranges);
+    if (selectedText.isEmpty) return;
+    await delegate.clearTextSelection();
+    await callback(context, selectedText, action);
+  }
+
+  Future<void> _createNoteFromSelection(
+    BuildContext context,
+    PdfTextSelectionDelegate delegate,
+  ) async {
+    final ranges = await delegate.getSelectedTextRanges();
+    if (ranges.isEmpty) return;
+    final selectedText = _selectionText(ranges);
+    if (selectedText.isEmpty) return;
+
+    final noteController = TextEditingController();
+    try {
+      final note = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Anotar trecho'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  selectedText,
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(dialogContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: noteController,
+                  autofocus: true,
+                  minLines: 3,
+                  maxLines: 8,
+                  decoration: const InputDecoration(
+                    labelText: 'Anotação',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(noteController.text.trim()),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      );
+      if (note == null) return;
+
+      final now = DateTime.now().toUtc();
+      final pageNumber = ranges.first.pageNumber;
+      final noteText = note.isEmpty
+          ? selectedText
+          : 'Trecho selecionado:\n$selectedText\n\nAnotação:\n$note';
+      await store.objectStore.upsert(
+        PdfAnnotationObject(
+          id: 'selection-note-${now.microsecondsSinceEpoch.toRadixString(36)}',
+          documentId: documentId,
+          pageNumber: pageNumber,
+          type: PdfAnnotationObjectType.note,
+          x: 0.05,
+          y: 0.05,
+          width: 0.30,
+          height: 0.18,
+          colorValue: colorValue(),
+          fillColorValue: 0xFFFFF59D,
+          opacity: 0.96,
+          strokeWidth: 1.5,
+          textValue: noteText,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await delegate.clearTextSelection();
+      onChanged();
+      controller.invalidate();
+    } finally {
+      noteController.dispose();
+    }
+  }
+
+  String _selectionText(List<PdfPageTextRange> ranges) {
+    return ranges
+        .map((range) => range.text.trim())
+        .where((text) => text.isNotEmpty)
+        .join('\n')
+        .trim();
   }
 
   Future<void> _configureAndApplyHighlight(
