@@ -21,6 +21,7 @@ class LocalStudyEngine implements AiStudyEngine {
     required AiStudyAction action,
     required String text,
     int itemCount = 8,
+    AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
   }) async {
     final input = inputPolicy.prepare(text, itemCount);
     final source = input.text;

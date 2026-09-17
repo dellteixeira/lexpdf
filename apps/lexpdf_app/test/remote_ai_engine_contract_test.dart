@@ -1,8 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
+
 import 'package:lexpdf_app/src/core/ai/ai_input_policy.dart';
+import 'package:lexpdf_app/src/core/ai/ai_models.dart';
 import 'package:lexpdf_app/src/core/ai/remote_ai_engine.dart';
 
 void main() {
+  test('explanation depth contract has three user-facing levels', () {
+    expect(AiExplanationDepth.values, hasLength(3));
+    expect(AiExplanationDepth.quick.label, 'Rápida');
+    expect(AiExplanationDepth.detailed.label, 'Detalhada');
+    expect(AiExplanationDepth.deep.label, 'Aprofundada');
+    final source = File('lib/src/core/ai/remote_ai_engine.dart').readAsStringSync();
+    expect(source, contains("'depth': explanationDepth.name"));
+  });
+
   test('remote AI policy can enforce a stricter source bound', () {
     const policy = AiInputPolicy(maxCharacters: 5, maxItems: 3);
     final input = policy.prepare('abcdef', 10);

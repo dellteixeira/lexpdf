@@ -23,6 +23,10 @@ class BackendConfig {
 
   static const _isProduction = environment == 'production';
 
+  static const _configuredAiGatewayUrl = String.fromEnvironment(
+    'LEXPDF_AI_GATEWAY_URL',
+  );
+
   static const fromEnvironment = BackendConfig(
     supabaseUrl: String.fromEnvironment(
       'LEXPDF_SUPABASE_URL',
@@ -40,6 +44,10 @@ class BackendConfig {
       defaultValue:
           _isProduction ? 'https://lexpdf-api.d3-concursos.workers.dev' : '',
     ),
-    aiGatewayUrl: String.fromEnvironment('LEXPDF_AI_GATEWAY_URL'),
+    aiGatewayUrl: _configuredAiGatewayUrl == ''
+        ? (_isProduction
+            ? 'https://lexpdf-api.d3-concursos.workers.dev/v1/ai/explain'
+            : '')
+        : _configuredAiGatewayUrl,
   );
 }

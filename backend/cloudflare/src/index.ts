@@ -4,6 +4,12 @@ export interface Env {
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SECRET_KEY?: string;
   MAX_UPLOAD_BYTES?: string;
+  AI_DAILY_CREDIT_LIMIT?: string;
+  AI_RATE_LIMIT_PER_MINUTE?: string;
+  AI_MAX_INPUT_CHARS?: string;
+  AI_QUICK_MODEL?: string;
+  AI_DEEP_MODEL?: string;
+  AI: Ai;
   DOCUMENTS: R2Bucket;
   SYNC_QUEUE?: Queue<SyncMessage>;
 }
@@ -20,6 +26,21 @@ type AuthUser = { id: string; email?: string };
 
 const DEFAULT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_LIST_LIMIT = 1000;
+const DEFAULT_AI_DAILY_CREDIT_LIMIT = 240;
+const DEFAULT_AI_RATE_LIMIT_PER_MINUTE = 12;
+const DEFAULT_AI_MAX_INPUT_CHARS = 12000;
+const DEFAULT_AI_QUICK_MODEL = '@cf/zai-org/glm-4.7-flash';
+const DEFAULT_AI_DEEP_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+
+type AiExplanationDepth = 'quick' | 'detailed' | 'deep';
+
+type AiQuotaResult = {
+  allowed: boolean;
+  reason: string;
+  creditsUsed: number;
+  creditsRemaining: number;
+  requests: number;
+};
 
 class UploadLimitExceededError extends Error {
   constructor(readonly maxBytes: number) {
@@ -58,8 +79,13 @@ export default {
 async function route(request: Request, env: Env, requestId: string): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/health") {
-    return json({ service: "lexpdf-api", status: "ok", environment: env.ENVIRONMENT ?? "unknown", r2: Boolean(env.DOCUMENTS), queue: Boolean(env.SYNC_QUEUE) }, 200, requestId);
+    return json({ service: "lexpdf-api", status: "ok", environment: env.ENVIRONMENT ?? "unknown", r2: Boolean(env.DOCUMENTS), queue: Boolean(env.SYNC_QUEUE), ai: Boolean(env.AI) }, 200, requestId);
   }
+
+  if (url.pathname === "/v1/ai/explain") {
+    return handleAiExplain(request, env, requestId);
+  }
+
   if (!url.pathname.startsWith("/v1/cloud/")) return json({ error: "not_found" }, 404, requestId);
 
   const user = await authenticate(request, env);
@@ -167,6 +193,177 @@ async function route(request: Request, env: Env, requestId: string): Promise<Res
   }
 
   return json({ error: "method_not_allowed" }, 405, requestId);
+}
+
+async function handleAiExplain(request: Request, env: Env, requestId: string): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405, requestId);
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.startsWith("application/json")) return json({ error: "unsupported_media_type" }, 415, requestId);
+
+  const user = await authenticate(request, env);
+  if (!user) return json({ error: "unauthorized" }, 401, requestId);
+  if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
+
+  let body: { action?: string; text?: string; depth?: string };
+  try {
+    body = (await request.json()) as { action?: string; text?: string; depth?: string };
+  } catch {
+    return json({ error: "invalid_json" }, 400, requestId);
+  }
+  if (body.action != null && body.action !== "explain") {
+    return json({ error: "unsupported_ai_action" }, 400, requestId);
+  }
+
+  const maxInputChars = parsePositiveInt(env.AI_MAX_INPUT_CHARS) ?? DEFAULT_AI_MAX_INPUT_CHARS;
+  const sourceText = (body.text ?? "").trim();
+  if (!sourceText) return json({ error: "empty_text" }, 400, requestId);
+  if (sourceText.length > maxInputChars) {
+    return json({ error: "text_too_large", maxCharacters: maxInputChars }, 413, requestId);
+  }
+
+  const depth = normalizeAiDepth(body.depth);
+  const creditCost = aiCreditCost(depth);
+  const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
+  const minuteLimit = parsePositiveInt(env.AI_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_RATE_LIMIT_PER_MINUTE;
+  const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
+  if (!quota.allowed) {
+    return json({
+      error: quota.reason === "rate_limit" ? "ai_rate_limit" : "ai_daily_limit",
+      quota: { ...quota, dailyCreditLimit: dailyLimit, creditCost },
+    }, 429, requestId);
+  }
+
+  const quickModel = env.AI_QUICK_MODEL?.trim() || DEFAULT_AI_QUICK_MODEL;
+  const deepModel = env.AI_DEEP_MODEL?.trim() || DEFAULT_AI_DEEP_MODEL;
+  const primaryModel = depth === "quick" ? quickModel : deepModel;
+  const fallbackModel = primaryModel === quickModel ? deepModel : quickModel;
+  const systemPrompt = aiSystemPrompt(depth);
+  const input = {
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `TRECHO SELECIONADO:\n${sourceText}` },
+    ],
+    max_tokens: aiMaxTokens(depth),
+    temperature: 0.2,
+    stream: false,
+  };
+
+  let model = primaryModel;
+  let fallbackUsed = false;
+  let text: string;
+  try {
+    text = await runAiText(env, primaryModel, input);
+  } catch (primaryError) {
+    console.warn("lexpdf_ai_primary_failed", { requestId, model: primaryModel, error: String(primaryError) });
+    model = fallbackModel;
+    fallbackUsed = true;
+    try {
+      text = await runAiText(env, fallbackModel, input);
+    } catch (fallbackError) {
+      console.error("lexpdf_ai_fallback_failed", { requestId, model: fallbackModel, error: String(fallbackError) });
+      return json({ error: "ai_provider_unavailable", requestId }, 502, requestId);
+    }
+  }
+
+  return json({
+    text,
+    depth,
+    model,
+    fallbackUsed,
+    quota: {
+      creditsUsed: quota.creditsUsed,
+      creditsRemaining: quota.creditsRemaining,
+      dailyCreditLimit: dailyLimit,
+      creditCost,
+      requests: quota.requests,
+    },
+  }, 200, requestId);
+}
+
+function normalizeAiDepth(value?: string): AiExplanationDepth {
+  if (value === "quick" || value === "deep") return value;
+  return "detailed";
+}
+
+function aiCreditCost(depth: AiExplanationDepth): number {
+  if (depth === "quick") return 1;
+  if (depth === "deep") return 4;
+  return 2;
+}
+
+function aiMaxTokens(depth: AiExplanationDepth): number {
+  if (depth === "quick") return 350;
+  if (depth === "deep") return 1400;
+  return 800;
+}
+
+function aiSystemPrompt(depth: AiExplanationDepth): string {
+  const detail = depth === "quick"
+    ? "Seja conciso: explique a ideia central em poucos parágrafos."
+    : depth === "deep"
+      ? "Seja aprofundado: decomponha conceitos, condições, relações, consequências, ambiguidades e dê um exemplo quando ele puder ser formulado com segurança."
+      : "Seja detalhado: explique conceitos, relações entre ideias e dê um exemplo curto quando apropriado.";
+  return [
+    "Você é o explicador de trechos do LexPDF. Responda em português do Brasil.",
+    detail,
+    "Use o trecho fornecido como fonte primária. Não invente fatos, artigos, precedentes, datas ou jurisprudência.",
+    "Quando acrescentar conhecimento que não está literalmente no trecho, coloque-o em uma seção chamada 'Informação complementar' e deixe claro que é externo ao texto selecionado.",
+    "Se o trecho for jurídico, não afirme que uma lei, súmula ou jurisprudência está vigente/atualizada sem que isso esteja no próprio trecho.",
+    "Se houver ambiguidade ou contexto insuficiente, diga explicitamente qual informação falta.",
+    "Estruture a resposta, quando aplicável, em: 'Explicação do trecho', 'Em termos simples', 'Exemplo prático' e 'Informação complementar / limitações'.",
+    "Não apresente porcentagens de confiança inventadas.",
+  ].join("\n");
+}
+
+async function runAiText(env: Env, model: string, input: Record<string, unknown>): Promise<string> {
+  const output = await env.AI.run(model as any, input as any) as any;
+  const candidate = typeof output?.response === "string"
+    ? output.response
+    : typeof output?.result?.response === "string"
+      ? output.result.response
+      : typeof output?.choices?.[0]?.message?.content === "string"
+        ? output.choices[0].message.content
+        : "";
+  const text = candidate.trim();
+  if (!text) throw new Error("AI provider returned an empty response.");
+  return text;
+}
+
+async function consumeAiQuota(
+  env: Env,
+  userId: string,
+  creditCost: number,
+  dailyLimit: number,
+  minuteLimit: number,
+): Promise<AiQuotaResult> {
+  const secret = env.SUPABASE_SECRET_KEY;
+  if (!secret) throw new Error("SUPABASE_SECRET_KEY is required for AI quota enforcement.");
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_ai_daily_quota`, {
+    method: "POST",
+    headers: {
+      apikey: secret,
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      p_user_id: userId,
+      p_credit_cost: creditCost,
+      p_daily_limit: dailyLimit,
+      p_minute_limit: minuteLimit,
+    }),
+  });
+  if (!response.ok) throw new Error(`AI quota RPC failed: ${response.status}`);
+  const raw = await response.json() as any;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row) throw new Error("AI quota RPC returned no result.");
+  return {
+    allowed: row.allowed === true,
+    reason: String(row.reason ?? "unknown"),
+    creditsUsed: Number(row.credits_used ?? 0),
+    creditsRemaining: Number(row.credits_remaining ?? 0),
+    requests: Number(row.requests ?? 0),
+  };
 }
 
 async function authenticate(request: Request, env: Env): Promise<AuthUser | null> {

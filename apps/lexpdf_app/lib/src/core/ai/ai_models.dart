@@ -2,6 +2,16 @@ enum AiStudyAction { explain, summarize, flashcards, questions }
 
 enum AiEngineKind { local, remote }
 
+enum AiExplanationDepth { quick, detailed, deep }
+
+extension AiExplanationDepthLabel on AiExplanationDepth {
+  String get label => switch (this) {
+        AiExplanationDepth.quick => 'Rápida',
+        AiExplanationDepth.detailed => 'Detalhada',
+        AiExplanationDepth.deep => 'Aprofundada',
+      };
+}
+
 class AiFlashcard {
   const AiFlashcard({required this.question, required this.answer});
 
@@ -17,6 +27,11 @@ class AiStudyResult {
     this.text,
     this.flashcards = const [],
     this.questions = const [],
+    this.explanationDepth,
+    this.model,
+    this.fallbackUsed = false,
+    this.quotaRemaining,
+    this.quotaLimit,
   });
 
   final AiStudyAction action;
@@ -25,4 +40,9 @@ class AiStudyResult {
   final String? text;
   final List<AiFlashcard> flashcards;
   final List<String> questions;
+  final AiExplanationDepth? explanationDepth;
+  final String? model;
+  final bool fallbackUsed;
+  final int? quotaRemaining;
+  final int? quotaLimit;
 }

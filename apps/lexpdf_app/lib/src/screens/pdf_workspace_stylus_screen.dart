@@ -15,12 +15,14 @@ import '../core/pdf/huge_pdf_policy.dart';
 import '../core/storage/local_pdf_form_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
+import '../core/storage/local_study_notebook_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../widgets/pdf_android_finger_navigation_region.dart';
 import '../widgets/pdf_selection_action_menu.dart';
 import '../widgets/pdf_sticky_note_overlay.dart';
 import '../widgets/pdf_stylus_page_overlay.dart';
 import '../widgets/windows10_pdf_tile_overlay.dart';
+import 'ai_selection_explanation_screen.dart';
 import 'pdf_export_screen.dart';
 import 'pdf_forms_screen.dart';
 import 'pdf_ocr_screen.dart';
@@ -80,6 +82,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       if (!mounted) return;
       setState(() => _annotationRevision++);
       _controller.invalidate();
+    },
+    onStudyAction: (context, selectedText, action) async {
+      if (action.name != 'explain') return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AiSelectionExplanationScreen(
+            selectedText: selectedText,
+            studyStore: LocalStudyNotebookStore(widget.store.db),
+            sourceDocumentId: widget.document.id,
+            sourceDocumentTitle: widget.document.name,
+            sourcePage: _page,
+          ),
+        ),
+      );
     },
   );
   late _StylusMode _stylusMode;

@@ -153,6 +153,14 @@ class PdfSelectionActionMenu {
           unawaited(_createManualFlashcard(context, delegate));
         },
       ),
+      if (onStudyAction != null)
+        ContextMenuButtonItem(
+          label: 'Explicar com IA',
+          onPressed: () {
+            params.dismissContextMenu();
+            unawaited(_explainSelectionWithAi(context, delegate));
+          },
+        ),
       ContextMenuButtonItem(
         label: 'Sublinhado',
         onPressed: () {
@@ -186,6 +194,21 @@ class PdfSelectionActionMenu {
         buttonItems: items,
       ),
     );
+  }
+
+  Future<void> _explainSelectionWithAi(
+    BuildContext context,
+    PdfTextSelectionDelegate delegate,
+  ) async {
+    final callback = onStudyAction;
+    if (callback == null) return;
+    final ranges = await delegate.getSelectedTextRanges();
+    if (ranges.isEmpty) return;
+    final selectedText = _selectionText(ranges);
+    if (selectedText.isEmpty) return;
+    await delegate.clearTextSelection();
+    if (!context.mounted) return;
+    await callback(context, selectedText, AiStudyAction.explain);
   }
 
   Future<void> _createManualFlashcard(

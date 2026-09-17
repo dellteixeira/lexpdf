@@ -711,8 +711,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         title: const Text('Modo de estudo integrado'),
         content: const Text(
           'Selecione um trecho dentro do PDF para acessar Destacar, Anotar, '
-          'Flashcard, Questão e Explicar. O material gerado permanece ligado '
-          'ao fluxo local de cadernos do LexPDF.',
+          'Flashcard manual e Explicar com IA. A explicação online oferece os '
+          'níveis Rápida, Detalhada e Aprofundada e exige uma conta LexPDF.',
         ),
         actions: [
           TextButton(

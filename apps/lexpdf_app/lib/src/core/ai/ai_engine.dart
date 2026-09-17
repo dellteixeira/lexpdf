@@ -7,5 +7,6 @@ abstract interface class AiStudyEngine {
     required AiStudyAction action,
     required String text,
     int itemCount = 8,
+    AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
   });
 }
