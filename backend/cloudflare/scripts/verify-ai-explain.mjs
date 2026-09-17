@@ -17,12 +17,15 @@ for (const expected of [
   'SUPABASE_SECRET_KEY',
   'fallbackUsed',
 ]) {
-  if (!worker.includes(expected)) throw new Error(`Missing AI worker contract: ${expected}`);
+  if (!worker.includes(expected)) {
+    throw new Error(`Missing AI worker contract: ${expected}`);
+  }
 }
-if (!/\[ai\]\s*
-binding\s*=\s*"AI"/m.test(wrangler)) {
+
+if (!wrangler.includes('[ai]') || !wrangler.includes('binding = "AI"')) {
   throw new Error('Workers AI binding is missing from wrangler.toml');
 }
+
 for (const expected of [
   'enable row level security',
   'revoke all on public.ai_daily_usage from public, anon, authenticated',
@@ -30,6 +33,9 @@ for (const expected of [
   'consume_ai_daily_quota',
   'to service_role',
 ]) {
-  if (!migration.includes(expected)) throw new Error(`Missing AI quota invariant: ${expected}`);
+  if (!migration.includes(expected)) {
+    throw new Error(`Missing AI quota invariant: ${expected}`);
+  }
 }
+
 console.log('Workers AI explanation contracts verified.');
