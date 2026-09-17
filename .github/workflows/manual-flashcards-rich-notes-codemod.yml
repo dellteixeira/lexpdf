@@ -18,7 +18,7 @@ jobs:
           ref: feature/manual-flashcards-rich-notes
           fetch-depth: 0
       - name: Apply codemod
-        run: python3 tool/apply_manual_flashcards_rich_notes.py
+        run: python3 tool/apply_manual_flashcards_rich_notes_v2.py
       - name: Commit product changes
         run: |
           git config user.name "github-actions[bot]"
