@@ -2,7 +2,7 @@
 
 This record accompanies `docs/RC1_ACCEPTANCE.md`. It stores concrete evidence for the candidate that may later be promoted to `v1.0.0`.
 
-The distribution scope for this release is **Android + Windows**. macOS remains outside the distributed RC/stable artifact scope.
+The distribution scope for this release is **Android + Windows**.
 
 **Rule:** do not replace `PENDING` with `PASS`, `signed`, `unsigned`, a concrete hash, or any runtime result unless the stated command, artifact inspection, installation, or real-device/runtime validation was actually performed against the recorded candidate.
 
