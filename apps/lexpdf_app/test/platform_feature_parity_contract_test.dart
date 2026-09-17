@@ -13,9 +13,9 @@ void main() {
     );
     expect(
       NativePdfOpenService.pdfPathFromArgs(
-        const ['/Users/teste/iCloud Drive/Estudos/Constituição Federal.PDF'],
+        const ['/storage/emulated/0/Estudos/Constituição Federal.PDF'],
       ),
-      '/Users/teste/iCloud Drive/Estudos/Constituição Federal.PDF',
+      '/storage/emulated/0/Estudos/Constituição Federal.PDF',
     );
     expect(
       NativePdfOpenService.pdfPathFromArgs(const ['notes.txt']),
@@ -23,19 +23,16 @@ void main() {
     );
   });
 
-  test('all native entry paths converge on the unified Flutter PDF workspace', () {
+  test('all supported native entry paths converge on the unified Flutter PDF workspace', () {
     final android = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
     ).readAsStringSync();
-    final macos = File('macos/Runner/AppDelegate.swift').readAsStringSync();
     final windows = File('windows/runner/main.cpp').readAsStringSync();
     final mainDart = File('lib/main.dart').readAsStringSync();
     final app = File('lib/src/lexpdf_app.dart').readAsStringSync();
 
     expect(android, contains('lexpdf/native_pdf_open'));
     expect(android, contains('invokeMethod("openPdfPath", path)'));
-    expect(macos, contains('lexpdf/native_pdf_open'));
-    expect(macos, contains('invokeMethod("openPdfPath", arguments: path)'));
     expect(windows, contains('set_dart_entrypoint_arguments'));
     expect(mainDart, contains('NativePdfOpenService.pdfPathFromArgs(args)'));
     expect(app, contains('Future<void> _openNativePdf(String path)'));
@@ -90,24 +87,19 @@ void main() {
     expect(progress, contains('class LocalReadingProgressStore'));
     expect(progress, isNot(contains('Platform.isAndroid')));
     expect(progress, isNot(contains('Platform.isWindows')));
-    expect(progress, isNot(contains('Platform.isMacOS')));
   });
 
-  test('desktop release jobs execute the shared parity suite before build', () {
+  test('Windows release executes the shared parity suite before build', () {
     final workflow = File('../../.github/workflows/release-hardening.yml')
         .readAsStringSync();
     const step = 'Run platform feature parity contracts';
     const command = 'flutter test test/platform_feature_parity_contract_test.dart';
 
-    expect(step.allMatches(workflow).length, 2);
-    expect(command.allMatches(workflow).length, 2);
+    expect(step.allMatches(workflow).length, 1);
+    expect(command.allMatches(workflow).length, 1);
     expect(
       workflow.indexOf(command),
       lessThan(workflow.indexOf('Build Windows release')),
-    );
-    expect(
-      workflow.lastIndexOf(command),
-      lessThan(workflow.indexOf('Build macOS release')),
     );
   });
 }
