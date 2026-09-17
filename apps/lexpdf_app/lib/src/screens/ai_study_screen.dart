@@ -8,7 +8,9 @@ import '../core/ai/local_study_engine.dart';
 import '../core/ai/pdf_ai_text_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/backend/backend_config.dart';
+import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_study_notebook_store.dart';
+import 'advanced_study_screen.dart';
 
 class AiStudyScreen extends StatefulWidget {
   const AiStudyScreen({
@@ -155,6 +157,18 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     }
   }
 
+  Future<void> _openAdvancedStudy() async {
+    final studyStore = widget.studyStore;
+    if (studyStore == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AdvancedStudyScreen(
+          store: LocalAdvancedStudyStore(studyStore.db),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const config = BackendConfig.fromEnvironment;
@@ -162,7 +176,17 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
         widget.sourceDocumentId != null &&
         widget.sourceDocumentTitle != null;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (widget.studyStore != null)
+            IconButton(
+              tooltip: 'Modo Estudo',
+              onPressed: _openAdvancedStudy,
+              icon: const Icon(Icons.school_outlined),
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
