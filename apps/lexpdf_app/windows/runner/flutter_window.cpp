@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cwctype>
 #include <filesystem>
 #include <optional>
 #include <string>
