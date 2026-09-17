@@ -19,6 +19,8 @@ jobs:
           fetch-depth: 0
       - name: Apply codemod
         run: python3 tool/apply_manual_flashcards_rich_notes_v2.py
+      - name: Normalize generated files
+        run: python3 -c "from pathlib import Path; paths=[Path('apps/lexpdf_app/lib/src/widgets/pdf_selection_action_menu.dart'),Path('apps/lexpdf_app/lib/src/widgets/pdf_sticky_note_overlay.dart'),Path('apps/lexpdf_app/lib/src/screens/pdf_workspace_stylus_screen.dart'),Path('apps/lexpdf_app/test/manual_flashcard_rich_note_contract_test.dart')]; [p.write_text(p.read_text().rstrip() + '\\n') for p in paths]"
       - name: Commit product changes
         run: |
           git config user.name "github-actions[bot]"
