@@ -4,7 +4,22 @@ import 'dart:typed_data';
 
 import 'package:pdfrx/pdfrx.dart';
 
+import 'pdf_document_robustness_service.dart';
+
 typedef PdfFileValidator = Future<void> Function(String path);
+
+class SafePdfWriteException implements Exception {
+  const SafePdfWriteException({
+    required this.failure,
+    required this.originalError,
+  });
+
+  final PdfRuntimeFailure failure;
+  final Object originalError;
+
+  @override
+  String toString() => failure.message;
+}
 
 class SafePdfWriter {
   const SafePdfWriter({this.validator});
@@ -112,7 +127,7 @@ class SafePdfWriter {
       if (backup != null && await backup.exists()) await backup.delete();
       if (await journal.exists()) await journal.delete();
       return destinationPath;
-    } catch (_) {
+    } catch (error) {
       final recovered = await recoverPending(destinationPath);
       if (!recovered) {
         if (await temp.exists()) await temp.delete();
@@ -121,6 +136,12 @@ class SafePdfWriter {
           await backup.rename(destinationPath);
         }
         if (await journal.exists()) await journal.delete();
+      }
+      if (error is FileSystemException) {
+        throw SafePdfWriteException(
+          failure: PdfRuntimeFailureClassifier.classify(error),
+          originalError: error,
+        );
       }
       rethrow;
     }
