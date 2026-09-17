@@ -8,7 +8,7 @@ class NativePdfOpenService {
   static const MethodChannel _channel = MethodChannel('lexpdf/native_pdf_open');
 
   Future<void> start(Future<void> Function(String path) onOpen) async {
-    if (Platform.isAndroid || Platform.isMacOS) {
+    if (Platform.isAndroid || Platform.isMacOS || Platform.isWindows) {
       _channel.setMethodCallHandler((call) async {
         if (call.method != 'openPdfPath') return;
         final path = call.arguments as String?;
@@ -30,7 +30,7 @@ class NativePdfOpenService {
   }
 
   void dispose() {
-    if (Platform.isAndroid || Platform.isMacOS) {
+    if (Platform.isAndroid || Platform.isMacOS || Platform.isWindows) {
       _channel.setMethodCallHandler(null);
     }
   }

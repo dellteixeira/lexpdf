@@ -25,7 +25,11 @@ void main() {
   test('Windows native window uses the product name', () {
     final main = File('windows/runner/main.cpp').readAsStringSync();
 
-    expect(main, contains('window.Create(L"LexPDF", origin, size)'));
+    expect(
+      main,
+      contains('constexpr wchar_t kLexPdfWindowTitle[] = L"LexPDF";'),
+    );
+    expect(main, contains('window.Create(kLexPdfWindowTitle, origin, size)'));
     expect(main, isNot(contains('window.Create(L"lexpdf_app"')));
   });
 

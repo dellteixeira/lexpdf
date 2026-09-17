@@ -4,8 +4,6 @@ project(runner LANGUAGES CXX)
 # Define the application target. To change its name, change BINARY_NAME in the
 # top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
 # work.
-#
-# Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
@@ -19,44 +17,30 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
-# Apply the standard set of build settings. This can be removed for applications
-# that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
-# Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
-
-# Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
-# Add dependency libraries and include directories. Add any application-specific
-# dependencies here.
-#
-# Render Core 2 owns a PluginRegistrarWindows instance so it can safely retain
-# access to Flutter's BinaryMessenger and TextureRegistrar for the lifetime of
-# the hosted Flutter view. PluginRegistrar's constructor/destructor and plugin
-# cleanup symbols live in flutter_wrapper_plugin; without that target the
-# Windows runner compiles but fails at link time with LNK2019 unresolved
-# PluginRegistrar symbols.
 target_link_libraries(${BINARY_NAME} PRIVATE
   flutter
   flutter_wrapper_app
   flutter_wrapper_plugin
 )
 
-# Windows.Data.Pdf is a system WinRT API. windowsapp resolves WinRT activation
-# and WindowsCodecs provides WIC decoding of the page stream before the native
-# child HWND paints the final BGRA pixels with GDI.
+# Windows.Data.Pdf is a system WinRT API. Shell32 is required for Explorer
+# drag/drop (DragAcceptFiles/DragQueryFile) and the runner also consumes regular
+# User32 WM_COPYDATA messages for single-instance document forwarding.
 target_link_libraries(${BINARY_NAME} PRIVATE
   "dwmapi.lib"
+  "shell32.lib"
   "windowsapp.lib"
   "windowscodecs.lib"
 )
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
-# Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
