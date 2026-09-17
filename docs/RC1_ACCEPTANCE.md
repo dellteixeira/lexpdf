@@ -2,7 +2,7 @@
 
 This manifest is the release-candidate gate for `1.0.0-rc.1+1`.
 
-The distribution scope for this release is **Android + Windows**. macOS remains a source/CI compatibility target, but it is not an official RC1 or `v1.0.0` distribution target and does not block acceptance.
+The distribution scope for this release is **Android + Windows**.
 
 CI and artifact generation are necessary but are not substitutes for real-device/runtime validation. The stable `v1.0.0` must not be promoted until every required item below has recorded evidence.
 
