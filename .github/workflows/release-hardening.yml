@@ -17,7 +17,6 @@ jobs:
           test -f apps/lexpdf_app/pubspec.lock
           test -d apps/lexpdf_app/android
           test -d apps/lexpdf_app/windows
-          test -d apps/lexpdf_app/macos
           test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
           grep -q "defaultValue: 'development'" apps/lexpdf_app/lib/src/core/backend/backend_config.dart
@@ -38,14 +37,6 @@ jobs:
           grep -q 'Get-AuthenticodeSignature' "$beta"
           grep -q 'WINDOWS_SIGNING_STATUS.txt' "$beta"
           grep -q 'SHA256SUMS-Windows.txt' "$beta"
-          if grep -q '^  macos-dmg:' "$beta"; then
-            echo 'macOS must not be part of RC1 distribution scope.' >&2
-            exit 1
-          fi
-          if grep -Eq 'LEXPDF_MACOS_|LEXPDF_APPLE_|notarytool|stapler' "$beta"; then
-            echo 'Apple signing/notarization requirements must not block the Android + Windows RC.' >&2
-            exit 1
-          fi
 
           legacy='lex''xpdf_app'
           if grep -R "$legacy" -n apps/lexpdf_app .github/workflows; then
@@ -192,60 +183,6 @@ jobs:
         with:
           name: lexpdf-windows-release
           path: apps/lexpdf_app/build/windows/x64/runner/Release/**
-          if-no-files-found: error
-
-  macos-release:
-    needs: prerelease-invariants
-    runs-on: macos-15
-    defaults:
-      run:
-        working-directory: apps/lexpdf_app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
-      - run: flutter config --enable-macos-desktop
-      - run: flutter pub get
-      - name: Verify lockfile is stable
-        run: git diff --exit-code -- pubspec.lock
-      - name: Run platform feature parity contracts
-        run: flutter test test/platform_feature_parity_contract_test.dart
-      - name: Verify macOS release entitlements
-        shell: bash
-        run: |
-          set -euo pipefail
-          entitlements='macos/Runner/Release.entitlements'
-          test -s "$entitlements"
-          grep -A1 -q 'com.apple.security.app-sandbox' "$entitlements"
-          grep -A1 -q 'com.apple.security.network.client' "$entitlements"
-          grep -A1 -q 'com.apple.security.files.user-selected.read-write' "$entitlements"
-      - name: Build macOS release
-        run: >-
-          flutter build macos --release
-          --dart-define=LEXPDF_ENVIRONMENT=production
-          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
-          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
-          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
-          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
-      - name: Smoke-check macOS release artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          app='build/macos/Build/Products/Release/LexPDF.app'
-          executable="$app/Contents/MacOS/LexPDF"
-          plist="$app/Contents/Info.plist"
-          test -d "$app"
-          test -x "$executable"
-          test -s "$plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx 'com.lexpdf.lexpdfApp'
-          shasum -a 256 "$executable"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lexpdf-macos-release
-          path: apps/lexpdf_app/build/macos/Build/Products/Release/*.app/**
           if-no-files-found: error
 
   backend-hardening:
