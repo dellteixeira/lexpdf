@@ -5,9 +5,65 @@ import '../study/advanced_study_models.dart';
 import 'local_database.dart';
 
 class LocalAdvancedStudyStore {
-  const LocalAdvancedStudyStore(this.db);
+  LocalAdvancedStudyStore(this.db) {
+    _ensureTables();
+  }
 
   final LocalDatabase db;
+
+  void _ensureTables() {
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS study_items (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
+        document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('flashcard', 'question', 'explanation', 'summary')),
+        prompt TEXT NOT NULL,
+        answer TEXT NOT NULL DEFAULT '',
+        commentary TEXT NOT NULL DEFAULT '',
+        source_page INTEGER CHECK(source_page IS NULL OR source_page >= 1),
+        source_text TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        difficulty INTEGER NOT NULL DEFAULT 3 CHECK(difficulty BETWEEN 1 AND 5),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS study_items_notebook_idx
+      ON study_items(notebook_id, updated_at DESC);
+    ''');
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS study_items_document_idx
+      ON study_items(document_id, source_page);
+    ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS study_review_state (
+        item_id TEXT PRIMARY KEY REFERENCES study_items(id) ON DELETE CASCADE,
+        due_at TEXT NOT NULL,
+        interval_days REAL NOT NULL DEFAULT 0,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        repetitions INTEGER NOT NULL DEFAULT 0,
+        lapses INTEGER NOT NULL DEFAULT 0,
+        last_grade TEXT CHECK(last_grade IS NULL OR last_grade IN ('again', 'hard', 'good', 'easy')),
+        last_reviewed_at TEXT
+      );
+    ''');
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS study_review_due_idx
+      ON study_review_state(due_at);
+    ''');
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS study_sessions (
+        id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        reviewed_count INTEGER NOT NULL DEFAULT 0,
+        correct_count INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+  }
 
   Future<int> saveGeneratedResult({
     required String documentId,
@@ -42,7 +98,11 @@ class LocalAdvancedStudyStore {
         sourcePage: sourcePage,
         sourceText: result.sourceText.trim(),
         subject: subject.trim(),
-        tags: tags.map((tag) => tag.trim()).where((tag) => tag.isNotEmpty).toSet().toList(),
+        tags: tags
+            .map((tag) => tag.trim())
+            .where((tag) => tag.isNotEmpty)
+            .toSet()
+            .toList(growable: false),
         createdAt: now,
         updatedAt: now,
       );
@@ -58,6 +118,7 @@ class LocalAdvancedStudyStore {
             answer: card.answer,
           ));
         }
+        break;
       case AiStudyAction.questions:
         for (final question in result.questions) {
           final text = question.trim();
@@ -68,6 +129,7 @@ class LocalAdvancedStudyStore {
             answer: '',
           ));
         }
+        break;
       case AiStudyAction.explain:
         final text = result.text?.trim() ?? '';
         if (text.isNotEmpty) {
@@ -77,6 +139,7 @@ class LocalAdvancedStudyStore {
             answer: text,
           ));
         }
+        break;
       case AiStudyAction.summarize:
         final text = result.text?.trim() ?? '';
         if (text.isNotEmpty) {
@@ -86,6 +149,7 @@ class LocalAdvancedStudyStore {
             answer: text,
           ));
         }
+        break;
     }
 
     if (items.isEmpty) return 0;
@@ -178,27 +242,35 @@ class LocalAdvancedStudyStore {
       case StudyReviewGrade.again:
         repetitions = 0;
         lapses += 1;
-        ease = (ease - 0.2).clamp(1.3, 3.0);
+        ease = (ease - 0.2).clamp(1.3, 3.0).toDouble();
         interval = 0.04;
+        break;
       case StudyReviewGrade.hard:
         repetitions += 1;
-        ease = (ease - 0.15).clamp(1.3, 3.0);
+        ease = (ease - 0.15).clamp(1.3, 3.0).toDouble();
         interval = current.intervalDays <= 1
-            ? 1
-            : (current.intervalDays * 1.2).clamp(1.0, 36500.0);
+            ? 1.0
+            : (current.intervalDays * 1.2).clamp(1.0, 36500.0).toDouble();
+        break;
       case StudyReviewGrade.good:
         repetitions += 1;
         interval = repetitions == 1
-            ? 1
+            ? 1.0
             : repetitions == 2
-                ? 6
-                : (current.intervalDays * ease).clamp(1.0, 36500.0);
+                ? 6.0
+                : (current.intervalDays * ease)
+                    .clamp(1.0, 36500.0)
+                    .toDouble();
+        break;
       case StudyReviewGrade.easy:
         repetitions += 1;
-        ease = (ease + 0.15).clamp(1.3, 3.0);
+        ease = (ease + 0.15).clamp(1.3, 3.0).toDouble();
         interval = repetitions == 1
-            ? 4
-            : (current.intervalDays * ease * 1.3).clamp(4.0, 36500.0);
+            ? 4.0
+            : (current.intervalDays * ease * 1.3)
+                .clamp(4.0, 36500.0)
+                .toDouble();
+        break;
     }
 
     final dueAt = now.add(Duration(minutes: (interval * 1440).round()));
@@ -227,7 +299,8 @@ class LocalAdvancedStudyStore {
     ]);
 
     if (sessionId != null) {
-      final isCorrect = grade == StudyReviewGrade.good || grade == StudyReviewGrade.easy;
+      final isCorrect =
+          grade == StudyReviewGrade.good || grade == StudyReviewGrade.easy;
       db.database.execute('''
         UPDATE study_sessions
         SET reviewed_count = reviewed_count + 1,
@@ -308,9 +381,13 @@ class LocalAdvancedStudyStore {
     );
   }
 
-  Future<List<StudySourceHit>> searchSources(String query, {int limit = 100}) async {
+  Future<List<StudySourceHit>> searchSources(
+    String query, {
+    int limit = 100,
+  }) async {
     final normalized = query.trim();
     if (normalized.isEmpty) return const [];
+    _ensureFtsTable();
     final tokens = normalized
         .split(RegExp(r'\s+'))
         .where((token) => token.isNotEmpty)
@@ -328,12 +405,27 @@ class LocalAdvancedStudyStore {
       LIMIT ?;
     ''', [tokens, limit]);
 
-    return rows.map((row) => StudySourceHit(
-      documentId: row['owner_id'] as String,
-      documentTitle: row['title'] as String,
-      pageNumber: int.tryParse(row['page_number'].toString()) ?? 1,
-      snippet: row['snippet_text'] as String? ?? '',
-    )).toList(growable: false);
+    return rows
+        .map((row) => StudySourceHit(
+              documentId: row['owner_id'] as String,
+              documentTitle: row['title'] as String,
+              pageNumber: int.tryParse(row['page_number'].toString()) ?? 1,
+              snippet: row['snippet_text'] as String? ?? '',
+            ))
+        .toList(growable: false);
+  }
+
+  void _ensureFtsTable() {
+    db.database.execute('''
+      CREATE VIRTUAL TABLE IF NOT EXISTS global_search_fts USING fts5(
+        kind UNINDEXED,
+        owner_id UNINDEXED,
+        page_number UNINDEXED,
+        title,
+        content,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    ''');
   }
 
   void _insertItem(StudyItem item) {
@@ -398,20 +490,20 @@ class LocalAdvancedStudyStore {
   }
 
   StudyReviewState _reviewFromRow(dynamic row) => StudyReviewState(
-    itemId: row['item_id'] as String,
-    dueAt: DateTime.parse(row['due_at'] as String),
-    intervalDays: (row['interval_days'] as num).toDouble(),
-    easeFactor: (row['ease_factor'] as num).toDouble(),
-    repetitions: row['repetitions'] as int,
-    lapses: row['lapses'] as int,
-    lastGrade: row['last_grade'] == null
-        ? null
-        : StudyReviewGrade.values.firstWhere(
-            (value) => value.name == row['last_grade'],
-            orElse: () => StudyReviewGrade.good,
-          ),
-    lastReviewedAt: row['last_reviewed_at'] == null
-        ? null
-        : DateTime.parse(row['last_reviewed_at'] as String),
-  );
+        itemId: row['item_id'] as String,
+        dueAt: DateTime.parse(row['due_at'] as String),
+        intervalDays: (row['interval_days'] as num).toDouble(),
+        easeFactor: (row['ease_factor'] as num).toDouble(),
+        repetitions: row['repetitions'] as int,
+        lapses: row['lapses'] as int,
+        lastGrade: row['last_grade'] == null
+            ? null
+            : StudyReviewGrade.values.firstWhere(
+                (value) => value.name == row['last_grade'],
+                orElse: () => StudyReviewGrade.good,
+              ),
+        lastReviewedAt: row['last_reviewed_at'] == null
+            ? null
+            : DateTime.parse(row['last_reviewed_at'] as String),
+      );
 }
