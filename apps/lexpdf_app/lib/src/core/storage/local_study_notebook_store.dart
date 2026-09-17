@@ -1,4 +1,5 @@
 import '../ai/ai_models.dart';
+import 'local_advanced_study_store.dart';
 import 'local_database.dart';
 
 class StudyNotebookSaveResult {
@@ -11,11 +12,8 @@ class StudyNotebookSaveResult {
   final int savedItems;
 }
 
-/// Persists generated study material into the existing notebook model.
-///
-/// No parallel study database is introduced: each source PDF receives a stable
-/// notebook and generated material is appended as ordinary text objects. The
-/// notebook therefore remains editable/exportable by the normal notebook UI.
+/// Persists generated study material into the existing notebook model and the
+/// structured Phase 9 study index. Both live in the same encrypted database.
 class LocalStudyNotebookStore {
   const LocalStudyNotebookStore(this.db);
 
@@ -25,6 +23,9 @@ class LocalStudyNotebookStore {
     required String documentId,
     required String documentTitle,
     required AiStudyResult result,
+    int? sourcePage,
+    String subject = '',
+    List<String> tags = const [],
   }) async {
     final entries = _entriesFor(result);
     if (entries.isEmpty) {
@@ -107,6 +108,16 @@ class LocalStudyNotebookStore {
         );
         saved++;
       }
+
+      await LocalAdvancedStudyStore(db).saveGeneratedResult(
+        documentId: documentId,
+        documentTitle: documentTitle,
+        notebookId: notebookId,
+        result: result,
+        sourcePage: sourcePage,
+        subject: subject,
+        tags: tags,
+      );
 
       db.database.execute(
         'UPDATE notebooks SET updated_at = ? WHERE id = ?;',
@@ -207,7 +218,8 @@ class LocalStudyNotebookStore {
   }
 
   String _notebookId(String documentId) => 'study-notebook-$documentId';
-  String _pageId(String notebookId, int pageNumber) => '$notebookId-page-$pageNumber';
+  String _pageId(String notebookId, int pageNumber) =>
+      '$notebookId-page-$pageNumber';
   String _layerId(String pageId) => '$pageId-layer-0';
 }
 
