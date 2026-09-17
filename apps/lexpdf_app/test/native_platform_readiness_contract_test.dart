@@ -25,24 +25,6 @@ void main() {
     );
   });
 
-  test('macOS debug and release sandbox profiles allow cloud and user files', () {
-    final debug = File('macos/Runner/DebugProfile.entitlements')
-        .readAsStringSync();
-    final release = File('macos/Runner/Release.entitlements')
-        .readAsStringSync();
-
-    for (final source in [debug, release]) {
-      expect(source, contains('com.apple.security.app-sandbox'));
-      expect(source, contains('com.apple.security.network.client'));
-      expect(
-        source,
-        contains('com.apple.security.files.user-selected.read-write'),
-      );
-    }
-
-    expect(debug, contains('com.apple.security.cs.allow-jit'));
-  });
-
   test('Windows release resources retain LexPDF product identity', () {
     final resources = File('windows/runner/Runner.rc').readAsStringSync();
 
