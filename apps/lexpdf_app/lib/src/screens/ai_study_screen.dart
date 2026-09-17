@@ -9,8 +9,12 @@ import '../core/ai/pdf_ai_text_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
+import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_study_notebook_store.dart';
+import '../core/storage/local_text_annotation_store.dart';
 import 'advanced_study_screen.dart';
+import 'pdf_workspace_screen.dart';
 
 class AiStudyScreen extends StatefulWidget {
   const AiStudyScreen({
@@ -20,6 +24,7 @@ class AiStudyScreen extends StatefulWidget {
     this.studyStore,
     this.sourceDocumentId,
     this.sourceDocumentTitle,
+    this.sourcePage,
     this.title = 'Estudo assistido',
     super.key,
   });
@@ -30,6 +35,7 @@ class AiStudyScreen extends StatefulWidget {
   final LocalStudyNotebookStore? studyStore;
   final String? sourceDocumentId;
   final String? sourceDocumentTitle;
+  final int? sourcePage;
   final String title;
 
   @override
@@ -140,6 +146,7 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
         documentId: documentId,
         documentTitle: documentTitle,
         result: result,
+        sourcePage: widget.sourcePage,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -157,6 +164,30 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     }
   }
 
+  Future<void> _openStudySource(String documentId, int pageNumber) async {
+    final studyStore = widget.studyStore;
+    if (studyStore == null) return;
+    final db = studyStore.db;
+    final document = await LocalDocumentCatalog(db).getById(documentId);
+    if (!mounted) return;
+    if (document == null || !document.hasLocalPath) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('O PDF original não está disponível localmente.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfWorkspaceScreen(
+          document: document,
+          store: LocalPdfNavigationStore(db),
+          annotations: LocalTextAnnotationStore(db),
+          initialPage: pageNumber,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openAdvancedStudy() async {
     final studyStore = widget.studyStore;
     if (studyStore == null) return;
@@ -164,6 +195,7 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       MaterialPageRoute<void>(
         builder: (_) => AdvancedStudyScreen(
           store: LocalAdvancedStudyStore(studyStore.db),
+          onOpenSource: _openStudySource,
         ),
       ),
     );
