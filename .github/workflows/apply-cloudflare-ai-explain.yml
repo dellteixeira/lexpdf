@@ -1,0 +1,35 @@
+name: Apply Cloudflare AI Explain
+
+on:
+  push:
+    branches: [feat/cloudflare-ai-explain]
+    paths:
+      - '.github/workflows/apply-cloudflare-ai-explain.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/cloudflare-ai-explain
+          fetch-depth: 0
+      - name: Apply controlled codemod
+        run: python3 tool/apply_cloudflare_ai_explain.py
+      - name: Remove temporary codemod machinery
+        run: |
+          rm -f tool/apply_cloudflare_ai_explain.py
+          rm -f .github/workflows/apply-cloudflare-ai-explain.yml
+      - name: Verify no whitespace errors
+        run: git diff --check
+      - name: Commit product implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: add authenticated Workers AI explanations"
+          git push origin HEAD:feat/cloudflare-ai-explain
