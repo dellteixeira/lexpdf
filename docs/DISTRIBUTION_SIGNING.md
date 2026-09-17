@@ -9,8 +9,6 @@ The `1.0.0-rc.1` / `v1.0.0` distribution scope is:
 - Android
 - Windows
 
-macOS source and CI compatibility remain in the repository, but macOS is not a distribution target for this release and therefore does not participate in RC acceptance or stable-promotion evidence.
-
 ## Reproducible inputs
 
 - Flutter is pinned to `3.47.2` in CI and distribution workflows.
@@ -38,15 +36,11 @@ The following secrets are optional, but they must be supplied together when Wind
 - `LEXPDF_WINDOWS_CERTIFICATE_BASE64`: base64 encoded PFX containing a code-signing certificate and private key.
 - `LEXPDF_WINDOWS_CERTIFICATE_PASSWORD`: PFX password.
 
-When both secrets are present, the workflow signs `lexpdf_app.exe` and the final Inno Setup installer and requires `Get-AuthenticodeSignature` to report `Valid`.
+When both secrets are present, the workflow signs `lexpdf_app.exe` and the final Inno Setup installer and verifies the embedded signer identity.
 
 When both secrets are absent, the workflow deliberately produces an unsigned Windows installer. This is permitted for the current controlled/personal distribution scope, but Windows may show an unknown-publisher or SmartScreen warning during installation. The unsigned state must be recorded in `WINDOWS_SIGNING_STATUS.txt`; it must never be presented as a signed artifact.
 
 A partial Windows signing configuration is invalid: supplying only one of the two secrets fails the workflow.
-
-## macOS
-
-No macOS signing, notarization, DMG generation, or Apple Developer credentials are required for the current RC/stable distribution scope. macOS compatibility CI may still build the app from source, but that build is not an official distributed artifact for `v1.0.0`.
 
 ## Release rule
 
