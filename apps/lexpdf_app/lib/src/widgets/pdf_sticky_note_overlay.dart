@@ -33,6 +33,8 @@ class _StickyNoteContent {
     this.italic = false,
     this.underline = false,
     this.fontSize = 16,
+    this.fontFamily = 'Roboto',
+    this.textAlign = 'left',
   });
 
   static const prefix = 'lexpdf-note-v1:';
@@ -42,6 +44,8 @@ class _StickyNoteContent {
   final bool italic;
   final bool underline;
   final double fontSize;
+  final String fontFamily;
+  final String textAlign;
 
   String encode() {
     final payload = jsonEncode({
@@ -50,6 +54,8 @@ class _StickyNoteContent {
       'italic': italic,
       'underline': underline,
       'fontSize': fontSize,
+      'fontFamily': fontFamily,
+      'textAlign': textAlign,
     });
     return '$prefix${base64Url.encode(utf8.encode(payload))}';
   }
@@ -69,6 +75,8 @@ class _StickyNoteContent {
         italic: map['italic'] as bool? ?? false,
         underline: map['underline'] as bool? ?? false,
         fontSize: (map['fontSize'] as num?)?.toDouble() ?? 16,
+        fontFamily: map['fontFamily'] as String? ?? 'Roboto',
+        textAlign: map['textAlign'] as String? ?? 'left',
       );
     } catch (_) {
       return _StickyNoteContent(text: value);
@@ -97,7 +105,7 @@ class _StickyNoteDragData {
 }
 
 class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
-  static const _markerSize = 34.0;
+  static const _markerSize = 26.0;
   static const _autoScrollEdge = 56.0;
   static const _autoScrollStep = 120.0;
   final GlobalKey _dropSurfaceKey = GlobalKey();
@@ -271,9 +279,9 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
         child: const Material(
           color: Colors.transparent,
           child: Icon(
-            Icons.sticky_note_2,
-            color: Color(0xFFFFC107),
-            size: 30,
+            Icons.push_pin_rounded,
+            color: Color(0xFFFFB300),
+            size: 20,
           ),
         ),
       );
@@ -287,86 +295,87 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
     var italic = initial.italic;
     var underline = initial.underline;
     var fontSize = initial.fontSize.clamp(12.0, 32.0);
+    var fontFamily = initial.fontFamily;
+    var textAlign = initial.textAlign;
     final result = await showDialog<_NoteEditorResult>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final align = switch (textAlign) {
+            'center' => TextAlign.center,
+            'right' => TextAlign.right,
+            'justify' => TextAlign.justify,
+            _ => TextAlign.left,
+          };
           final style = TextStyle(
+            fontFamily: fontFamily,
             fontSize: fontSize,
             fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
             fontStyle: italic ? FontStyle.italic : FontStyle.normal,
-            decoration:
-                underline ? TextDecoration.underline : TextDecoration.none,
+            decoration: underline ? TextDecoration.underline : TextDecoration.none,
           );
           return AlertDialog(
             title: Text(existing ? 'Editar anotação' : 'Nova anotação'),
             content: SizedBox(
-              width: 520,
+              width: MediaQuery.sizeOf(dialogContext).width * 0.78,
+              height: MediaQuery.sizeOf(dialogContext).height * 0.58,
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Wrap(
-                    spacing: 6,
+                    spacing: 4,
+                    runSpacing: 4,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      IconButton(
-                        tooltip: 'Negrito',
-                        isSelected: bold,
-                        onPressed: () => setDialogState(() => bold = !bold),
-                        icon: const Icon(Icons.format_bold),
+                      IconButton(tooltip: 'Negrito', isSelected: bold, onPressed: () => setDialogState(() => bold = !bold), icon: const Icon(Icons.format_bold)),
+                      IconButton(tooltip: 'Itálico', isSelected: italic, onPressed: () => setDialogState(() => italic = !italic), icon: const Icon(Icons.format_italic)),
+                      IconButton(tooltip: 'Sublinhado', isSelected: underline, onPressed: () => setDialogState(() => underline = !underline), icon: const Icon(Icons.format_underline)),
+                      DropdownButton<double>(
+                        value: fontSize,
+                        items: const [12, 14, 16, 18, 20, 24, 28, 32]
+                            .map((value) => DropdownMenuItem<double>(value: value.toDouble(), child: Text('$value pt')))
+                            .toList(),
+                        onChanged: (value) { if (value != null) setDialogState(() => fontSize = value); },
                       ),
-                      IconButton(
-                        tooltip: 'Itálico',
-                        isSelected: italic,
-                        onPressed: () => setDialogState(() => italic = !italic),
-                        icon: const Icon(Icons.format_italic),
+                      DropdownButton<String>(
+                        value: const ['Roboto', 'sans-serif', 'serif', 'monospace'].contains(fontFamily) ? fontFamily : 'Roboto',
+                        items: const [
+                          DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
+                          DropdownMenuItem(value: 'sans-serif', child: Text('Sans')),
+                          DropdownMenuItem(value: 'serif', child: Text('Serif')),
+                          DropdownMenuItem(value: 'monospace', child: Text('Monospace')),
+                        ],
+                        onChanged: (value) { if (value != null) setDialogState(() => fontFamily = value); },
                       ),
-                      IconButton(
-                        tooltip: 'Sublinhado',
-                        isSelected: underline,
-                        onPressed: () =>
-                            setDialogState(() => underline = !underline),
-                        icon: const Icon(Icons.format_underline),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: 'Tamanho da fonte',
-                        child: DropdownButton<double>(
-                          value: <double>[12, 14, 16, 18, 20, 24, 28, 32]
-                                  .contains(fontSize)
-                              ? fontSize
-                              : 16,
-                          items: const [
-                            DropdownMenuItem(value: 12, child: Text('12 pt')),
-                            DropdownMenuItem(value: 14, child: Text('14 pt')),
-                            DropdownMenuItem(value: 16, child: Text('16 pt')),
-                            DropdownMenuItem(value: 18, child: Text('18 pt')),
-                            DropdownMenuItem(value: 20, child: Text('20 pt')),
-                            DropdownMenuItem(value: 24, child: Text('24 pt')),
-                            DropdownMenuItem(value: 28, child: Text('28 pt')),
-                            DropdownMenuItem(value: 32, child: Text('32 pt')),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setDialogState(() => fontSize = value);
-                            }
-                          },
+                      for (final option in const <(String, IconData)>[
+                        ('left', Icons.format_align_left),
+                        ('center', Icons.format_align_center),
+                        ('right', Icons.format_align_right),
+                        ('justify', Icons.format_align_justify),
+                      ])
+                        IconButton(
+                          isSelected: textAlign == option.$1,
+                          onPressed: () => setDialogState(() => textAlign = option.$1),
+                          icon: Icon(option.$2),
                         ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    minLines: 6,
-                    maxLines: 12,
-                    style: style,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: 'Escreva sua anotação…',
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      autofocus: true,
+                      expands: true,
+                      minLines: null,
+                      maxLines: null,
+                      textAlign: align,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: style,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Escreva sua anotação…',
+                      ),
                     ),
                   ),
                 ],
@@ -375,15 +384,11 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
             actions: [
               if (existing)
                 TextButton.icon(
-                  onPressed: () => Navigator.of(dialogContext)
-                      .pop(const _NoteEditorResult.delete()),
+                  onPressed: () => Navigator.of(dialogContext).pop(const _NoteEditorResult.delete()),
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Excluir'),
                 ),
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancelar'),
-              ),
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancelar')),
               FilledButton.icon(
                 onPressed: () => Navigator.of(dialogContext).pop(
                   _NoteEditorResult.save(
@@ -393,6 +398,8 @@ class _PdfStickyNoteOverlayState extends State<PdfStickyNoteOverlay> {
                       italic: italic,
                       underline: underline,
                       fontSize: fontSize,
+                      fontFamily: fontFamily,
+                      textAlign: textAlign,
                     ),
                   ),
                 ),

@@ -78,7 +78,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     colorValue: () => _inkColor,
     onChanged: () {
       if (!mounted) return;
-      setState(() {});
+      setState(() => _annotationRevision++);
       _controller.invalidate();
     },
   );
@@ -90,6 +90,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   int _zoomPercent = 100;
   int _inkLoadGeneration = 0;
   int _inkCount = 0;
+  int _annotationRevision = 0;
   int _inkColor = 0xFF246BFD;
   double _inkWidth = 3.0;
   double _eraserWidth = 36.0;
@@ -376,7 +377,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                               Positioned.fill(
                                 child: PdfStickyNoteOverlay(
                                   key: ValueKey(
-                                    'sticky-${page.pageNumber}-${_stylusMode.name}',
+                                    'sticky-${page.pageNumber}-${_stylusMode.name}-$_annotationRevision',
                                   ),
                                   documentId: widget.document.id,
                                   pageNumber: page.pageNumber,

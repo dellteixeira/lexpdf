@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +9,6 @@ import '../core/ai/ai_models.dart';
 import '../core/annotations/pdf_annotation_object.dart';
 import '../core/storage/local_study_notebook_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
-import '../screens/ai_study_screen.dart';
 
 typedef PdfSelectionStudyAction = Future<void> Function(
   BuildContext context,
@@ -150,27 +150,7 @@ class PdfSelectionActionMenu {
         label: 'Flashcard',
         onPressed: () {
           params.dismissContextMenu();
-          unawaited(
-            _runStudyAction(context, delegate, AiStudyAction.flashcards),
-          );
-        },
-      ),
-      ContextMenuButtonItem(
-        label: 'Questão',
-        onPressed: () {
-          params.dismissContextMenu();
-          unawaited(
-            _runStudyAction(context, delegate, AiStudyAction.questions),
-          );
-        },
-      ),
-      ContextMenuButtonItem(
-        label: 'Explicar',
-        onPressed: () {
-          params.dismissContextMenu();
-          unawaited(
-            _runStudyAction(context, delegate, AiStudyAction.explain),
-          );
+          unawaited(_createManualFlashcard(context, delegate));
         },
       ),
       ContextMenuButtonItem(
@@ -208,58 +188,62 @@ class PdfSelectionActionMenu {
     );
   }
 
-  Future<void> _runStudyAction(
+  Future<void> _createManualFlashcard(
     BuildContext context,
     PdfTextSelectionDelegate delegate,
-    AiStudyAction action,
   ) async {
     final ranges = await delegate.getSelectedTextRanges();
+    if (ranges.isEmpty) return;
     final selectedText = _selectionText(ranges);
     if (selectedText.isEmpty) return;
-    await delegate.clearTextSelection();
 
-    final callback = onStudyAction;
-    if (callback != null) {
-      await callback(context, selectedText, action);
+    final draft = await _showManualFlashcardDialog(
+      context,
+      selectedText: selectedText,
+    );
+    if (draft == null) return;
+    if (draft.question.trim().isEmpty || draft.answer.trim().isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preencha pergunta e resposta do flashcard.')),
+        );
+      }
       return;
     }
 
     final rows = store.db.database.select(
-      '''
-      SELECT title, filename, local_path
-      FROM documents
-      WHERE id = ?
-      LIMIT 1;
-      ''',
+      'SELECT title, filename FROM documents WHERE id = ? LIMIT 1;',
       [documentId],
     );
     final row = rows.isEmpty ? null : rows.first;
     final title = (row?['title'] as String?)?.trim();
     final filename = (row?['filename'] as String?)?.trim();
-    final localPath = (row?['local_path'] as String?)?.trim();
     final documentTitle = title?.isNotEmpty == true
         ? title!
         : (filename?.isNotEmpty == true ? filename! : 'PDF');
 
-    if (!context.mounted) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => AiStudyScreen(
-          initialText: selectedText,
-          documentPath: localPath,
-          initialAction: action,
-          studyStore: LocalStudyNotebookStore(store.db),
-          sourceDocumentId: documentId,
-          sourceDocumentTitle: documentTitle,
-          title: switch (action) {
-            AiStudyAction.flashcards => 'Flashcards do trecho',
-            AiStudyAction.questions => 'Questões do trecho',
-            AiStudyAction.explain => 'Explicar trecho',
-            AiStudyAction.summarize => 'Resumir trecho',
-          },
-        ),
+    await LocalStudyNotebookStore(store.db).saveResult(
+      documentId: documentId,
+      documentTitle: documentTitle,
+      sourcePage: ranges.first.pageNumber,
+      result: AiStudyResult(
+        action: AiStudyAction.flashcards,
+        engine: AiEngineKind.local,
+        sourceText: selectedText,
+        flashcards: [
+          AiFlashcard(
+            question: draft.question.trim(),
+            answer: draft.answer.trim(),
+          ),
+        ],
       ),
     );
+    await delegate.clearTextSelection();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Flashcard salvo.')),
+      );
+    }
   }
 
   Future<void> _createNoteFromSelection(
@@ -271,83 +255,49 @@ class PdfSelectionActionMenu {
     final selectedText = _selectionText(ranges);
     if (selectedText.isEmpty) return;
 
-    final noteController = TextEditingController();
-    try {
-      final note = await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Anotar trecho'),
-          content: SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  selectedText,
-                  maxLines: 5,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(dialogContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: noteController,
-                  autofocus: true,
-                  minLines: 3,
-                  maxLines: 8,
-                  decoration: const InputDecoration(
-                    labelText: 'Anotação',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(noteController.text.trim()),
-              child: const Text('Salvar'),
-            ),
-          ],
-        ),
-      );
-      if (note == null) return;
+    final content = await _showSelectionNoteEditor(
+      context,
+      selectedText: selectedText,
+    );
+    if (content == null || content.text.trim().isEmpty) return;
 
-      final now = DateTime.now().toUtc();
-      final pageNumber = ranges.first.pageNumber;
-      final noteText = note.isEmpty
-          ? selectedText
-          : 'Trecho selecionado:\n$selectedText\n\nAnotação:\n$note';
-      await store.objectStore.upsert(
-        PdfAnnotationObject(
-          id: 'selection-note-${now.microsecondsSinceEpoch.toRadixString(36)}',
-          documentId: documentId,
-          pageNumber: pageNumber,
-          type: PdfAnnotationObjectType.note,
-          x: 0.05,
-          y: 0.05,
-          width: 0.30,
-          height: 0.18,
-          colorValue: colorValue(),
-          fillColorValue: 0xFFFFF59D,
-          opacity: 0.96,
-          strokeWidth: 1.5,
-          textValue: noteText,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
-      await delegate.clearTextSelection();
-      onChanged();
-      controller.invalidate();
-    } finally {
-      noteController.dispose();
+    final pageNumber = ranges.first.pageNumber;
+    var x = 0.05;
+    var y = 0.05;
+    final document = _document;
+    if (document != null && pageNumber >= 1 && pageNumber <= document.pages.length) {
+      final fragments = ranges.first.enumerateFragmentBoundingRects().toList(growable: false);
+      if (fragments.isNotEmpty) {
+        final page = document.pages[pageNumber - 1];
+        final bounds = fragments.first.bounds;
+        x = (bounds.left / page.width).clamp(0.02, 0.98).toDouble();
+        y = ((page.height - bounds.top) / page.height).clamp(0.02, 0.98).toDouble();
+      }
     }
+
+    final now = DateTime.now().toUtc();
+    await store.objectStore.upsert(
+      PdfAnnotationObject(
+        id: 'selection-note-${now.microsecondsSinceEpoch.toRadixString(36)}',
+        documentId: documentId,
+        pageNumber: pageNumber,
+        type: PdfAnnotationObjectType.note,
+        x: x,
+        y: y,
+        width: 0.03,
+        height: 0.03,
+        colorValue: 0xFF7A5B00,
+        fillColorValue: 0xFFFFD54F,
+        opacity: 1.0,
+        strokeWidth: 1.2,
+        textValue: content.encode(),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await delegate.clearTextSelection();
+    onChanged();
+    controller.invalidate();
   }
 
   String _selectionText(List<PdfPageTextRange> ranges) {
@@ -614,4 +564,259 @@ class _RenderedTextAnnotation {
 
   final LocalTextAnnotation annotation;
   final List<PdfRect> fragmentBounds;
+}
+
+class _ManualFlashcardDraft {
+  const _ManualFlashcardDraft({required this.question, required this.answer});
+  final String question;
+  final String answer;
+}
+
+Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
+  BuildContext context, {
+  required String selectedText,
+}) async {
+  final questionController = TextEditingController();
+  final answerController = TextEditingController(text: selectedText);
+  try {
+    return await showDialog<_ManualFlashcardDraft>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Criar flashcard'),
+        content: SizedBox(
+          width: MediaQuery.sizeOf(dialogContext).width * 0.72,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Trecho selecionado', style: Theme.of(dialogContext).textTheme.labelLarge),
+                const SizedBox(height: 6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 120),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(dialogContext).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SingleChildScrollView(child: SelectableText(selectedText)),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: questionController,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Pergunta',
+                    hintText: 'Digite a pergunta do flashcard',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: answerController,
+                  minLines: 4,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    labelText: 'Resposta',
+                    hintText: 'Edite a resposta livremente',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancelar')),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(dialogContext).pop(
+              _ManualFlashcardDraft(question: questionController.text, answer: answerController.text),
+            ),
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Salvar flashcard'),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    questionController.dispose();
+    answerController.dispose();
+  }
+}
+
+class _SelectionNoteContent {
+  const _SelectionNoteContent({
+    required this.text,
+    required this.sourceText,
+    this.bold = false,
+    this.italic = false,
+    this.underline = false,
+    this.fontSize = 16,
+    this.fontFamily = 'Roboto',
+    this.textAlign = 'left',
+  });
+
+  static const prefix = 'lexpdf-note-v1:';
+  final String text;
+  final String sourceText;
+  final bool bold;
+  final bool italic;
+  final bool underline;
+  final double fontSize;
+  final String fontFamily;
+  final String textAlign;
+
+  String encode() {
+    final payload = jsonEncode({
+      'text': text,
+      'sourceText': sourceText,
+      'bold': bold,
+      'italic': italic,
+      'underline': underline,
+      'fontSize': fontSize,
+      'fontFamily': fontFamily,
+      'textAlign': textAlign,
+    });
+    return '$prefix${base64Url.encode(utf8.encode(payload))}';
+  }
+}
+
+Future<_SelectionNoteContent?> _showSelectionNoteEditor(
+  BuildContext context, {
+  required String selectedText,
+}) async {
+  final controller = TextEditingController();
+  var bold = false;
+  var italic = false;
+  var underline = false;
+  var fontSize = 16.0;
+  var fontFamily = 'Roboto';
+  var textAlign = 'left';
+
+  try {
+    return await showDialog<_SelectionNoteContent>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final align = switch (textAlign) {
+            'center' => TextAlign.center,
+            'right' => TextAlign.right,
+            'justify' => TextAlign.justify,
+            _ => TextAlign.left,
+          };
+          final style = TextStyle(
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+            fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+            decoration: underline ? TextDecoration.underline : TextDecoration.none,
+          );
+          return AlertDialog(
+            title: const Text('Anotar trecho'),
+            content: SizedBox(
+              width: MediaQuery.sizeOf(dialogContext).width * 0.78,
+              height: MediaQuery.sizeOf(dialogContext).height * 0.62,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Trecho selecionado', style: Theme.of(dialogContext).textTheme.labelLarge),
+                  const SizedBox(height: 4),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 90),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(dialogContext).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(child: SelectableText(selectedText)),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      IconButton(tooltip: 'Negrito', isSelected: bold, onPressed: () => setDialogState(() => bold = !bold), icon: const Icon(Icons.format_bold)),
+                      IconButton(tooltip: 'Itálico', isSelected: italic, onPressed: () => setDialogState(() => italic = !italic), icon: const Icon(Icons.format_italic)),
+                      IconButton(tooltip: 'Sublinhado', isSelected: underline, onPressed: () => setDialogState(() => underline = !underline), icon: const Icon(Icons.format_underline)),
+                      DropdownButton<double>(
+                        value: fontSize,
+                        items: const [12, 14, 16, 18, 20, 24, 28, 32]
+                            .map((value) => DropdownMenuItem<double>(value: value.toDouble(), child: Text('$value pt')))
+                            .toList(),
+                        onChanged: (value) { if (value != null) setDialogState(() => fontSize = value); },
+                      ),
+                      DropdownButton<String>(
+                        value: fontFamily,
+                        items: const [
+                          DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
+                          DropdownMenuItem(value: 'sans-serif', child: Text('Sans')),
+                          DropdownMenuItem(value: 'serif', child: Text('Serif')),
+                          DropdownMenuItem(value: 'monospace', child: Text('Monospace')),
+                        ],
+                        onChanged: (value) { if (value != null) setDialogState(() => fontFamily = value); },
+                      ),
+                      for (final option in const <(String, IconData)>[
+                        ('left', Icons.format_align_left),
+                        ('center', Icons.format_align_center),
+                        ('right', Icons.format_align_right),
+                        ('justify', Icons.format_align_justify),
+                      ])
+                        IconButton(
+                          isSelected: textAlign == option.$1,
+                          onPressed: () => setDialogState(() => textAlign = option.$1),
+                          icon: Icon(option.$2),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      autofocus: true,
+                      expands: true,
+                      minLines: null,
+                      maxLines: null,
+                      textAlign: align,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: style,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Escreva sua anotação…',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancelar')),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(dialogContext).pop(
+                  _SelectionNoteContent(
+                    text: controller.text.trim(),
+                    sourceText: selectedText,
+                    bold: bold,
+                    italic: italic,
+                    underline: underline,
+                    fontSize: fontSize,
+                    fontFamily: fontFamily,
+                    textAlign: textAlign,
+                  ),
+                ),
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('Salvar anotação'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  } finally {
+    controller.dispose();
+  }
 }
