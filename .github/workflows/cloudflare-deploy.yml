@@ -1,0 +1,133 @@
+name: Cloudflare Worker Deploy
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'backend/cloudflare/**'
+      - '.github/workflows/cloudflare-deploy.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'backend/cloudflare/**'
+      - 'backend/supabase/migrations/**'
+      - '.github/workflows/cloudflare-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+env:
+  WRANGLER_VERSION: '4.133.0'
+  WORKER_URL: 'https://lexpdf-api.d3-concursos.workers.dev'
+
+jobs:
+  validate:
+    name: Validate Worker deploy
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend/cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - name: Validate Wrangler production bundle
+        run: >-
+          npx --yes wrangler@${WRANGLER_VERSION} deploy
+          --dry-run
+          --outdir .wrangler-dry-run
+      - name: Confirm AI and production bindings are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^binding = "AI"$' wrangler.toml
+          grep -q '^SUPABASE_PUBLISHABLE_KEY = ' wrangler.toml
+          grep -q '^AI_QUICK_MODEL = ' wrangler.toml
+          grep -q '^AI_DEEP_MODEL = ' wrangler.toml
+          grep -q '^bucket_name = "lexpdf-files"$' wrangler.toml
+          grep -q '^queue = "lexpdf-sync"$' wrangler.toml
+
+  deploy:
+    name: Deploy Worker production
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment: production
+    defaults:
+      run:
+        working-directory: backend/cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - name: Verify production deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SUPABASE_SECRET_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required GitHub production secret: ${name}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - name: Synchronize encrypted Supabase service secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$SUPABASE_SECRET_KEY" | npx --yes wrangler@${WRANGLER_VERSION} secret put SUPABASE_SECRET_KEY
+      - name: Deploy Cloudflare Worker
+        run: npx --yes wrangler@${WRANGLER_VERSION} deploy
+      - name: Verify deployed Worker health
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --retry 5 --retry-delay 3 "${WORKER_URL}/health")"
+          printf '%s\n' "$response"
+          HEALTH_RESPONSE="$response" node --input-type=module <<'NODE'
+          const body = JSON.parse(process.env.HEALTH_RESPONSE ?? '{}');
+          if (body.service !== 'lexpdf-api' || body.status !== 'ok' || body.ai !== true) {
+            throw new Error(`Unexpected Worker health response: ${JSON.stringify(body)}`);
+          }
+          NODE
+      - name: Verify AI route is live and auth-protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --output /tmp/ai-response.json --write-out '%{http_code}' \
+            -X POST "${WORKER_URL}/v1/ai/explain" \
+            -H 'content-type: application/json' \
+            --data '{"action":"explain","depth":"quick","text":"deployment probe"}')"
+          cat /tmp/ai-response.json
+          if [ "$code" != '401' ]; then
+            echo "::error::Expected unauthenticated AI probe to return 401, got ${code}."
+            exit 1
+          fi
+      - name: Publish deployment summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## Cloudflare Worker production deployment'
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Worker: \`${WORKER_URL}\`"
+            echo '- Health: verified'
+            echo '- Workers AI binding: verified'
+            echo '- AI route authentication: verified (401 without bearer token)'
+          } >> "$GITHUB_STEP_SUMMARY"
