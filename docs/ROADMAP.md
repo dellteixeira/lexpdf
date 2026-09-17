@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Phase 1 — Foundation
-- Flutter shell for Android, Windows and macOS
+- Flutter shell for Android and Windows
 - local filesystem abstraction
 - SQLite schema
 - app settings and secure credential storage abstraction
@@ -49,7 +49,6 @@
 ## Phase 8 — Printing
 - Android print framework
 - Windows printing
-- macOS printing/AirPrint-compatible system flow
 - print annotations and selected ranges
 
 ## Phase 9 — Cloud providers
