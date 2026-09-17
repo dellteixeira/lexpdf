@@ -1,0 +1,29 @@
+name: Apply manual flashcards rich notes codemod
+
+on:
+  push:
+    branches:
+      - feature/manual-flashcards-rich-notes
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/manual-flashcards-rich-notes
+          fetch-depth: 0
+      - name: Apply codemod
+        run: python3 tool/apply_manual_flashcards_rich_notes.py
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app/lib apps/lexpdf_app/test
+          git diff --cached --check
+          git commit -m "feat: manual flashcards and rich anchored PDF notes"
+          git push origin HEAD:feature/manual-flashcards-rich-notes
