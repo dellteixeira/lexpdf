@@ -4,7 +4,7 @@
 Accepted for the first reader milestone.
 
 ## Decision
-Use `pdfrx` as the first PDF rendering/viewing layer. It is built on PDFium, supports Android, Windows and macOS, and keeps the PDF engine replaceable behind LexPDF application interfaces.
+Use `pdfrx` as the first PDF rendering/viewing layer. It is built on PDFium, supports the active Android and Windows targets, and keeps the PDF engine replaceable behind LexPDF application interfaces.
 
 ## Constraints
 - Offline rendering is mandatory.
