@@ -41,7 +41,7 @@ class _PdfExportScreenState extends State<PdfExportScreen> {
   }
 
   Future<String?> _savePath(String name) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       return (await getSaveLocation(suggestedName: name))?.path;
     }
     final root = await getApplicationDocumentsDirectory();

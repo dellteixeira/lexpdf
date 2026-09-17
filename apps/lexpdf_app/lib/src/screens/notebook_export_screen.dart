@@ -123,7 +123,7 @@ class _NotebookExportScreenState extends State<NotebookExportScreen> {
   }
 
   Future<String?> _savePdf(Uint8List bytes, String fileName) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       final location = await getSaveLocation(suggestedName: fileName);
       if (location == null) return null;
       await XFile.fromData(

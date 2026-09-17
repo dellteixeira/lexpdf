@@ -14,8 +14,6 @@ void main() {
     expect(manifest, contains('If Windows signing mode is `signed`, Authenticode signature for installer is `Valid`.'));
     expect(manifest, contains('SHA-256'));
     expect(manifest, contains('Android + Windows'));
-    expect(manifest, isNot(contains('Apple notarization succeeds.')));
-    expect(manifest, isNot(contains('Stapler validation succeeds.')));
   });
 
   test('RC1 acceptance manifest requires real native runtime evidence', () {

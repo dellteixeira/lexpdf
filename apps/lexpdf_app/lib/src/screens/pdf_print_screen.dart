@@ -154,7 +154,7 @@ class _PdfPrintScreenState extends State<PdfPrintScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'A impressão usa o fluxo nativo do sistema: Android Print Framework, Windows e macOS/AirPrint quando disponível.',
+            'A impressão usa o fluxo nativo do sistema: Android Print Framework e Windows.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),

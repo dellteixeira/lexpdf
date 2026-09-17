@@ -30,7 +30,7 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
   bool _busy = false;
 
   Future<String?> _saveBytes(Uint8List bytes, String suggestedName) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       final location = await getSaveLocation(suggestedName: suggestedName);
       if (location == null) return null;
       await XFile.fromData(bytes, name: suggestedName).saveTo(location.path);
@@ -47,7 +47,7 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
   }
 
   Future<String?> _backupDestination(String suggestedName) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       final location = await getSaveLocation(suggestedName: suggestedName);
       return location?.path;
     }

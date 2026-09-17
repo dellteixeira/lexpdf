@@ -52,7 +52,7 @@ extension LexPdfFormFields on List<LexPdfFormField> {
 ///
 /// It intentionally does not depend on a PDF viewer package. Rendering stays
 /// with pdfrx while field metadata is read directly from the PDF object graph,
-/// which keeps the forms feature portable across Android, Windows and macOS.
+/// which keeps the forms feature portable across Android and Windows.
 class LexPdfAcroFormService {
   const LexPdfAcroFormService();
 

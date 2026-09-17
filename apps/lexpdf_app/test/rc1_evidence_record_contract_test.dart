@@ -21,8 +21,5 @@ void main() {
     expect(evidence, contains('Stable promotion remains blocked until:'));
     expect(evidence, contains('Stable Promotion Gate succeeds'));
     expect(evidence, contains('Android + Windows'));
-    expect(evidence, isNot(contains('Notarytool result / submission ID')));
-    expect(evidence, isNot(contains('Stapler validation')));
-    expect(evidence, isNot(contains('Gatekeeper assessment')));
   });
 }

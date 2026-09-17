@@ -110,7 +110,7 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
   }
 
   Future<String?> _chooseOutputPath(String suggestedName) async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (Platform.isWindows || Platform.isLinux) {
       final location = await getSaveLocation(suggestedName: suggestedName);
       return location?.path;
     }
@@ -309,7 +309,6 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
         String? directory;
         if (Platform.isWindows ||
             Platform.isLinux ||
-            Platform.isMacOS ||
             Platform.isAndroid) {
           directory = await getDirectoryPath(canCreateDirectories: true);
         }

@@ -79,13 +79,12 @@ class MobilePdfOcrService {
   final LocalPdfNavigationStore navigationStore;
 
   bool get mlKitOcrSupported => Platform.isAndroid || Platform.isIOS;
-  bool get desktopNativeOcrSupported => Platform.isWindows || Platform.isMacOS;
+  bool get desktopNativeOcrSupported => Platform.isWindows;
   bool get nativeOcrSupported => mlKitOcrSupported || desktopNativeOcrSupported;
 
   String get _engineName {
     if (mlKitOcrSupported) return 'mlkit-latin-offline';
     if (Platform.isWindows) return 'windows-media-ocr-offline';
-    if (Platform.isMacOS) return 'apple-vision-ocr-offline';
     return 'embedded-text-fallback';
   }
 
