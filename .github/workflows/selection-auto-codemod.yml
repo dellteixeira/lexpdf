@@ -28,67 +28,35 @@ jobs:
               text = path.read_text()
               if old not in text:
                   raise SystemExit(f'Expected source fragment not found in {path}: {old!r}')
-              text = text.replace(old, new, 1)
-              path.write_text(text)
+              path.write_text(text.replace(old, new, 1))
 
           p = root / 'lib/src/screens/pdf_workspace_stylus_screen.dart'
           replace_once(
               p,
-              '''textSelectionParams: PdfTextSelectionParams(\n                              enabled: _stylusMode == _StylusMode.selectText,\n                              showContextMenuAutomatically: true,\n                            ),''',
-              '''textSelectionParams: PdfTextSelectionParams(\n                              enabled: _stylusMode == _StylusMode.selectText,\n                              showContextMenuAutomatically: true,\n                              onTextSelectionChange: (_) {\n                                if (_controller.isReady) {\n                                  _controller.invalidate();\n                                }\n                              },\n                            ),''',
+              "textSelectionParams: PdfTextSelectionParams(\n                              enabled: _stylusMode == _StylusMode.selectText,\n                              showContextMenuAutomatically: true,\n                            ),",
+              "textSelectionParams: PdfTextSelectionParams(\n                              enabled: _stylusMode == _StylusMode.selectText,\n                              showContextMenuAutomatically: true,\n                              onTextSelectionChange: (_) {\n                                if (_controller.isReady) {\n                                  _controller.invalidate();\n                                }\n                              },\n                            ),",
           )
 
           p = root / 'lib/src/screens/pdf_reader_screen.dart'
           replace_once(
               p,
-              'textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),',
-              '''textSelectionParams: PdfTextSelectionParams(\n                  enabled: !_inkMode,\n                  showContextMenuAutomatically: true,\n                  onTextSelectionChange: (_) {\n                    if (_viewerController.isReady) {\n                      _viewerController.invalidate();\n                    }\n                  },\n                ),''',
+              "textSelectionParams: PdfTextSelectionParams(enabled: !_inkMode),",
+              "textSelectionParams: PdfTextSelectionParams(\n                  enabled: !_inkMode,\n                  showContextMenuAutomatically: true,\n                  onTextSelectionChange: (_) {\n                    if (_viewerController.isReady) {\n                      _viewerController.invalidate();\n                    }\n                  },\n                ),",
           )
 
           p = root / 'lib/src/screens/pdf_advanced_annotation_screen.dart'
           replace_once(
               p,
-              '''textSelectionParams:\n                  PdfTextSelectionParams(enabled: !_editMode),''',
-              '''textSelectionParams: PdfTextSelectionParams(\n                enabled: !_editMode,\n                showContextMenuAutomatically: true,\n                onTextSelectionChange: (_) {\n                  if (_controller.isReady) {\n                    _controller.invalidate();\n                  }\n                },\n              ),''',
+              "textSelectionParams:\n                  PdfTextSelectionParams(enabled: !_editMode),",
+              "textSelectionParams: PdfTextSelectionParams(\n                enabled: !_editMode,\n                showContextMenuAutomatically: true,\n                onTextSelectionChange: (_) {\n                  if (_controller.isReady) {\n                    _controller.invalidate();\n                  }\n                },\n              ),",
           )
 
           p = root / 'lib/src/screens/pdf_navigation_screen.dart'
           replace_once(
               p,
-              '''params: PdfViewerParams(\n          layoutPages:''',
-              '''params: PdfViewerParams(\n          textSelectionParams: PdfTextSelectionParams(\n            showContextMenuAutomatically: true,\n            onTextSelectionChange: (_) {\n              if (_controller.isReady) {\n                _controller.invalidate();\n              }\n            },\n          ),\n          layoutPages:''',
+              "params: PdfViewerParams(\n          layoutPages:",
+              "params: PdfViewerParams(\n          textSelectionParams: PdfTextSelectionParams(\n            showContextMenuAutomatically: true,\n            onTextSelectionChange: (_) {\n              if (_controller.isReady) {\n                _controller.invalidate();\n              }\n            },\n          ),\n          layoutPages:",
           )
-
-          p = root / 'test/pdf_selection_spen_eraser_contract_test.dart'
-          text = p.read_text()
-          marker = "  test('eraser has adjustable width and side-button shortcut', () {"
-          if marker not in text:
-              raise SystemExit('Selection contract insertion point not found')
-          test = r'''  test('all PDF text-selection surfaces open actions automatically', () {
-    const paths = <String>[
-      'lib/src/screens/pdf_workspace_stylus_screen.dart',
-      'lib/src/screens/pdf_reader_screen.dart',
-      'lib/src/screens/pdf_advanced_annotation_screen.dart',
-      'lib/src/screens/pdf_navigation_screen.dart',
-    ];
-
-    for (final path in paths) {
-      final source = File(path).readAsStringSync();
-      expect(
-        source,
-        contains('showContextMenuAutomatically: true'),
-        reason: '$path must show actions immediately when selection ends',
-      );
-      expect(
-        source,
-        contains('onTextSelectionChange:'),
-        reason: '$path must refresh the selection overlay without another tap',
-      );
-    }
-  });
-
-'''
-          p.write_text(text.replace(marker, test + marker, 1))
 
           Path('.github/workflows/selection-auto-codemod.yml').unlink()
       - name: Commit codemod
