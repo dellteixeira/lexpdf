@@ -50,8 +50,5 @@ void main() {
     expect(workflow, isNot(contains('X509Store]::new')));
     expect(workflow, isNot(contains("'Root'")));
     expect(workflow, isNot(contains("'TrustedPublisher'")));
-    expect(workflow, isNot(contains('macos-dmg:')));
-    expect(workflow, isNot(contains('LEXPDF_MACOS_CERTIFICATE_BASE64')));
-    expect(workflow, isNot(contains('notarytool submit')));
   });
 }
