@@ -9,6 +9,7 @@ enum _NotebookFileAction {
   exportPdf,
   saveDoc,
   saveRtf,
+  indexImagesAi,
   newNotebook,
   renameNotebook,
   deleteNotebook,
@@ -37,6 +38,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
     required this.onSaveDoc,
     required this.onSaveRtf,
     required this.legacyDocAvailable,
+    required this.onIndexImagesAi,
     required this.onNewNotebook,
     required this.onRenameNotebook,
     required this.onDeleteNotebook,
@@ -72,6 +74,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
   final VoidCallback onSaveDoc;
   final VoidCallback onSaveRtf;
   final bool legacyDocAvailable;
+  final VoidCallback onIndexImagesAi;
   final VoidCallback onNewNotebook;
   final VoidCallback onRenameNotebook;
   final VoidCallback? onDeleteNotebook;
@@ -163,6 +166,8 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
         widget.onSaveDoc();
       case _NotebookFileAction.saveRtf:
         widget.onSaveRtf();
+      case _NotebookFileAction.indexImagesAi:
+        widget.onIndexImagesAi();
       case _NotebookFileAction.newNotebook:
         widget.onNewNotebook();
       case _NotebookFileAction.renameNotebook:
@@ -322,6 +327,14 @@ class _WordPadTabStrip extends StatelessWidget {
                 child: _FileMenuLabel(
                   icon: Icons.description_outlined,
                   label: 'Salvar como RTF',
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: _NotebookFileAction.indexImagesAi,
+                child: _FileMenuLabel(
+                  icon: Icons.image_search_outlined,
+                  label: 'Indexar imagens do caderno com IA',
                 ),
               ),
               const PopupMenuDivider(),
