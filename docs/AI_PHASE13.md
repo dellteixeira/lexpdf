@@ -37,3 +37,25 @@ No model binary, API key, or proprietary runtime is bundled in Phase 13.
 6. Online AI remains disabled unless a gateway is explicitly configured.
 7. Future local-model runtimes can plug into `LocalModelRunner` without changing the UI contract.
 8. Flutter analyze and tests are green.
+
+
+## Continuous contextual chat
+
+Phase 13 now also includes persistent multi-turn chat with two scopes:
+
+- **Chat with this PDF**: retrieval is restricted to the active document.
+- **Chat with the library**: retrieval spans all indexed PDFs.
+
+Chat sessions and messages are stored locally in the encrypted LexPDF database. Each turn performs fresh retrieval; conversation history is used only for continuity and never as factual evidence. Assistant answers remain source-bound and expose clickable `[F#]` references.
+
+## Hybrid RAG
+
+The active RAG pipeline combines:
+
+1. structure-aware page chunking with bounded overlap;
+2. multilingual embeddings generated through the authenticated Worker;
+3. SQLite FTS5 lexical retrieval;
+4. local weighted reranking of semantic and lexical signals;
+5. source diversity limits to avoid overloading the answer with near-duplicate chunks.
+
+Embedding vectors and chat history remain local in SQLCipher. The Worker receives only bounded text needed for embedding or the current grounded answer.

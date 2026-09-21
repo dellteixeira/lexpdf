@@ -27,7 +27,7 @@ void main() {
     );
     expect(embeddings, contains("'texts': normalized"));
     expect(embeddings, contains('maxBatchSize = 32'));
-    expect(semantic, contains('semantic_page_embeddings'));
+    expect(semantic, contains('hybrid_rag_chunks'));
     expect(semantic, contains('_cosine(queryVector, vector)'));
   });
 }
