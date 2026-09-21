@@ -18,8 +18,18 @@ void main() {
     expect(screen, contains("label: 'Rápida'"));
     expect(screen, contains("label: 'Detalhada'"));
     expect(screen, contains("label: 'Aprofundada'"));
+    expect(screen, contains("label: 'Modo Concurso'"));
+    expect(screen, contains("label: const Text('Simplificar')"));
+    expect(screen, contains("label: const Text('Dar exemplo')"));
+    expect(screen, contains("label: const Text('Sugerir flashcard')"));
+    expect(screen, contains("label: const Text('Salvar como anotação')"));
+    expect(screen, contains('lexpdf-note-v1:'));
     expect(screen, contains('currentSession?.accessToken'));
+    expect(workspace, contains('anchorX: anchorX'));
+    expect(workspace, contains('anchorY: anchorY'));
+    expect(menu, contains('enumerateFragmentBoundingRects()'));
     expect(remote, contains("'depth': explanationDepth.name"));
+    expect(remote, contains("'intent': intent.name"));
     expect(config, contains('/v1/ai/explain'));
     expect(config, isNot(contains('SUPABASE_SECRET_KEY')));
   });

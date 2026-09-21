@@ -14,6 +14,9 @@ typedef PdfSelectionStudyAction = Future<void> Function(
   BuildContext context,
   String selectedText,
   AiStudyAction action,
+  int pageNumber,
+  double anchorX,
+  double anchorY,
 );
 
 /// Selection actions shared by the unified PDF workspace.
@@ -206,9 +209,34 @@ class PdfSelectionActionMenu {
     if (ranges.isEmpty) return;
     final selectedText = _selectionText(ranges);
     if (selectedText.isEmpty) return;
+    final pageNumber = ranges.first.pageNumber;
+    var anchorX = 0.05;
+    var anchorY = 0.05;
+    final document = _document;
+    if (document != null &&
+        pageNumber >= 1 &&
+        pageNumber <= document.pages.length) {
+      final fragments = ranges.first
+          .enumerateFragmentBoundingRects()
+          .toList(growable: false);
+      if (fragments.isNotEmpty) {
+        final page = document.pages[pageNumber - 1];
+        final bounds = fragments.first.bounds;
+        anchorX = (bounds.left / page.width).clamp(0.02, 0.98).toDouble();
+        anchorY =
+            ((page.height - bounds.top) / page.height).clamp(0.02, 0.98).toDouble();
+      }
+    }
     await delegate.clearTextSelection();
     if (!context.mounted) return;
-    await callback(context, selectedText, AiStudyAction.explain);
+    await callback(
+      context,
+      selectedText,
+      AiStudyAction.explain,
+      pageNumber,
+      anchorX,
+      anchorY,
+    );
   }
 
   Future<void> _createManualFlashcard(

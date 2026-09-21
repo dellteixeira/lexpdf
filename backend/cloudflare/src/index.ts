@@ -33,6 +33,7 @@ const DEFAULT_AI_QUICK_MODEL = '@cf/zai-org/glm-4.7-flash';
 const DEFAULT_AI_DEEP_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 
 type AiExplanationDepth = 'quick' | 'detailed' | 'deep';
+type AiExplanationIntent = 'explain' | 'contest' | 'simplify' | 'example' | 'flashcard';
 
 type AiQuotaResult = {
   allowed: boolean;
@@ -204,9 +205,9 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   if (!user) return json({ error: "unauthorized" }, 401, requestId);
   if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
 
-  let body: { action?: string; text?: string; depth?: string };
+  let body: { action?: string; text?: string; depth?: string; intent?: string };
   try {
-    body = (await request.json()) as { action?: string; text?: string; depth?: string };
+    body = (await request.json()) as { action?: string; text?: string; depth?: string; intent?: string };
   } catch {
     return json({ error: "invalid_json" }, 400, requestId);
   }
@@ -222,7 +223,8 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   }
 
   const depth = normalizeAiDepth(body.depth);
-  const creditCost = aiCreditCost(depth);
+  const intent = normalizeAiIntent(body.intent);
+  const creditCost = aiCreditCost(depth, intent);
   const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
   const minuteLimit = parsePositiveInt(env.AI_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_RATE_LIMIT_PER_MINUTE;
   const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
@@ -237,7 +239,7 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   const deepModel = env.AI_DEEP_MODEL?.trim() || DEFAULT_AI_DEEP_MODEL;
   const primaryModel = depth === "quick" ? quickModel : deepModel;
   const fallbackModel = primaryModel === quickModel ? deepModel : quickModel;
-  const systemPrompt = aiSystemPrompt(depth);
+  const systemPrompt = aiSystemPrompt(depth, intent);
   const input = {
     messages: [
       { role: "system", content: systemPrompt },
@@ -265,9 +267,13 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
     }
   }
 
+  const flashcards = intent === "flashcard" ? parseFlashcardDraft(text) : [];
+
   return json({
-    text,
+    text: intent === "flashcard" ? undefined : text,
+    flashcards,
     depth,
+    intent,
     model,
     fallbackUsed,
     quota: {
@@ -285,7 +291,14 @@ function normalizeAiDepth(value?: string): AiExplanationDepth {
   return "detailed";
 }
 
-function aiCreditCost(depth: AiExplanationDepth): number {
+function normalizeAiIntent(value?: string): AiExplanationIntent {
+  if (value === "contest" || value === "simplify" || value === "example" || value === "flashcard") return value;
+  return "explain";
+}
+
+function aiCreditCost(depth: AiExplanationDepth, intent: AiExplanationIntent): number {
+  if (intent === "flashcard") return 2;
+  if (intent === "simplify" || intent === "example") return 1;
   if (depth === "quick") return 1;
   if (depth === "deep") return 4;
   return 2;
@@ -297,22 +310,40 @@ function aiMaxTokens(depth: AiExplanationDepth): number {
   return 800;
 }
 
-function aiSystemPrompt(depth: AiExplanationDepth): string {
+function aiSystemPrompt(depth: AiExplanationDepth, intent: AiExplanationIntent): string {
   const detail = depth === "quick"
     ? "Seja conciso: explique a ideia central em poucos parágrafos."
     : depth === "deep"
       ? "Seja aprofundado: decomponha conceitos, condições, relações, consequências, ambiguidades e dê um exemplo quando ele puder ser formulado com segurança."
       : "Seja detalhado: explique conceitos, relações entre ideias e dê um exemplo curto quando apropriado.";
+
+  const task = intent === "contest"
+    ? "Atue em Modo Concurso. Estruture em: conceito central, literalidade relevante do trecho, termos-chave, pegadinha possível, exemplo de prova e ponto para memorização. Não invente jurisprudência nem legislação externa."
+    : intent === "simplify"
+      ? "Reescreva a explicação em linguagem simples, clara e didática, preservando os termos técnicos indispensáveis."
+      : intent === "example"
+        ? "Concentre a resposta em um exemplo prático seguro que ilustre exatamente o trecho, explicando passo a passo a relação entre o exemplo e o texto."
+        : intent === "flashcard"
+          ? "Crie exatamente um flashcard baseado somente no trecho. Responda somente com duas linhas: 'PERGUNTA: ...' e 'RESPOSTA: ...'. A pergunta deve exigir recordação ativa e a resposta deve ser objetiva e fiel ao trecho."
+          : detail;
+
   return [
-    "Você é o explicador de trechos do LexPDF. Responda em português do Brasil.",
-    detail,
+    "Você é o assistente contextual do LexPDF. Responda em português do Brasil.",
+    task,
+    intent === "explain" ? detail : "",
     "Use o trecho fornecido como fonte primária. Não invente fatos, artigos, precedentes, datas ou jurisprudência.",
-    "Quando acrescentar conhecimento que não está literalmente no trecho, coloque-o em uma seção chamada 'Informação complementar' e deixe claro que é externo ao texto selecionado.",
+    "Quando acrescentar conhecimento que não está literalmente no trecho, deixe isso explicitamente marcado como informação complementar.",
     "Se o trecho for jurídico, não afirme que uma lei, súmula ou jurisprudência está vigente/atualizada sem que isso esteja no próprio trecho.",
     "Se houver ambiguidade ou contexto insuficiente, diga explicitamente qual informação falta.",
-    "Estruture a resposta, quando aplicável, em: 'Explicação do trecho', 'Em termos simples', 'Exemplo prático' e 'Informação complementar / limitações'.",
     "Não apresente porcentagens de confiança inventadas.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
+}
+
+function parseFlashcardDraft(raw: string): Array<{ question: string; answer: string }> {
+  const question = raw.match(/PERGUNTA:\s*([^\n]+)/i)?.[1]?.trim() ?? "";
+  const answer = raw.match(/RESPOSTA:\s*([\s\S]+)/i)?.[1]?.trim() ?? "";
+  if (!question || !answer) return [];
+  return [{ question, answer }];
 }
 
 async function runAiText(env: Env, model: string, input: Record<string, unknown>): Promise<string> {
