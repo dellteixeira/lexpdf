@@ -27,6 +27,8 @@ void main() {
             onExportPdf: () {},
             onSaveDoc: () {},
             onSaveRtf: () {},
+            legacyDocAvailable: false,
+            onIndexImagesAi: () {},
             onNewNotebook: () {},
             onRenameNotebook: () {},
             onDeleteNotebook: () {},

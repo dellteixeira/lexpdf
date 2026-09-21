@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 class LegacyWordConverter {
@@ -109,7 +107,7 @@ class LegacyWordConverter {
           runInShell: false,
         );
         if (result.exitCode == 0 && await output.exists()) {
-          return output.readAsBytes();
+          return await output.readAsBytes();
         }
       }
 
@@ -118,7 +116,7 @@ class LegacyWordConverter {
         output: output,
         targetExtension: targetExtension,
       )) {
-        return output.readAsBytes();
+        return await output.readAsBytes();
       }
       return null;
     } finally {
