@@ -1,5 +1,5 @@
 import '../storage/local_hybrid_rag_store.dart';
-import 'remote_embedding_service.dart';
+import 'embedding_service.dart';
 
 class HybridRagRetrieval {
   const HybridRagRetrieval({
@@ -22,7 +22,7 @@ class HybridRagService {
   });
 
   final LocalHybridRagStore store;
-  final RemoteAiEmbeddingService embeddings;
+  final AiEmbeddingService embeddings;
 
   Future<void> ensureIndex({
     required String model,
@@ -41,8 +41,8 @@ class HybridRagService {
     var completed = 0;
     for (var offset = 0;
         offset < pending.length;
-        offset += RemoteAiEmbeddingService.maxBatchSize) {
-      final end = (offset + RemoteAiEmbeddingService.maxBatchSize)
+        offset += embeddings.batchSize) {
+      final end = (offset + embeddings.batchSize)
           .clamp(0, pending.length);
       final batch = pending.sublist(offset, end);
       final embedded = await embeddings.embed(

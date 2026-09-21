@@ -7,8 +7,9 @@ import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/extended_hybrid_rag_service.dart';
 import '../core/ai/hybrid_rag_service.dart';
+import '../core/ai/local_embedding_service.dart';
+import '../core/ai/local_grounded_answer_engine.dart';
 import '../core/ai/remote_ai_engine.dart';
-import '../core/ai/remote_embedding_service.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_ai_chat_store.dart';
 import '../core/storage/local_database.dart';
@@ -111,34 +112,18 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
     });
   }
 
-  String _requireToken(BackendConfig config) {
-    if (!config.hasAiGateway) {
-      throw StateError('O gateway de IA não está configurado neste build.');
+  String? _onlineToken(BackendConfig config) {
+    if (!config.hasAiGateway || !config.hasSupabase) return null;
+    try {
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      return token == null || token.trim().isEmpty ? null : token;
+    } catch (_) {
+      return null;
     }
-    if (!config.hasSupabase) {
-      throw StateError('A autenticação LexPDF não está configurada.');
-    }
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null || token.trim().isEmpty) {
-      throw StateError('Entre na sua conta LexPDF para usar o chat com IA.');
-    }
-    return token;
   }
 
-  RemoteAiEmbeddingService _embeddingService(
-    BackendConfig config,
-    String token,
-  ) {
-    final explain = Uri.parse(config.aiGatewayUrl);
-    return RemoteAiEmbeddingService(
-      endpoint: explain.replace(
-        path: '/v1/ai/embed',
-        query: null,
-        fragment: null,
-      ),
-      bearerToken: token,
-    );
-  }
+  LocalAiEmbeddingService _embeddingService() =>
+      const LocalAiEmbeddingService();
 
   String _chatContext(
     String query,
@@ -199,8 +184,8 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
 
     try {
       const config = BackendConfig.fromEnvironment;
-      final token = _requireToken(config);
-      final embeddings = _embeddingService(config, token);
+      final token = _onlineToken(config);
+      final embeddings = _embeddingService();
       final rag = ExtendedHybridRagService(
         base: HybridRagService(
           store: LocalHybridRagStore(widget.database),
@@ -254,20 +239,35 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
           )
           .toList(growable: false);
 
-      final result = await RemoteAiStudyEngine(
-        endpoint: Uri.parse(config.aiGatewayUrl),
-        bearerToken: token,
-        inputPolicy: const AiInputPolicy(maxCharacters: 30000),
-      ).runExplanation(
-        action: AiStudyAction.explain,
-        text: _chatContext(
-          query,
-          previous,
-          retrieval.hits.take(6).toList(growable: false),
-        ),
-        explanationDepth: AiExplanationDepth.deep,
-        intent: AiExplanationIntent.contextChat,
-      );
+      AiStudyResult result;
+      if (token != null) {
+        try {
+          result = await RemoteAiStudyEngine(
+            endpoint: Uri.parse(config.aiGatewayUrl),
+            bearerToken: token,
+            inputPolicy: const AiInputPolicy(maxCharacters: 30000),
+          ).runExplanation(
+            action: AiStudyAction.explain,
+            text: _chatContext(
+              query,
+              previous,
+              retrieval.hits.take(6).toList(growable: false),
+            ),
+            explanationDepth: AiExplanationDepth.deep,
+            intent: AiExplanationIntent.contextChat,
+          );
+        } catch (_) {
+          result = const LocalGroundedAnswerEngine().answer(
+            query: query,
+            hits: retrieval.hits,
+          );
+        }
+      } else {
+        result = const LocalGroundedAnswerEngine().answer(
+          query: query,
+          hits: retrieval.hits,
+        );
+      }
       final answer = result.text?.trim() ?? '';
       if (answer.isEmpty) {
         throw StateError('A IA não retornou uma resposta para esta pergunta.');
@@ -348,8 +348,8 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
                   Expanded(
                     child: Text(
                       widget.isDocumentChat
-                          ? 'RAG ampliado deste PDF: texto, anotações e descrições visuais analisadas pela IA.'
-                          : 'RAG ampliado da biblioteca: PDFs, anotações, cadernos e descrições visuais. Fontes [F#] são recuperadas novamente a cada pergunta.',
+                          ? 'RAG local deste PDF: texto, anotações e descrições visuais com embeddings e índice vetorial no dispositivo.'
+                          : 'RAG local da biblioteca: PDFs, anotações, cadernos e descrições visuais. A resposta funciona offline; IA online é usada apenas quando disponível.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),

@@ -299,7 +299,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
         localPath: document.localPath!,
         pinned: true,
       );
-      _message('${document.name} disponível offline pelo File Provider.');
+      _message('${document.name} disponível offline pelo provedor de arquivos.');
     });
   }
 
@@ -545,7 +545,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   FilledButton.tonalIcon(
                     onPressed: _connecting ? null : _importFileProvider,
                     icon: const Icon(Icons.folder_open_outlined),
-                    label: const Text('iCloud / File Provider'),
+                    label: const Text('Importar de provedor de arquivos'),
                   ),
                   FilledButton.tonalIcon(
                     onPressed: _connecting ? null : _connectR2,

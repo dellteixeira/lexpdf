@@ -23,6 +23,7 @@ jobs:
           grep -Eq '^[[:space:]]*compileSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
           grep -Eq '^[[:space:]]*targetSdk = 36$' apps/lexpdf_app/android/app/build.gradle.kts
           test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
+          bash apps/lexpdf_app/tool/verify_release_platform_scope.sh
 
   android-signed:
     needs: preflight
@@ -133,6 +134,19 @@ jobs:
           done
           cat ANDROID_TARGET_SDK.txt
           cat ANDROID_ARTIFACT_SIZES.txt
+      - name: Generate Android RC manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.preflight.outputs.version }}'
+          dart run tool/generate_release_manifest.dart \
+            --platform android --version "$version" \
+            --output RC_MANIFEST_ANDROID.json \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/app/outputs/flutter-apk/app-x86_64-release.apk \
+            build/app/outputs/bundle/release/app-release.aab
+          test -s RC_MANIFEST_ANDROID.json
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-Android
@@ -142,6 +156,7 @@ jobs:
             apps/lexpdf_app/ANDROID_TARGET_SDK.txt
             apps/lexpdf_app/SHA256SUMS-Android.txt
             apps/lexpdf_app/ANDROID_ARTIFACT_SIZES.txt
+            apps/lexpdf_app/RC_MANIFEST_ANDROID.json
           if-no-files-found: error
 
   windows-installer:
@@ -278,6 +293,14 @@ jobs:
               'public_trust=false'
             ) | Set-Content -Encoding ascii 'WINDOWS_SIGNING_STATUS.txt'
           }
+      - name: Generate Windows RC manifest
+        shell: pwsh
+        run: |
+          $version = '${{ needs.preflight.outputs.version }}'
+          $installer = Get-ChildItem 'windows\installer\output\*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer was not produced.' }
+          dart run tool/generate_release_manifest.dart --platform windows --version $version --output RC_MANIFEST_WINDOWS.json $installer.FullName 'build\windows\x64\runner\Release\lexpdf_app.exe'
+          if (-not (Test-Path RC_MANIFEST_WINDOWS.json -PathType Leaf)) { throw 'Windows RC manifest was not produced.' }
       - uses: actions/upload-artifact@v4
         with:
           name: LexPDF-${{ needs.preflight.outputs.version }}-Windows-Installer
@@ -285,4 +308,5 @@ jobs:
             apps/lexpdf_app/windows/installer/output/*.exe
             apps/lexpdf_app/SHA256SUMS-Windows.txt
             apps/lexpdf_app/WINDOWS_SIGNING_STATUS.txt
+            apps/lexpdf_app/RC_MANIFEST_WINDOWS.json
           if-no-files-found: error

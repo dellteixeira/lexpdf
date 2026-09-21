@@ -54,7 +54,7 @@
 ## Phase 9 — Cloud providers
 - Google Drive
 - OneDrive
-- Apple File Provider / iCloud
+- system file import for Android/Windows
 - offline availability cache
 
 ## Phase 10 — Sync
@@ -83,7 +83,8 @@
 - continuous contextual chat for one PDF or the full library
 - hybrid RAG with FTS5 + embeddings + chunking + reranking
 - RAG over annotations, notebook text and explicit multimodal descriptions
-- future local model support
+- local/offline grounded AI and deterministic local embeddings
+- scalable local LSH vector index
 
 ## First acceptance milestone
 A 500+ page PDF must open, scroll smoothly, support text selection, highlight/underline/strikeout and stylus ink, save locally, close and reopen with all annotations intact.
@@ -92,3 +93,8 @@ A 500+ page PDF must open, scroll smoothly, support text selection, highlight/un
 ## Rich document editor status
 
 The WordPad-style notebook editor uses a real caret/selection rich-document surface and supports native DOCX, TXT, PDF and RTF workflows. RTF import/export is handled in-app. Legacy binary DOC is exposed only when a real Windows conversion provider is available (Microsoft Word automation or LibreOffice); Android does not pretend to support binary DOC conversion.
+
+
+## Release target
+
+The supported LexPDF release targets are Android and Windows. Release Candidate automation, signing, manifests and acceptance gates are maintained only for those two platforms.

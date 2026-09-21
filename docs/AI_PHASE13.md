@@ -21,11 +21,13 @@ All engines share `AiInputPolicy`, which normalizes whitespace, rejects empty in
 
 `RemoteAiStudyEngine` is enabled only when `LEXPDF_AI_GATEWAY_URL` is configured. Remote processing is therefore opt-in and uses the same bounded request contract as the offline engine.
 
-## Future local model support
+## Local/offline retrieval and answering
 
-`LocalModelRunner` and `LocalModelAiStudyEngine` form the stable adapter boundary for a future on-device model runtime. A model implementation only needs to provide availability detection and return `AiStudyResult`; the PDF reader and study UI do not need to change.
+LexPDF now ships a fully local retrieval path. `LocalAiEmbeddingService` creates deterministic fixed-size vectors from normalized word, stem, bigram and character features without a network request or model download. `LocalVectorLshIndex` stores compact Float32 vectors and LSH signatures so large local libraries do not require an unbounded cosine scan for every query.
 
-No model binary, API key, or proprietary runtime is bundled in Phase 13.
+Library RAG and contextual PDF chat use local embeddings by default. When the online gateway and an authenticated session are available, the selected grounded sources may be sent for richer generation. If online generation is unavailable or fails, `LocalGroundedAnswerEngine` produces an extractive, citation-bearing answer exclusively from the retrieved local sources.
+
+`LocalModelRunner` remains the extension boundary for a future optional neural on-device runtime; no proprietary model binary is required for offline LexPDF functionality.
 
 ## Acceptance criteria
 
