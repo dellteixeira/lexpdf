@@ -210,13 +210,17 @@ class RtfDocumentCodec {
   }
 
   Uint8List encodeHtml(String html) {
+    final cleanedHtml = html.replaceAll(
+      RegExp(r'<head\b[\s\S]*?</head>', caseSensitive: false),
+      '',
+    );
     final out = StringBuffer(r'{\rtf1\ansi\ansicpg1252\deff0');
     out.write(r'{\fonttbl{\f0 Arial;}}');
     out.write(r'\viewkind4\uc1\pard\f0\fs24 ');
     final stack = <_HtmlState>[const _HtmlState()];
     var state = stack.last;
     final tokens = RegExp(r'<[^>]*>|[^<]+', multiLine: true)
-        .allMatches(html)
+        .allMatches(cleanedHtml)
         .map((match) => match.group(0)!)
         .toList(growable: false);
 
@@ -379,9 +383,14 @@ class RtfDocumentCodec {
         buffer.write(r'\tab ');
       } else if (rune >= 0x20 && rune <= 0x7E) {
         buffer.writeCharCode(rune);
-      } else {
+      } else if (rune <= 0xFFFF) {
         final signed = rune > 32767 ? rune - 65536 : rune;
         buffer.write('\\u$signed?');
+      } else {
+        final value = rune - 0x10000;
+        final high = 0xD800 + (value >> 10);
+        final low = 0xDC00 + (value & 0x3FF);
+        buffer.write('\\u${high - 65536}?\\u${low - 65536}?');
       }
     }
     return buffer.toString();

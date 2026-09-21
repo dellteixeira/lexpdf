@@ -813,8 +813,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
             final scale = 1800 / maxDimension;
             prepared = img.copyResize(
               decoded,
-              width: math.max(1, (decoded.width * scale).round()),
-              height: math.max(1, (decoded.height * scale).round()),
+              width: math.max(1, (decoded.width * scale).round()).toInt(),
+              height: math.max(1, (decoded.height * scale).round()).toInt(),
             );
           }
           final bytes = img.encodeJpg(prepared, quality: 86);

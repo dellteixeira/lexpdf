@@ -20,8 +20,10 @@ class PdfPageVisionRasterizer {
       }
       final page = document.pages[pageNumber - 1];
       final aspect = page.width / page.height;
-      final height = math.sqrt(maxPixels / aspect).round().clamp(1, 2600);
-      final width = (height * aspect).round().clamp(1, 2600);
+      final height =
+          math.sqrt(maxPixels / aspect).round().clamp(1, 2600).toInt();
+      final width =
+          (height * aspect).round().clamp(1, 2600).toInt();
       final rendered = await page.render(
         width: width,
         height: height,
