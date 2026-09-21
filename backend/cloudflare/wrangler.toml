@@ -37,6 +37,8 @@ AI_DEEP_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 AI_EMBEDDING_MODEL = "@cf/baai/bge-m3"
 AI_RAG_MAX_INPUT_CHARS = "30000"
 AI_EMBED_RATE_LIMIT_PER_MINUTE = "60"
+AI_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_VISION_MAX_IMAGE_BYTES = "6291456"
 
 # Configure in Cloudflare as an encrypted secret:
 # SUPABASE_SECRET_KEY
