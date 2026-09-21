@@ -219,7 +219,6 @@ class _PdfAndroidFingerNavigationRegionState
     _palmBlockedTouches.remove(event.pointer);
     _touchPositions.remove(event.pointer);
     _afterTouchDeparture();
-    _clearTapCandidate();
     if (shouldNotifyTap) {
       widget.onSingleTap?.call();
     }
@@ -236,6 +235,7 @@ class _PdfAndroidFingerNavigationRegionState
     _palmBlockedTouches.remove(event.pointer);
     _touchPositions.remove(event.pointer);
     _afterTouchDeparture();
+    _clearTapCandidate();
   }
 
   void _beginNavigationIfNeeded() {
