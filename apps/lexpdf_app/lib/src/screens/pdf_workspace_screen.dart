@@ -1320,6 +1320,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
               const SizedBox(height: 12),
               ListTile(
+                leading: const Icon(Icons.fullscreen),
+                title: Text(
+                  _fullScreen ? 'Sair da tela cheia' : 'Tela cheia',
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _toggleFullScreen();
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.search),
                 title: const Text('Pesquisar no documento'),
                 onTap: () {
