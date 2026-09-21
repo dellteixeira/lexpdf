@@ -194,27 +194,27 @@ class LegacyWordConverter {
     final format = targetExtension == 'docx' ? 16 : 0;
     final source = _psQuote(input.absolute.path);
     final target = _psQuote(output.absolute.path);
-    final script = '''
-      $ErrorActionPreference = 'Stop'
-      $word = $null
-      $doc = $null
-      try {
-        $word = New-Object -ComObject Word.Application
-        $word.Visible = $false
-        $word.DisplayAlerts = 0
-        $doc = $word.Documents.Open('$source', $false, $true)
-        $doc.SaveAs2('$target', $format)
-        $doc.Close($false)
-        $doc = $null
-        $word.Quit()
-        $word = $null
-        Write-Output 'LEXPDF_CONVERT_OK'
-      } catch {
-        if ($doc -ne $null) { $doc.Close($false) }
-        if ($word -ne $null) { $word.Quit() }
-        exit 3
-      }
-    ''';
+    final script = [
+      r"$ErrorActionPreference = 'Stop'",
+      r'$word = $null',
+      r'$doc = $null',
+      'try {',
+      r'  $word = New-Object -ComObject Word.Application',
+      r'  $word.Visible = $false',
+      r'  $word.DisplayAlerts = 0',
+      "  \$doc = \$word.Documents.Open('$source', \$false, \$true)",
+      "  \$doc.SaveAs2('$target', $format)",
+      r'  $doc.Close($false)',
+      r'  $doc = $null',
+      r'  $word.Quit()',
+      r'  $word = $null',
+      "  Write-Output 'LEXPDF_CONVERT_OK'",
+      '} catch {',
+      r'  if ($doc -ne $null) { $doc.Close($false) }',
+      r'  if ($word -ne $null) { $word.Quit() }',
+      '  exit 3',
+      '}',
+    ].join('\n');
     try {
       final result = await Process.run(
         'powershell.exe',

@@ -153,20 +153,28 @@ class RtfDocumentCodec {
       switch (word) {
         case 'par':
           paragraph();
+          break;
         case 'line':
           text.write('\n');
+          break;
         case 'tab':
           text.write('\t');
+          break;
         case 'b':
           state = state.copyWith(bold: number != 0);
+          break;
         case 'i':
           state = state.copyWith(italic: number != 0);
+          break;
         case 'ul':
           state = state.copyWith(underline: number != 0);
+          break;
         case 'ulnone':
           state = state.copyWith(underline: false);
+          break;
         case 'strike':
           state = state.copyWith(strike: number != 0);
+          break;
         case 'plain':
           state = state.copyWith(
             bold: false,
@@ -175,14 +183,17 @@ class RtfDocumentCodec {
             strike: false,
             fontSizeHalfPoints: 24,
           );
+          break;
         case 'fs':
           if (number != null && number > 0) {
             state = state.copyWith(fontSizeHalfPoints: number);
           }
+          break;
         case 'uc':
           if (number != null && number >= 0 && number <= 8) {
             state = state.copyWith(unicodeSkip: number);
           }
+          break;
         case 'u':
           if (number != null) {
             var code = number;
@@ -190,6 +201,7 @@ class RtfDocumentCodec {
             text.writeCharCode(code);
             skipFallback = state.unicodeSkip;
           }
+          break;
       }
     }
     flush();
@@ -273,29 +285,39 @@ class RtfDocumentCodec {
         case 'b':
         case 'strong':
           next = next.copyWith(bold: true);
+          break;
         case 'i':
         case 'em':
           next = next.copyWith(italic: true);
+          break;
         case 'u':
           next = next.copyWith(underline: true);
+          break;
         case 's':
         case 'del':
           next = next.copyWith(strike: true);
+          break;
         case 'h1':
           next = next.copyWith(bold: true, fontSizeHalfPoints: 36);
+          break;
         case 'h2':
           next = next.copyWith(bold: true, fontSizeHalfPoints: 32);
+          break;
         case 'h3':
           next = next.copyWith(bold: true, fontSizeHalfPoints: 28);
+          break;
         case 'h4':
           next = next.copyWith(bold: true, fontSizeHalfPoints: 26);
+          break;
         case 'h5':
         case 'h6':
           next = next.copyWith(bold: true, fontSizeHalfPoints: 24);
+          break;
         case 'span':
           final style =
-              RegExp(r'style\s*=\s*["\']([^"\']*)').firstMatch(token)?.group(1);
+              RegExp(r"""style\s*=\s*["']([^"']*)""").firstMatch(token)?.group(1);
           if (style != null) next = _stateFromCss(next, style);
+          break;
       }
       if (lower.startsWith('<li')) out.write(r'\bullet\tab ');
       stack.add(next);
