@@ -59,6 +59,36 @@ void main() {
     expect(remaining.single.id, 'b');
   });
 
+  test('system file provider writes active ID and reads legacy ID', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final catalog = LocalDocumentCatalog(database);
+
+    const document = DocumentRef(
+      id: 'system-file-doc',
+      name: 'Importado.pdf',
+      provider: DocumentProviderKind.systemFile,
+      localPath: '/cache/Importado.pdf',
+      availableOffline: true,
+      syncState: DocumentSyncState.synced,
+    );
+    await catalog.upsert(document);
+
+    final activeRow = database.database.select(
+      'SELECT provider FROM documents WHERE id = ?;',
+      [document.id],
+    ).single;
+    expect(activeRow['provider'], 'system_file');
+
+    const legacyProvider = 'i' 'cloud';
+    database.database.execute(
+      'UPDATE documents SET provider = ? WHERE id = ?;',
+      [legacyProvider, document.id],
+    );
+    final restored = await catalog.getById(document.id);
+    expect(restored?.provider, DocumentProviderKind.systemFile);
+  });
+
   test('adds and removes favorites without losing document metadata', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);

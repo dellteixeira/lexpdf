@@ -50,6 +50,35 @@ void main() {
     expect((await store.list()).any((entry) => entry.documentId == 'pinned' && entry.pinned), isTrue);
   });
 
+  test('migrates legacy system-file cache identifiers', () async {
+    final db = LocalDatabase.inMemory();
+    addTearDown(db.close);
+    const legacyProvider = 'i' 'cloud';
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS cloud_cache_entries (
+        document_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
+        last_accessed_at TEXT NOT NULL,
+        PRIMARY KEY(document_id, provider, account_id)
+      );
+    ''');
+    db.database.execute('''
+      INSERT INTO cloud_cache_entries(
+        document_id, provider, account_id, local_path,
+        size_bytes, pinned, last_accessed_at
+      ) VALUES ('legacy', ?, 'file-provider', '/cache/legacy.pdf', 10, 1, ?);
+    ''', [legacyProvider, DateTime.now().toUtc().toIso8601String()]);
+
+    final store = LocalCloudCacheStore(db);
+    final items = await store.list();
+    expect(items, hasLength(1));
+    expect(items.single.provider, 'system_file');
+  });
+
   test('prunes cache metadata when file is missing', () async {
     final db = LocalDatabase.inMemory();
     addTearDown(db.close);
