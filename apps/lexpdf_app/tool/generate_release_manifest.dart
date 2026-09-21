@@ -10,15 +10,15 @@ Future<void> main(List<String> args) async {
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--platform':
-        if (i + 1 >= args.length) return _usage();
+        if (i + 1 >= args.length) _usage();
         platform = args[++i];
         break;
       case '--version':
-        if (i + 1 >= args.length) return _usage();
+        if (i + 1 >= args.length) _usage();
         version = args[++i];
         break;
       case '--output':
-        if (i + 1 >= args.length) return _usage();
+        if (i + 1 >= args.length) _usage();
         output = args[++i];
         break;
       default:
@@ -32,7 +32,7 @@ Future<void> main(List<String> args) async {
       version.trim().isEmpty ||
       output == null ||
       artifacts.isEmpty) {
-    return _usage();
+    _usage();
   }
   final entries = <Map<String, Object?>>[];
   for (final path in artifacts) {
