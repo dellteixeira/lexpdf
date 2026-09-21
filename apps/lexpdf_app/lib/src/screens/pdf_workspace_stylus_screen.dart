@@ -701,6 +701,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           label: 'Marcadores',
                           onPressed: _showBookmarks,
                         ),
+                      IconButton(
+                        tooltip: 'Marcar página $_page',
+                        onPressed: _toggleCurrentBookmark,
+                        icon: Icon(
+                          _bookmarks.any((item) => item.pageNumber == _page)
+                              ? Icons.bookmark
+                              : Icons.bookmark_border,
+                        ),
+                      ),
                       _toolbarCommandButton(
                         compact: compact,
                         icon: Icons.edit_document,
