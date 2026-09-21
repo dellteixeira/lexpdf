@@ -1,0 +1,66 @@
+name: Temporary Windows Installer Artifact
+
+on:
+  push:
+    branches:
+      - build/windows-installer-immersive
+
+jobs:
+  windows-installer:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: apps/lexpdf_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $raw = (Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1).Split(':',2)[1].Trim()
+          if ([string]::IsNullOrWhiteSpace($raw)) { throw 'Version not found.' }
+          $version = $raw.Split('+')[0]
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: git diff --exit-code -- pubspec.lock
+      - name: Build Windows release
+        run: >-
+          flutter build windows --release
+          --dart-define=LEXPDF_ENVIRONMENT=production
+          --dart-define=LEXPDF_GOOGLE_CLIENT_ID=${{ vars.LEXPDF_GOOGLE_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_CLIENT_ID=${{ vars.LEXPDF_MICROSOFT_CLIENT_ID }}
+          --dart-define=LEXPDF_MICROSOFT_TENANT=${{ vars.LEXPDF_MICROSOFT_TENANT }}
+          --dart-define=LEXPDF_AI_GATEWAY_URL=${{ vars.LEXPDF_AI_GATEWAY_URL }}
+      - name: Smoke-check Windows release
+        shell: pwsh
+        run: |
+          $exe = 'build\windows\x64\runner\Release\lexpdf_app.exe'
+          if (-not (Test-Path $exe)) { throw 'LexPDF Windows executable was not produced.' }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Get-ChildItem 'windows\installer\output\*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer was not produced.' }
+          $hash = Get-FileHash $installer.FullName -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $($installer.Name)" | Set-Content -Encoding ascii 'SHA256SUMS-Windows.txt'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LexPDF-${{ steps.version.outputs.version }}-Windows-Installer
+          path: |
+            apps/lexpdf_app/windows/installer/output/*.exe
+            apps/lexpdf_app/SHA256SUMS-Windows.txt
+          if-no-files-found: error
