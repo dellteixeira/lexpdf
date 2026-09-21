@@ -29,7 +29,7 @@ class CloudGatewayDocumentProvider implements SyncDocumentProvider {
   String get _providerName => switch (kind) {
         DocumentProviderKind.googleDrive => 'google_drive',
         DocumentProviderKind.oneDrive => 'onedrive',
-        DocumentProviderKind.iCloud => 'icloud',
+        DocumentProviderKind.systemFile => 'system_file',
         DocumentProviderKind.r2 => 'r2',
         DocumentProviderKind.local => 'local',
       };

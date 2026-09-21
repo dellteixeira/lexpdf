@@ -170,7 +170,7 @@ class SupabaseBackendService {
         DocumentProviderKind.local => 'local',
         DocumentProviderKind.googleDrive => 'google_drive',
         DocumentProviderKind.oneDrive => 'onedrive',
-        DocumentProviderKind.iCloud => 'icloud',
+        DocumentProviderKind.systemFile => 'system_file',
         DocumentProviderKind.r2 => 'r2',
       };
 
