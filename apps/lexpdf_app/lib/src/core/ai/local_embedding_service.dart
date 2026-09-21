@@ -67,7 +67,7 @@ class LocalAiEmbeddingService implements AiEmbeddingService {
         _addFeature(vector, 's:$stem', 0.72);
       }
 
-      final padded = '^$word$';
+      final padded = '^${word}#';
       if (padded.length >= 3) {
         for (var i = 0; i <= padded.length - 3; i++) {
           _addFeature(vector, 'c:${padded.substring(i, i + 3)}', 0.18);
