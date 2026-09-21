@@ -1,7 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/ai/ai_models.dart';
+import '../core/ai/remote_ai_engine.dart';
+import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/study/advanced_study_models.dart';
 
@@ -24,6 +28,9 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
   int _refreshToken = 0;
   List<StudySourceHit> _sourceHits = const [];
   bool _searching = false;
+  bool _crossStudyLoading = false;
+  AiStudyResult? _crossStudyResult;
+  Object? _crossStudyError;
 
   @override
   void dispose() {
@@ -36,15 +43,83 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
   Future<void> _searchSources() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      setState(() => _sourceHits = const []);
+      setState(() {
+        _sourceHits = const [];
+        _crossStudyResult = null;
+        _crossStudyError = null;
+      });
       return;
     }
-    setState(() => _searching = true);
+    setState(() {
+      _searching = true;
+      _crossStudyResult = null;
+      _crossStudyError = null;
+    });
     try {
       final hits = await widget.store.searchSources(query);
       if (mounted) setState(() => _sourceHits = hits);
     } finally {
       if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  List<StudySourceHit> get _crossStudySources {
+    final result = <StudySourceHit>[];
+    final seen = <String>{};
+    for (final hit in _sourceHits) {
+      final key = '${hit.documentId}:${hit.pageNumber}:${hit.snippet}';
+      if (!seen.add(key)) continue;
+      result.add(hit);
+      if (result.length >= 8) break;
+    }
+    return result;
+  }
+
+  String _crossStudyContext() {
+    final query = _searchController.text.trim();
+    final sources = _crossStudySources;
+    final parts = <String>[
+      'TEMA DA BUSCA: $query',
+      for (var index = 0; index < sources.length; index++)
+        '[F${index + 1}] ${sources[index].documentTitle} — página ${sources[index].pageNumber}\n'
+            '${sources[index].snippet.replaceAll(RegExp(r'[‹›]'), '')}',
+    ];
+    return parts.join('\n\n');
+  }
+
+  Future<void> _runCrossStudyAi() async {
+    if (_crossStudyLoading || _sourceHits.isEmpty) return;
+    setState(() {
+      _crossStudyLoading = true;
+      _crossStudyError = null;
+      _crossStudyResult = null;
+    });
+    try {
+      const config = BackendConfig.fromEnvironment;
+      if (!config.hasAiGateway) {
+        throw StateError('O gateway de IA não está configurado neste build.');
+      }
+      if (!config.hasSupabase) {
+        throw StateError('A autenticação LexPDF não está configurada.');
+      }
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      if (token == null || token.trim().isEmpty) {
+        throw StateError('Entre na sua conta LexPDF para usar a IA online.');
+      }
+      final result = await RemoteAiStudyEngine(
+        endpoint: Uri.parse(config.aiGatewayUrl),
+        bearerToken: token,
+      ).runExplanation(
+        action: AiStudyAction.explain,
+        text: _crossStudyContext(),
+        explanationDepth: AiExplanationDepth.deep,
+        intent: AiExplanationIntent.crossStudy,
+      );
+      if (mounted) setState(() => _crossStudyResult = result);
+    } catch (error) {
+      if (mounted) setState(() => _crossStudyError = error);
+    } finally {
+      if (mounted) setState(() => _crossStudyLoading = false);
     }
   }
 
@@ -72,6 +147,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
   @override
   Widget build(BuildContext context) {
     final refreshKey = _refreshToken;
+    const backendConfig = BackendConfig.fromEnvironment;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Modo Estudo'),
@@ -142,7 +218,122 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                     ),
                   ),
                   if (_sourceHits.isNotEmpty) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _searching ||
+                                  _crossStudyLoading ||
+                                  !backendConfig.hasAiGateway
+                              ? null
+                              : _runCrossStudyAi,
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: const Text('Sintetizar com IA'),
+                        ),
+                        Text(
+                          'A IA usa até ${_crossStudySources.length} trechos encontrados e mantém as referências [F1], [F2]…',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    if (!backendConfig.hasAiGateway) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'A busca cruzada continua disponível offline; a síntese exige o gateway de IA configurado.',
+                      ),
+                    ],
+                    if (_crossStudyLoading) ...[
+                      const SizedBox(height: 12),
+                      const LinearProgressIndicator(),
+                    ],
+                    if (_crossStudyError != null) ...[
+                      const SizedBox(height: 12),
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.error_outline),
+                          title: const Text('Não foi possível gerar a síntese cruzada'),
+                          subtitle: Text('$_crossStudyError'),
+                        ),
+                      ),
+                    ],
+                    if (_crossStudyResult?.text?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Síntese cruzada',
+                                      style: Theme.of(context).textTheme.titleMedium,
+                                    ),
+                                  ),
+                                  if (_crossStudyResult!.fallbackUsed)
+                                    const Tooltip(
+                                      message: 'O modelo alternativo foi usado automaticamente.',
+                                      child: Icon(Icons.swap_horiz, size: 20),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              SelectableText(_crossStudyResult!.text!),
+                              if (_crossStudyResult!.quotaRemaining != null) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Saldo de IA hoje: ${_crossStudyResult!.quotaRemaining} créditos'
+                                  '${_crossStudyResult!.quotaLimit == null ? '' : ' de ${_crossStudyResult!.quotaLimit}'}.',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              ExpansionTile(
+                                tilePadding: EdgeInsets.zero,
+                                title: const Text('Fontes consideradas'),
+                                subtitle: const Text(
+                                  'Os marcadores [F1], [F2]… da síntese correspondem a estas páginas.',
+                                ),
+                                children: [
+                                  for (var index = 0;
+                                      index < _crossStudySources.length;
+                                      index++)
+                                    ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                        child: Text('F${index + 1}'),
+                                      ),
+                                      title: Text(
+                                        _crossStudySources[index].documentTitle,
+                                      ),
+                                      subtitle: Text(
+                                        'Página ${_crossStudySources[index].pageNumber}\n'
+                                        '${_crossStudySources[index].snippet}',
+                                      ),
+                                      isThreeLine: true,
+                                      trailing: widget.onOpenSource == null
+                                          ? null
+                                          : const Icon(Icons.open_in_new),
+                                      onTap: widget.onOpenSource == null
+                                          ? null
+                                          : () => widget.onOpenSource!(
+                                                _crossStudySources[index].documentId,
+                                                _crossStudySources[index].pageNumber,
+                                              ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Divider(height: 28),
                     for (final hit in _sourceHits)
                       ListTile(
                         contentPadding: EdgeInsets.zero,

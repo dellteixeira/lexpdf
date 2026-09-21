@@ -4,7 +4,14 @@ enum AiEngineKind { local, remote }
 
 enum AiExplanationDepth { quick, detailed, deep }
 
-enum AiExplanationIntent { explain, contest, simplify, example, flashcard }
+enum AiExplanationIntent {
+  explain,
+  contest,
+  simplify,
+  example,
+  flashcard,
+  crossStudy,
+}
 
 extension AiExplanationIntentLabel on AiExplanationIntent {
   String get label => switch (this) {
@@ -13,6 +20,7 @@ extension AiExplanationIntentLabel on AiExplanationIntent {
         AiExplanationIntent.simplify => 'Simplificar',
         AiExplanationIntent.example => 'Dar exemplo',
         AiExplanationIntent.flashcard => 'Sugerir flashcard',
+        AiExplanationIntent.crossStudy => 'Síntese cruzada',
       };
 }
 

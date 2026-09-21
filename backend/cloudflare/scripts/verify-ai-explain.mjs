@@ -16,6 +16,9 @@ for (const expected of [
   'consumeAiQuota',
   'SUPABASE_SECRET_KEY',
   'fallbackUsed',
+  'crossStudy',
+  'FONTES INDEXADAS',
+  'Não use conhecimento externo',
 ]) {
   if (!worker.includes(expected)) {
     throw new Error(`Missing AI worker contract: ${expected}`);
