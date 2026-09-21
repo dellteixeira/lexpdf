@@ -14,6 +14,7 @@ import '../core/storage/local_pdf_workspace_session_store.dart';
 import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../core/storage/local_workspace_ui_preferences.dart';
+import 'ai_context_chat_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
 /// Persistent multi-document shell for the unified PDF editor.
@@ -704,6 +705,32 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
+  Future<void> _openDocumentChat() async {
+    if (_tabs.isEmpty) return;
+    final activeDocument = _tabs[_activeIndex].document;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AiContextChatScreen(
+          database: widget.store.db,
+          documentId: activeDocument.id,
+          documentTitle: activeDocument.name,
+          popAfterSourceOpen: true,
+          onOpenSource: (documentId, pageNumber) async {
+            final index =
+                _tabs.indexWhere((tab) => tab.document.id == documentId);
+            if (index < 0 || !mounted) return;
+            setState(() {
+              _activeIndex = index;
+              _tabs[index].initialPage = pageNumber;
+              _tabs[index].generation += 1;
+            });
+            await _saveSession();
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _showStudyModeHelp() {
     return showDialog<void>(
       context: context,
@@ -748,6 +775,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _cancelActiveIndexing();
       case 'palette':
         unawaited(_showCommandPalette());
+      case 'chat-pdf':
+        unawaited(_openDocumentChat());
       case 'study-help':
         unawaited(_showStudyModeHelp());
       case 'shortcuts':
@@ -944,6 +973,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             onSelected: _runMenuAction,
             items: const [
               _WorkspaceMenuItem(
+                'chat-pdf',
+                'Chat com este PDF',
+                '',
+              ),
+              _WorkspaceMenuItem(
                 'study-help',
                 'Como usar o modo de estudo',
                 '',
@@ -1041,6 +1075,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             onTap: activeTask?.running == true
                 ? _cancelActiveIndexing
                 : _startActiveIndexing,
+          ),
+          _PanelAction(
+            icon: Icons.forum_outlined,
+            label: 'Chat com este PDF',
+            shortcut: '',
+            onTap: () => unawaited(_openDocumentChat()),
           ),
           _PanelAction(
             icon: Icons.school_outlined,
