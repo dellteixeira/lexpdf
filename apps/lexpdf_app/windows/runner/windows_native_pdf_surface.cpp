@@ -368,7 +368,7 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
       }
       const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - started);
-      g_total_render_ms += elapsed.count();
+      g_total_render_ms.fetch_add(elapsed.count());
 
       const auto self = weak_self.lock();
       if (!self || generation != self->generation_.load()) {

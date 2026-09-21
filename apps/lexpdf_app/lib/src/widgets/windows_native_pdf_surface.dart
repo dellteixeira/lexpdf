@@ -74,6 +74,7 @@ class WindowsNativePdfSurfaceController {
   Future<WindowsNativePdfDiagnostics> diagnostics() async {
     final values = await _channel.invokeMapMethod<String, Object?>(
       'getDiagnostics',
+      const <String, Object?>{},
     );
     int read(String key) => (values?[key] as num?)?.toInt() ?? 0;
     return WindowsNativePdfDiagnostics(
@@ -90,6 +91,7 @@ class WindowsNativePdfSurfaceController {
 
   Future<void> clearRenderCache() => _channel.invokeMethod<void>(
         'clearRenderCache',
+        const <String, Object?>{},
       );
 }
 
