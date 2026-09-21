@@ -1,21 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-class AiEmbeddingBatch {
-  const AiEmbeddingBatch({
-    required this.vectors,
-    required this.model,
-    this.quotaRemaining,
-    this.quotaLimit,
-  });
+import 'embedding_service.dart';
 
-  final List<List<double>> vectors;
-  final String model;
-  final int? quotaRemaining;
-  final int? quotaLimit;
-}
-
-class RemoteAiEmbeddingService {
+class RemoteAiEmbeddingService implements AiEmbeddingService {
   RemoteAiEmbeddingService({
     required Uri endpoint,
     this.bearerToken,
@@ -25,6 +13,9 @@ class RemoteAiEmbeddingService {
 
   static const int maxBatchSize = 32;
   static const int maxCharactersPerText = 24000;
+
+  @override
+  int get batchSize => maxBatchSize;
 
   final Uri endpoint;
   final String? bearerToken;

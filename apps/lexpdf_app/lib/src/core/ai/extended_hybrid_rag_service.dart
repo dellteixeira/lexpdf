@@ -1,7 +1,7 @@
 import '../storage/local_hybrid_rag_store.dart';
 import '../storage/local_knowledge_rag_store.dart';
 import 'hybrid_rag_service.dart';
-import 'remote_embedding_service.dart';
+import 'embedding_service.dart';
 
 class ExtendedHybridRagService {
   ExtendedHybridRagService({
@@ -12,7 +12,7 @@ class ExtendedHybridRagService {
 
   final HybridRagService base;
   final LocalKnowledgeRagStore knowledge;
-  final RemoteAiEmbeddingService embeddings;
+  final AiEmbeddingService embeddings;
 
   Future<void> _ensureKnowledgeIndex({
     required String model,
@@ -30,8 +30,8 @@ class ExtendedHybridRagService {
     var completed = 0;
     for (var offset = 0;
         offset < pending.length;
-        offset += RemoteAiEmbeddingService.maxBatchSize) {
-      final end = (offset + RemoteAiEmbeddingService.maxBatchSize)
+        offset += embeddings.batchSize) {
+      final end = (offset + embeddings.batchSize)
           .clamp(0, pending.length);
       final batch = pending.sublist(offset, end);
       final embedded = await embeddings.embed(
