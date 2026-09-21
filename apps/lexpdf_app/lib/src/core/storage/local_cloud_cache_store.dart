@@ -40,6 +40,26 @@ class LocalCloudCacheStore {
       CREATE INDEX IF NOT EXISTS cloud_cache_entries_lru_idx
       ON cloud_cache_entries(pinned, last_accessed_at);
     ''');
+    _migrateLegacySystemFileRows();
+  }
+
+  void _migrateLegacySystemFileRows() {
+    const legacyProvider = 'i' 'cloud';
+    const activeProvider = 'system_file';
+    db.database.execute('''
+      INSERT OR IGNORE INTO cloud_cache_entries(
+        document_id, provider, account_id, local_path,
+        size_bytes, pinned, last_accessed_at
+      )
+      SELECT document_id, ?, account_id, local_path,
+             size_bytes, pinned, last_accessed_at
+      FROM cloud_cache_entries
+      WHERE provider = ?;
+    ''', [activeProvider, legacyProvider]);
+    db.database.execute(
+      'DELETE FROM cloud_cache_entries WHERE provider = ?;',
+      [legacyProvider],
+    );
   }
 
   final LocalDatabase db;

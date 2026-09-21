@@ -281,11 +281,11 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     token.dispose();
   }
 
-  Future<void> _importFileProvider() async {
+  Future<void> _importSystemFile() async {
     await _connect(() async {
       final root = await getApplicationSupportDirectory();
       final cacheDirectory = Directory(
-        '${root.path}${Platform.pathSeparator}cloud-cache${Platform.pathSeparator}icloud',
+        '${root.path}${Platform.pathSeparator}cloud-cache${Platform.pathSeparator}system-file',
       );
       final document = await _fileProvider.pickPdf(
         cacheDirectory: cacheDirectory,
@@ -294,7 +294,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
       await _catalog.upsert(document);
       await _cache.upsert(
         documentId: document.id,
-        provider: 'icloud',
+        provider: 'system_file',
         accountId: 'file-provider',
         localPath: document.localPath!,
         pinned: true,
@@ -543,7 +543,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                     ),
                   ),
                   FilledButton.tonalIcon(
-                    onPressed: _connecting ? null : _importFileProvider,
+                    onPressed: _connecting ? null : _importSystemFile,
                     icon: const Icon(Icons.folder_open_outlined),
                     label: const Text('Importar de provedor de arquivos'),
                   ),
@@ -571,7 +571,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       leading: const Icon(Icons.cloud_done_outlined),
                       title: Text(account.displayName),
                       subtitle: Text('${account.provider} • ${account.status}'),
-                      onTap: account.provider == 'icloud'
+                      onTap: account.provider == 'system_file'
                           ? null
                           : () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
