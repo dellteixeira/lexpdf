@@ -41,7 +41,6 @@ SQLite + Local File Storage
 Optional cloud layer
   |-- Google Drive
   |-- OneDrive
-  |-- Apple File Provider / iCloud
   |-- Supabase
   `-- Cloudflare Workers / R2
 ```
@@ -94,7 +93,6 @@ Initial providers:
 - local
 - Google Drive
 - OneDrive
-- Apple File Provider
 - Cloudflare R2
 
 ## Security baseline

@@ -33,9 +33,9 @@ The Flutter app talks directly to Microsoft Graph with OAuth 2.0 + PKCE.
 
 The delegated permission is `Files.ReadWrite`, plus `openid profile offline_access` for the authorization flow.
 
-## Apple File Provider / iCloud
+## System file import
 
-LexPDF may use the operating-system file picker (`file_selector`) in a future iOS/iPadOS target. The system document picker can expose iCloud Drive and installed File Providers. A selected PDF would be copied into LexPDF's local cache so later reading remains offline.
+Android and Windows can import documents through the operating-system file picker. Imported files are copied into the LexPDF local cache and are treated as offline/local content unless they are managed by Google Drive, OneDrive or LexPDF Cloud/R2.
 
 ## LexPDF Cloud / Cloudflare R2
 

@@ -5,10 +5,10 @@ LexPDF é um workspace multiplataforma, offline-first, para leitura, edição e 
 ## Princípios
 
 - Offline-first: leitura, edição, anotações, cadernos, OCR local, impressão e backup local não dependem de Internet.
-- Multiplataforma: Android e Windows; iPadOS/iOS em etapa futura.
+- Plataformas de produto e release: Android e Windows.
 - PDF + caderno digital no mesmo produto.
 - Dados portáveis: exportação e backup integral, sem aprisionamento do usuário.
-- Nuvem opcional: Google Drive, OneDrive, iCloud/File Provider, Supabase e Cloudflare R2.
+- Nuvem opcional: Google Drive, OneDrive, Supabase e Cloudflare R2.
 - Segurança por padrão: RLS, least privilege, secrets fora do repositório e salvamento atômico local.
 
 ## Escopo principal
@@ -24,9 +24,9 @@ LexPDF é um workspace multiplataforma, offline-first, para leitura, edição e 
 - Impressão local e em rede
 - Backup local/remoto e restauração
 - Importação de conteúdo do Squid quando tecnicamente compatível
-- Integração com Google Drive, OneDrive e iCloud/File Provider
+- Integração com Google Drive, OneDrive e LexPDF Cloud/R2
 - Sincronização opcional
-- IA opcional online/local em fases futuras
+- IA local/offline integrada, com geração online opcional
 
 ## Arquitetura
 
