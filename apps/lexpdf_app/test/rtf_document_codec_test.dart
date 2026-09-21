@@ -7,7 +7,8 @@ void main() {
   const codec = RtfDocumentCodec();
 
   test('RTF import preserves Unicode paragraphs and common inline styles', () {
-    final rtf = r'{\rtf1\ansi\uc1\fs24 Texto \b negrito\b0\par A\u231?ao e defesa.}';
+    final rtf =
+        r'{\rtf1\ansi\uc1\fs24 Texto \b negrito\b0\par A\u231?\u227?o e defesa.}';
     final html = codec.decodeToHtml(
       Uint8List.fromList(rtf.codeUnits),
     );

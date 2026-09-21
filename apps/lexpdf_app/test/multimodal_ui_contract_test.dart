@@ -14,9 +14,11 @@ void main() {
     expect(workspace, contains('Analisar página visualmente com IA'));
     expect(workspace, contains('PdfPageVisionRasterizer'));
     expect(workspace, contains("sourceKind: 'pdf_visual'"));
-    expect(notebook, contains('Indexar imagens do caderno com IA'));
+    expect(notebook, contains('_indexNotebookImagesWithAi'));
+    expect(notebook, contains('onIndexImagesAi:'));
     expect(notebook, contains("sourceKind: 'notebook_visual'"));
     expect(notebook, contains('RemoteAiVisionService'));
     expect(chrome, contains('_NotebookFileAction.indexImagesAi'));
+    expect(chrome, contains('Indexar imagens do caderno com IA'));
   });
 }

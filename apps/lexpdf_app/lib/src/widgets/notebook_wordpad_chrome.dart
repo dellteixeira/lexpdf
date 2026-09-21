@@ -315,13 +315,19 @@ class _WordPadTabStrip extends StatelessWidget {
               PopupMenuItem(
                 value: _NotebookFileAction.saveDoc,
                 enabled: legacyDocAvailable,
-                child: _FileMenuLabel(
+                child: const _FileMenuLabel(
                   icon: Icons.description_outlined,
-                  label: legacyDocAvailable
-                      ? 'Salvar como DOC'
-                      : 'Salvar como DOC (requer Word/LibreOffice)',
+                  label: 'Salvar como DOC',
                 ),
               ),
+              if (!legacyDocAvailable)
+                const PopupMenuItem(
+                  enabled: false,
+                  child: _FileMenuLabel(
+                    icon: Icons.info_outline,
+                    label: 'DOC requer Word/LibreOffice no Windows',
+                  ),
+                ),
               const PopupMenuItem(
                 value: _NotebookFileAction.saveRtf,
                 child: _FileMenuLabel(
