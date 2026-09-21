@@ -131,9 +131,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
 
-  bool get _mobile =>
-      defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS;
+  bool get _mobile => defaultTargetPlatform == TargetPlatform.android;
 
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
 

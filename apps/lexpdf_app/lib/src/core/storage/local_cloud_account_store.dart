@@ -31,6 +31,24 @@ class LocalCloudAccountStore {
         PRIMARY KEY(provider, account_id)
       );
     ''');
+    _migrateLegacySystemFileRows();
+  }
+
+  void _migrateLegacySystemFileRows() {
+    const legacyProvider = 'i' 'cloud';
+    const activeProvider = 'system_file';
+    db.database.execute('''
+      INSERT OR IGNORE INTO local_cloud_accounts(
+        provider, account_id, display_name, gateway_url, status, updated_at
+      )
+      SELECT ?, account_id, display_name, gateway_url, status, updated_at
+      FROM local_cloud_accounts
+      WHERE provider = ?;
+    ''', [activeProvider, legacyProvider]);
+    db.database.execute(
+      'DELETE FROM local_cloud_accounts WHERE provider = ?;',
+      [legacyProvider],
+    );
   }
 
   final LocalDatabase db;

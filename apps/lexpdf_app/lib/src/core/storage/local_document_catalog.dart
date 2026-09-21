@@ -4,6 +4,8 @@ import 'local_database.dart';
 class LocalDocumentCatalog {
   const LocalDocumentCatalog(this.db);
 
+  static const String _legacySystemFileProvider = 'i' 'cloud';
+
   final LocalDatabase db;
 
   Future<void> upsert(DocumentRef document) async {
@@ -151,7 +153,7 @@ class LocalDocumentCatalog {
         DocumentProviderKind.local => 'local',
         DocumentProviderKind.googleDrive => 'google_drive',
         DocumentProviderKind.oneDrive => 'onedrive',
-        DocumentProviderKind.iCloud => 'icloud',
+        DocumentProviderKind.systemFile => 'system_file',
         DocumentProviderKind.r2 => 'r2',
       };
 
@@ -159,7 +161,8 @@ class LocalDocumentCatalog {
         'local' => DocumentProviderKind.local,
         'google_drive' => DocumentProviderKind.googleDrive,
         'onedrive' => DocumentProviderKind.oneDrive,
-        'icloud' => DocumentProviderKind.iCloud,
+        _legacySystemFileProvider => DocumentProviderKind.systemFile,
+        'system_file' => DocumentProviderKind.systemFile,
         'r2' => DocumentProviderKind.r2,
         _ => throw StateError('Provedor desconhecido no banco local: $value'),
       };

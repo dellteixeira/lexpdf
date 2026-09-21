@@ -9,7 +9,7 @@ Create a strict seam between the current pdfrx-based viewer and the future nativ
 - The existing viewer remains the production path.
 - The native prototype is opt-in only through `LEXPDF_RENDER_CORE2_NATIVE_PROTOTYPE`.
 - The native prototype may activate only on Windows.
-- Android, iOS and other platforms must continue to resolve to the existing viewer.
+- Android must continue to resolve to the existing viewer.
 - Phase 3 must not change user-visible rendering yet.
 - No PDFium FFI/native plugin is added in this phase.
 

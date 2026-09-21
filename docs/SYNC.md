@@ -77,10 +77,9 @@ The UI applies the selected policy; it does not merely mark the conflict resolve
 
 After a successful resolution, a fresh checkpoint is written and the conflict is marked resolved.
 
-## iCloud / File Provider
+## System file import
 
-Apple File Provider documents imported through the native picker are treated as local/offline copies. Managed bidirectional API sync in Phase 10 applies to Google Drive, OneDrive and LexPDF Cloud/R2; File Provider lifecycle and coordination remain under the operating system.
-
+Files selected through the operating-system picker on Android or Windows are copied into the local LexPDF cache and treated as offline/local documents. They are not enrolled in managed bidirectional sync unless the document is later associated with Google Drive, OneDrive or LexPDF Cloud/R2.
 
 ## Local version history
 

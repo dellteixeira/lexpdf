@@ -2,7 +2,7 @@ enum DocumentProviderKind {
   local,
   googleDrive,
   oneDrive,
-  iCloud,
+  systemFile,
   r2,
 }
 

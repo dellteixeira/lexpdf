@@ -83,8 +83,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _inkEraserMode = false;
 
   bool get _mobileTouchNavigationEnabled =>
-      defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS;
+      defaultTargetPlatform == TargetPlatform.android;
 
   @override
   void initState() {
