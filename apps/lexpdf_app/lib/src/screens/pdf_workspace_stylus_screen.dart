@@ -139,12 +139,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _historyNavigation = false;
   bool _loadingInk = false;
   bool _readingMode = false;
+  bool _fullScreenForcedReadingMode = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
 
   bool get _mobile => defaultTargetPlatform == TargetPlatform.android;
 
-  bool get _chromeHidden => _readingMode || widget.fullScreen;
 
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
 
@@ -183,6 +183,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant PdfWorkspaceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fullScreen == widget.fullScreen) return;
+    if (widget.fullScreen) {
+      if (!_readingMode) {
+        _readingMode = true;
+        _fullScreenForcedReadingMode = true;
+      }
+    } else if (_fullScreenForcedReadingMode) {
+      _readingMode = false;
+      _fullScreenForcedReadingMode = false;
+    }
+    _controller.invalidate();
+  }
+
+  @override
   void dispose() {
     _inkLoadGeneration++;
     _controller.removeListener(_syncZoomFromController);
@@ -206,7 +222,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     }
 
     return Scaffold(
-      appBar: _chromeHidden
+      appBar: _readingMode
           ? null
           : AppBar(
         title: Column(
@@ -258,8 +274,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           autofocus: true,
           child: Column(
             children: [
-              if (!_chromeHidden) _buildCommandBar(path),
-              if (!_chromeHidden) const Divider(height: 1),
+              if (!_readingMode) _buildCommandBar(path),
+              if (!_readingMode) const Divider(height: 1),
               Expanded(
                 child: Stack(
                   children: [
@@ -727,7 +743,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         onPressed: _zoomOut,
                         icon: const Icon(Icons.zoom_out),
                       ),
-                      _buildZoomMenu(compact: compact),
+                      _buildZoomMenu(),
                       IconButton(
                         tooltip: 'Zoom +',
                         onPressed: _zoomIn,
@@ -780,7 +796,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           const PopupMenuItem(
                             value: _WorkspaceMoreAction.readingMode,
                             child: ListTile(
-                              leading: Icon(Icons.chrome_reader_mode_outlined),
+                              leading: Icon(Icons.fullscreen_outlined),
                               title: Text('Modo leitura'),
                               subtitle: Text('Ctrl+H'),
                             ),
