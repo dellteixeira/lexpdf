@@ -35,6 +35,64 @@ class WindowsNativePdfSurface extends StatefulWidget {
       _WindowsNativePdfSurfaceState();
 }
 
+class WindowsNativePdfDiagnostics {
+  const WindowsNativePdfDiagnostics({
+    required this.renderRequests,
+    required this.cacheHits,
+    required this.cacheMisses,
+    required this.staleDiscards,
+    required this.renderFailures,
+    required this.totalRenderMs,
+    required this.cacheBytes,
+    required this.cacheEntries,
+  });
+
+  final int renderRequests;
+  final int cacheHits;
+  final int cacheMisses;
+  final int staleDiscards;
+  final int renderFailures;
+  final int totalRenderMs;
+  final int cacheBytes;
+  final int cacheEntries;
+
+  double get cacheHitRate {
+    final total = cacheHits + cacheMisses;
+    return total == 0 ? 0 : cacheHits / total;
+  }
+
+  double get averageRenderMs =>
+      renderRequests == 0 ? 0 : totalRenderMs / renderRequests;
+}
+
+class WindowsNativePdfSurfaceController {
+  const WindowsNativePdfSurfaceController();
+
+  static const MethodChannel _channel =
+      MethodChannel('lexpdf/windows_native_pdf');
+
+  Future<WindowsNativePdfDiagnostics> diagnostics() async {
+    final values = await _channel.invokeMapMethod<String, Object?>(
+      'getDiagnostics',
+    );
+    int read(String key) => (values?[key] as num?)?.toInt() ?? 0;
+    return WindowsNativePdfDiagnostics(
+      renderRequests: read('renderRequests'),
+      cacheHits: read('cacheHits'),
+      cacheMisses: read('cacheMisses'),
+      staleDiscards: read('staleDiscards'),
+      renderFailures: read('renderFailures'),
+      totalRenderMs: read('totalRenderMs'),
+      cacheBytes: read('cacheBytes'),
+      cacheEntries: read('cacheEntries'),
+    );
+  }
+
+  Future<void> clearRenderCache() => _channel.invokeMethod<void>(
+        'clearRenderCache',
+      );
+}
+
 class _WindowsNativePdfSurfaceState extends State<WindowsNativePdfSurface> {
   static const MethodChannel _channel =
       MethodChannel('lexpdf/windows_native_pdf');

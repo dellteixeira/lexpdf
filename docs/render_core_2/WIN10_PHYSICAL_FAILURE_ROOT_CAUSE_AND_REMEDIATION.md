@@ -61,3 +61,12 @@ Syncfusion's current Windows compatibility material explicitly lists the Flutter
 ## Gate
 
 This remediation is not considered successful because CI passes. It must be rebuilt and physically tested on the affected Windows 10 machine at 75%, 100%, 125%, 200%, 300%, and 400%. The first required proof is 75% with the visible `RC2 native` debug badge and sharp page text. Only then can Phase 7 be reopened for the complete physical matrix.
+
+
+## 2026-09-21 hardening update
+
+The production renderer described by the older sections has since moved to the Windows.Data.Pdf native child-HWND path in `windows_native_pdf_surface.cpp`. The older PDFium Texture diagnostic remains useful for comparison, but it is not the production visual surface.
+
+The native production path now adds a 128 MiB exact-frame LRU, generation-based stale-render discards and runtime diagnostic counters. Cached frames are reused only when document, page and exact physical dimensions match; no cached frame is stretched to another size.
+
+This does **not** replace the required physical test. The current release gate still requires sharpness checks at 75%, 100%, 125%, 200%, 300% and 400% on real Windows hardware.
