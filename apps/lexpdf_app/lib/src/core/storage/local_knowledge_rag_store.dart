@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'local_database.dart';
 import 'local_hybrid_rag_store.dart';
+import 'local_vector_lsh_index.dart';
 
 class KnowledgeRagChunkSource {
   const KnowledgeRagChunkSource({
@@ -29,11 +30,12 @@ class KnowledgeRagChunkSource {
 }
 
 class LocalKnowledgeRagStore {
-  LocalKnowledgeRagStore(this.db) {
+  LocalKnowledgeRagStore(this.db) : _vectorIndex = LocalVectorLshIndex(db) {
     _ensureTables();
   }
 
   final LocalDatabase db;
+  final LocalVectorLshIndex _vectorIndex;
 
   void _ensureTables() {
     db.database.execute('''
@@ -168,6 +170,12 @@ class LocalKnowledgeRagStore {
           source.sourceUpdatedAt, source.content, model, vector.length,
           jsonEncode(vector), now,
         ]);
+        _vectorIndex.upsert(
+          namespace: 'knowledge',
+          sourceKey: '§{source.sourceKind}:§{source.sourceId}',
+          model: model,
+          vector: vector,
+        );
       }
       db.database.execute('COMMIT;');
     } catch (_) {
@@ -184,12 +192,24 @@ class LocalKnowledgeRagStore {
     int limit = 12,
   }) async {
     if (queryVector.isEmpty || query.trim().isEmpty) return const [];
-    final whereDocument =
-        documentId == null ? '' : 'AND pdf_document_id = ?';
-    final rows = db.database.select('''
-      SELECT * FROM knowledge_rag_embeddings
-      WHERE model = ? AND dimensions = ? $whereDocument;
-    ''', [model, queryVector.length, if (documentId != null) documentId]);
+    final candidateKeys = _vectorIndex.candidateKeys(
+      namespace: 'knowledge',
+      model: model,
+      queryVector: queryVector,
+      maxResults: 120,
+    );
+    final rows = candidateKeys == null
+        ? _allSearchRows(
+            model: model,
+            dimensions: queryVector.length,
+            documentId: documentId,
+          )
+        : _candidateSearchRows(
+            candidateKeys,
+            model: model,
+            dimensions: queryVector.length,
+            documentId: documentId,
+          );
 
     final terms = _queryTerms(query);
     final hits = <HybridRagHit>[];
@@ -219,6 +239,47 @@ class LocalKnowledgeRagStore {
     }
     hits.sort((a, b) => b.rerankScore.compareTo(a.rerankScore));
     return hits.take(limit).toList(growable: false);
+  }
+
+  List<dynamic> _allSearchRows({
+    required String model,
+    required int dimensions,
+    String? documentId,
+  }) {
+    final whereDocument =
+        documentId == null ? '' : 'AND pdf_document_id = ?';
+    return db.database.select('''
+      SELECT * FROM knowledge_rag_embeddings
+      WHERE model = ? AND dimensions = ? $whereDocument;
+    ''', [model, dimensions, if (documentId != null) documentId]);
+  }
+
+  List<dynamic> _candidateSearchRows(
+    List<String> keys, {
+    required String model,
+    required int dimensions,
+    String? documentId,
+  }) {
+    final rows = <dynamic>[];
+    for (final key in keys) {
+      final split = key.indexOf(':');
+      if (split <= 0 || split >= key.length - 1) continue;
+      final kind = key.substring(0, split);
+      final sourceId = key.substring(split + 1);
+      final found = db.database.select('''
+        SELECT * FROM knowledge_rag_embeddings
+        WHERE model = ? AND dimensions = ?
+          AND source_kind = ? AND source_id = ?
+        LIMIT 1;
+      ''', [model, dimensions, kind, sourceId]);
+      if (found.isEmpty) continue;
+      final row = found.first;
+      if (documentId != null && row['pdf_document_id'] != documentId) {
+        continue;
+      }
+      rows.add(row);
+    }
+    return rows;
   }
 
   List<KnowledgeRagChunkSource> _collectSources({String? documentId}) {

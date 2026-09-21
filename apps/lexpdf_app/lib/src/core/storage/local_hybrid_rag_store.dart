@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'local_database.dart';
 import 'local_global_search_fts.dart';
+import 'local_vector_lsh_index.dart';
 
 class HybridRagIndexStatus {
   const HybridRagIndexStatus({
@@ -72,11 +73,12 @@ class HybridRagHit {
 }
 
 class LocalHybridRagStore {
-  LocalHybridRagStore(this.db) {
+  LocalHybridRagStore(this.db) : _vectorIndex = LocalVectorLshIndex(db) {
     _ensureTables();
   }
 
   final LocalDatabase db;
+  final LocalVectorLshIndex _vectorIndex;
 
   static const int targetChunkCharacters = 1100;
   static const int maxChunkCharacters = 1650;
@@ -279,6 +281,12 @@ class LocalHybridRagStore {
           jsonEncode(vector),
           now,
         ]);
+        _vectorIndex.upsert(
+          namespace: 'pdf',
+          sourceKey: chunk.key,
+          model: model,
+          vector: vector,
+        );
       }
       db.database.execute('COMMIT;');
     } catch (_) {
@@ -299,12 +307,30 @@ class LocalHybridRagStore {
     }
 
     await LocalGlobalSearchFts(db).rebuildIfNeeded();
+    final semanticKeys = _vectorIndex.candidateKeys(
+      namespace: 'pdf',
+      model: model,
+      queryVector: queryVector,
+      maxResults: 96,
+    );
     final semanticRows = _validChunkRows(
       model: model,
       dimensions: queryVector.length,
       documentId: documentId,
+      candidateKeys: semanticKeys,
     );
-    if (semanticRows.isEmpty) return const [];
+
+    final lexicalRanks = _lexicalPageRanks(
+      query,
+      documentId: documentId,
+      limit: 40,
+    );
+    final lexicalRows = _rowsForPages(
+      lexicalRanks.keys,
+      model: model,
+      dimensions: queryVector.length,
+      documentId: documentId,
+    );
 
     final semantic = <String, _HybridCandidate>{};
     for (final row in semanticRows) {
@@ -321,42 +347,31 @@ class LocalHybridRagStore {
       ..sort((a, b) => b.semanticScore.compareTo(a.semanticScore));
     final topSemantic = semanticRanked.take(60).toList(growable: false);
 
-    final lexicalRanks = _lexicalPageRanks(
-      query,
-      documentId: documentId,
-      limit: 40,
-    );
-
     final candidates = <String, _HybridCandidate>{
       for (final candidate in topSemantic) candidate.key: candidate,
     };
 
-    if (lexicalRanks.isNotEmpty) {
-      for (final row in semanticRows) {
-        final pageKey = _pageKey(
-          row['document_id'] as String,
-          row['page_number'] as int,
-        );
-        if (!lexicalRanks.containsKey(pageKey)) continue;
-        final key = _chunkKey(
-          row['document_id'] as String,
-          row['page_number'] as int,
-          row['chunk_index'] as int,
-        );
-        candidates.putIfAbsent(
-          key,
-          () {
-            final vector = _decodeVector(row['embedding_json'] as String);
-            return _candidateFromRow(
-              row,
-              semanticScore: vector.length == queryVector.length
-                  ? _cosine(queryVector, vector)
-                  : -1,
-            );
-          },
-        );
-      }
+    for (final row in lexicalRows) {
+      final key = _chunkKey(
+        row['document_id'] as String,
+        row['page_number'] as int,
+        row['chunk_index'] as int,
+      );
+      candidates.putIfAbsent(
+        key,
+        () {
+          final vector = _decodeVector(row['embedding_json'] as String);
+          return _candidateFromRow(
+            row,
+            semanticScore: vector.length == queryVector.length
+                ? _cosine(queryVector, vector)
+                : -1,
+          );
+        },
+      );
     }
+
+    if (candidates.isEmpty) return const [];
 
     final terms = _queryTerms(query);
     final reranked = <HybridRagHit>[];
@@ -410,28 +425,107 @@ class LocalHybridRagStore {
     required String model,
     required int dimensions,
     String? documentId,
+    List<String>? candidateKeys,
   }) {
-    final whereDocument =
-        documentId == null ? '' : 'AND e.document_id = ?';
-    final args = <Object?>[
-      model,
-      dimensions,
-      if (documentId != null) documentId,
-    ];
-    return db.database.select('''
-      SELECT e.embedding_json, e.chunk_index, e.content,
-             e.document_id, e.page_number, d.title
-      FROM hybrid_rag_chunks e
-      JOIN pdf_page_text_index i
-        ON i.document_id = e.document_id
-       AND i.page_number = e.page_number
-       AND i.indexed_at = e.source_indexed_at
-      JOIN documents d ON d.id = e.document_id
-      WHERE e.model = ?
-        AND e.dimensions = ?
-        $whereDocument
-        AND trim(e.content) <> '';
-    ''', args);
+    if (candidateKeys == null) {
+      final whereDocument =
+          documentId == null ? '' : 'AND e.document_id = ?';
+      final args = <Object?>[
+        model,
+        dimensions,
+        if (documentId != null) documentId,
+      ];
+      return db.database.select('''
+        SELECT e.embedding_json, e.chunk_index, e.content,
+               e.document_id, e.page_number, d.title
+        FROM hybrid_rag_chunks e
+        JOIN pdf_page_text_index i
+          ON i.document_id = e.document_id
+         AND i.page_number = e.page_number
+         AND i.indexed_at = e.source_indexed_at
+        JOIN documents d ON d.id = e.document_id
+        WHERE e.model = ?
+          AND e.dimensions = ?
+          $whereDocument
+          AND trim(e.content) <> '';
+      ''', args);
+    }
+
+    final rows = <dynamic>[];
+    for (final key in candidateKeys) {
+      final parsed = _parseChunkKey(key);
+      if (parsed == null) continue;
+      if (documentId != null && parsed.documentId != documentId) continue;
+      rows.addAll(db.database.select('''
+        SELECT e.embedding_json, e.chunk_index, e.content,
+               e.document_id, e.page_number, d.title
+        FROM hybrid_rag_chunks e
+        JOIN pdf_page_text_index i
+          ON i.document_id = e.document_id
+         AND i.page_number = e.page_number
+         AND i.indexed_at = e.source_indexed_at
+        JOIN documents d ON d.id = e.document_id
+        WHERE e.model = ? AND e.dimensions = ?
+          AND e.document_id = ? AND e.page_number = ? AND e.chunk_index = ?
+          AND trim(e.content) <> ''
+        LIMIT 1;
+      ''', [
+        model,
+        dimensions,
+        parsed.documentId,
+        parsed.pageNumber,
+        parsed.chunkIndex,
+      ]));
+    }
+    return rows;
+  }
+
+  List<dynamic> _rowsForPages(
+    Iterable<String> pageKeys, {
+    required String model,
+    required int dimensions,
+    String? documentId,
+  }) {
+    final rows = <dynamic>[];
+    for (final key in pageKeys) {
+      final split = key.lastIndexOf(':');
+      if (split <= 0 || split >= key.length - 1) continue;
+      final docId = key.substring(0, split);
+      final page = int.tryParse(key.substring(split + 1));
+      if (page == null || (documentId != null && docId != documentId)) {
+        continue;
+      }
+      rows.addAll(db.database.select('''
+        SELECT e.embedding_json, e.chunk_index, e.content,
+               e.document_id, e.page_number, d.title
+        FROM hybrid_rag_chunks e
+        JOIN pdf_page_text_index i
+          ON i.document_id = e.document_id
+         AND i.page_number = e.page_number
+         AND i.indexed_at = e.source_indexed_at
+        JOIN documents d ON d.id = e.document_id
+        WHERE e.model = ? AND e.dimensions = ?
+          AND e.document_id = ? AND e.page_number = ?
+          AND trim(e.content) <> '';
+      ''', [model, dimensions, docId, page]));
+    }
+    return rows;
+  }
+
+  static ({String documentId, int pageNumber, int chunkIndex})?
+      _parseChunkKey(String key) {
+    final last = key.lastIndexOf(':');
+    if (last <= 0 || last >= key.length - 1) return null;
+    final previous = key.lastIndexOf(':', last - 1);
+    if (previous <= 0 || previous >= last - 1) return null;
+    final page = int.tryParse(key.substring(previous + 1, last));
+    final chunk = int.tryParse(key.substring(last + 1));
+    if (page == null || chunk == null) return null;
+    return (
+      documentId: key.substring(0, previous),
+      pageNumber: page,
+      chunkIndex: chunk,
+    );
   }
 
   Map<String, int> _lexicalPageRanks(
