@@ -46,6 +46,10 @@ class HybridRagHit {
     required this.semanticScore,
     required this.lexicalScore,
     required this.rerankScore,
+    this.sourceKind = 'pdf',
+    this.sourceId,
+    this.pdfDocumentId,
+    this.locationLabel,
   });
 
   final String documentId;
@@ -56,8 +60,15 @@ class HybridRagHit {
   final double semanticScore;
   final double lexicalScore;
   final double rerankScore;
+  final String sourceKind;
+  final String? sourceId;
+  final String? pdfDocumentId;
+  final String? locationLabel;
 
-  String get key => '$documentId:$pageNumber:$chunkIndex';
+  bool get canOpenPdf => pdfDocumentId?.trim().isNotEmpty == true;
+
+  String get key =>
+      '$sourceKind:${sourceId ?? documentId}:$pageNumber:$chunkIndex';
 }
 
 class LocalHybridRagStore {
@@ -371,6 +382,7 @@ class LocalHybridRagStore {
           semanticScore: candidate.semanticScore,
           lexicalScore: lexicalScore,
           rerankScore: rerankScore,
+          pdfDocumentId: candidate.documentId,
         ),
       );
     }

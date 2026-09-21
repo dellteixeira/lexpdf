@@ -37,6 +37,7 @@ class LocalStudyNotebookStore {
 
     final now = DateTime.now().toUtc();
     final notebookId = _notebookId(documentId);
+    final objectTimeBase = _nextObjectTimestamp(notebookId, now);
     final savepoint = 'study_${now.microsecondsSinceEpoch}';
     db.database.execute('SAVEPOINT $savepoint;');
     try {
@@ -95,8 +96,12 @@ class LocalStudyNotebookStore {
             150.0,
             0xFF1C1B1F,
             text,
-            now.add(Duration(microseconds: saved)).toIso8601String(),
-            now.add(Duration(microseconds: saved)).toIso8601String(),
+            objectTimeBase
+                .add(Duration(microseconds: saved))
+                .toIso8601String(),
+            objectTimeBase
+                .add(Duration(microseconds: saved))
+                .toIso8601String(),
           ],
         );
         db.database.execute(
@@ -139,6 +144,24 @@ class LocalStudyNotebookStore {
       db.database.execute('RELEASE SAVEPOINT $savepoint;');
       rethrow;
     }
+  }
+
+  DateTime _nextObjectTimestamp(String notebookId, DateTime now) {
+    final rows = db.database.select(
+      '''
+      SELECT MAX(o.created_at) AS max_created_at
+      FROM notebook_objects o
+      JOIN notebook_pages p ON p.id = o.page_id
+      WHERE p.notebook_id = ?;
+      ''',
+      [notebookId],
+    );
+    if (rows.isEmpty) return now;
+    final raw = rows.first['max_created_at']?.toString();
+    if (raw == null || raw.isEmpty) return now;
+    final latest = DateTime.tryParse(raw)?.toUtc();
+    if (latest == null || latest.isBefore(now)) return now;
+    return latest.add(const Duration(microseconds: 1));
   }
 
   bool _documentExists(String documentId) {

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
+import '../core/ai/extended_hybrid_rag_service.dart';
 import '../core/ai/hybrid_rag_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/ai/remote_embedding_service.dart';
@@ -12,6 +13,7 @@ import '../core/backend/backend_config.dart';
 import '../core/storage/local_ai_chat_store.dart';
 import '../core/storage/local_database.dart';
 import '../core/storage/local_hybrid_rag_store.dart';
+import '../core/storage/local_knowledge_rag_store.dart';
 
 class AiContextChatScreen extends StatefulWidget {
   const AiContextChatScreen({
@@ -198,9 +200,14 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
     try {
       const config = BackendConfig.fromEnvironment;
       final token = _requireToken(config);
-      final rag = HybridRagService(
-        store: LocalHybridRagStore(widget.database),
-        embeddings: _embeddingService(config, token),
+      final embeddings = _embeddingService(config, token);
+      final rag = ExtendedHybridRagService(
+        base: HybridRagService(
+          store: LocalHybridRagStore(widget.database),
+          embeddings: embeddings,
+        ),
+        knowledge: LocalKnowledgeRagStore(widget.database),
+        embeddings: embeddings,
       );
       final retrieval = await rag.retrieve(
         query,
@@ -232,7 +239,7 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
           .take(6)
           .map(
             (hit) => AiChatSource(
-              documentId: hit.documentId,
+              documentId: hit.pdfDocumentId ?? '',
               documentTitle: hit.documentTitle,
               pageNumber: hit.pageNumber,
               excerpt: LocalHybridRagStore.ragExcerpt(
@@ -241,6 +248,8 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
                 maxCharacters: 700,
               ),
               score: hit.rerankScore,
+              sourceKind: hit.sourceKind,
+              locationLabel: hit.locationLabel,
             ),
           )
           .toList(growable: false);
@@ -290,7 +299,7 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
 
   Future<void> _openSource(AiChatSource source) async {
     final callback = widget.onOpenSource;
-    if (callback == null) return;
+    if (callback == null || !source.canOpenPdf) return;
     await callback(source.documentId, source.pageNumber);
     if (mounted && widget.popAfterSourceOpen) {
       Navigator.of(context).pop();
@@ -339,8 +348,8 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
                   Expanded(
                     child: Text(
                       widget.isDocumentChat
-                          ? 'RAG híbrido restrito a ${widget.documentTitle ?? 'este PDF'}: FTS5 + embeddings + reranking.'
-                          : 'RAG híbrido em toda a biblioteca: FTS5 + embeddings + reranking. Fontes [F#] são recuperadas novamente a cada pergunta.',
+                          ? 'RAG ampliado deste PDF: texto, anotações e descrições visuais analisadas pela IA.'
+                          : 'RAG ampliado da biblioteca: PDFs, anotações, cadernos e descrições visuais. Fontes [F#] são recuperadas novamente a cada pergunta.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -497,16 +506,18 @@ class _ChatBubble extends StatelessWidget {
                       ),
                       title: Text(message.sources[index].documentTitle),
                       subtitle: Text(
-                        'Página ${message.sources[index].pageNumber}\n'
+                        '${message.sources[index].locationLabel ?? 'Página ${message.sources[index].pageNumber}'}\n'
                         '${message.sources[index].excerpt}',
                         maxLines: 5,
                         overflow: TextOverflow.ellipsis,
                       ),
                       isThreeLine: true,
-                      trailing: onOpenSource == null
+                      trailing: onOpenSource == null ||
+                              !message.sources[index].canOpenPdf
                           ? null
                           : const Icon(Icons.open_in_new),
-                      onTap: onOpenSource == null
+                      onTap: onOpenSource == null ||
+                              !message.sources[index].canOpenPdf
                           ? null
                           : () => unawaited(
                                 onOpenSource!(message.sources[index]),

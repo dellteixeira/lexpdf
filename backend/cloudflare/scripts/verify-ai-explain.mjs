@@ -30,6 +30,9 @@ for (const expected of [
   'contextChat',
   'CHAT CONTEXTUAL COM FONTES',
   'O histórico é contexto conversacional, não evidência',
+  '/v1/ai/vision',
+  'DEFAULT_AI_VISION_MODEL',
+  'Descreva somente o que é sustentado pela imagem',
 ]) {
   if (!worker.includes(expected)) {
     throw new Error(`Missing AI worker contract: ${expected}`);

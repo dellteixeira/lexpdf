@@ -3,10 +3,15 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/ai/pdf_page_vision_rasterizer.dart';
+import '../core/ai/remote_vision_service.dart';
+import '../core/backend/backend_config.dart';
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
+import '../core/storage/local_knowledge_rag_store.dart';
 import '../core/storage/local_ocr_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
@@ -73,6 +78,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _panelVisible = true;
   bool _statusBarVisible = true;
   bool _denseToolbar = false;
+  bool _visionAnalyzing = false;
 
   @override
   void initState() {
@@ -705,6 +711,84 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
+  Future<void> _analyzeActivePageWithAi() async {
+    if (_tabs.isEmpty || _visionAnalyzing) return;
+    final tab = _tabs[_activeIndex];
+    final document = tab.document;
+    final path = document.localPath;
+    if (path == null || path.isEmpty || !File(path).existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O PDF local não está disponível para análise visual.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _visionAnalyzing = true);
+    try {
+      const config = BackendConfig.fromEnvironment;
+      if (!config.hasAiGateway || !config.hasSupabase) {
+        throw StateError(
+          'A análise visual exige o gateway de IA e autenticação LexPDF.',
+        );
+      }
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      if (token == null || token.trim().isEmpty) {
+        throw StateError('Entre na sua conta LexPDF para usar a análise visual.');
+      }
+      final progress = await _progressStore.get(document.id);
+      final pageNumber = progress?.pageNumber ?? tab.initialPage;
+      final image = await const PdfPageVisionRasterizer().rasterize(
+        filePath: path,
+        pageNumber: pageNumber,
+      );
+      final base = Uri.parse(config.aiGatewayUrl);
+      final result = await RemoteAiVisionService(
+        endpoint: base.replace(
+          path: '/v1/ai/vision',
+          query: null,
+          fragment: null,
+        ),
+        bearerToken: token,
+      ).analyze(
+        imageBytes: image,
+        mimeType: 'image/jpeg',
+        prompt:
+            'Analise fielmente a página $pageNumber do PDF "${document.name}" '
+            'para indexação no LexPDF. Descreva tabelas, gráficos, diagramas, '
+            'imagens, manuscritos e relações visuais relevantes. Transcreva '
+            'apenas texto visual importante que esteja legível. Não complete '
+            'lacunas com conhecimento externo.',
+      );
+      await LocalKnowledgeRagStore(widget.store.db).upsertVisualDescription(
+        id: 'pdf-page:${document.id}:$pageNumber',
+        sourceKind: 'pdf_visual',
+        ownerId: document.id,
+        ownerTitle: 'Visual — ${document.name}',
+        pageNumber: pageNumber,
+        pdfDocumentId: document.id,
+        description: result.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Página $pageNumber analisada visualmente. '
+            'A descrição agora participa do RAG.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível analisar a página: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _visionAnalyzing = false);
+    }
+  }
+
   Future<void> _openDocumentChat() async {
     if (_tabs.isEmpty) return;
     final activeDocument = _tabs[_activeIndex].document;
@@ -777,6 +861,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         unawaited(_showCommandPalette());
       case 'chat-pdf':
         unawaited(_openDocumentChat());
+      case 'vision-page':
+        unawaited(_analyzeActivePageWithAi());
       case 'study-help':
         unawaited(_showStudyModeHelp());
       case 'shortcuts':
@@ -978,6 +1064,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 '',
               ),
               _WorkspaceMenuItem(
+                'vision-page',
+                'Analisar página visualmente com IA',
+                '',
+              ),
+              _WorkspaceMenuItem(
                 'study-help',
                 'Como usar o modo de estudo',
                 '',
@@ -1083,6 +1174,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             onTap: () => unawaited(_openDocumentChat()),
           ),
           _PanelAction(
+            icon: Icons.image_search_outlined,
+            label: _visionAnalyzing
+                ? 'Analisando página visualmente…'
+                : 'Analisar página visualmente com IA',
+            shortcut: '',
+            onTap: _visionAnalyzing
+                ? () {}
+                : () => unawaited(_analyzeActivePageWithAi()),
+          ),
+          _PanelAction(
             icon: Icons.school_outlined,
             label: 'Ajuda do modo de estudo',
             shortcut: '',
@@ -1180,6 +1281,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                     _startActiveIndexing();
                   }
                 },
+              ),
+              ListTile(
+                leading: const Icon(Icons.forum_outlined),
+                title: const Text('Chat com este PDF'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_openDocumentChat());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.image_search_outlined),
+                title: Text(
+                  _visionAnalyzing
+                      ? 'Analisando página visualmente…'
+                      : 'Analisar página visualmente com IA',
+                ),
+                enabled: !_visionAnalyzing,
+                onTap: _visionAnalyzing
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(_analyzeActivePageWithAi());
+                      },
               ),
               ListTile(
                 leading: const Icon(Icons.school_outlined),

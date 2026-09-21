@@ -7,6 +7,7 @@ import 'package:fluent_editor/services/export_service.dart';
 import 'package:fluent_editor/services/import_service.dart';
 
 import '../platform/legacy_word_converter.dart';
+import 'rtf_document_codec.dart';
 
 class LegacyWordBridgeUnavailable implements Exception {
   const LegacyWordBridgeUnavailable(this.extension);
@@ -15,15 +16,20 @@ class LegacyWordBridgeUnavailable implements Exception {
 
   @override
   String toString() =>
-      'Conversão ${extension.toUpperCase()} indisponível: configure o bridge nativo/licença Aspose.';
+      'Conversão ${extension.toUpperCase()} indisponível. No Windows, instale '
+      'Microsoft Word ou LibreOffice para habilitar o formato DOC legado.';
 }
 
 class NotebookDocumentFileService {
   const NotebookDocumentFileService({
     this.legacyConverter = const LegacyWordConverter(),
+    this.rtfCodec = const RtfDocumentCodec(),
   });
 
   final LegacyWordConverter legacyConverter;
+  final RtfDocumentCodec rtfCodec;
+
+  Future<bool> supportsLegacyDoc() => legacyConverter.isAvailable();
 
   Future<Root> importBytes(Uint8List bytes, String extension) async {
     final ext = extension.toLowerCase();
@@ -34,8 +40,9 @@ class NotebookDocumentFileService {
       case 'txt':
         final text = utf8.decode(bytes, allowMalformed: true);
         return importer.importFromHtml(_plainTextToHtml(text));
-      case 'doc':
       case 'rtf':
+        return importer.importFromHtml(rtfCodec.decodeToHtml(bytes));
+      case 'doc':
         final docx = await legacyConverter.toDocx(bytes, sourceExtension: ext);
         if (docx == null) throw LegacyWordBridgeUnavailable(ext);
         return importer.importFromDocx(docx);
@@ -57,8 +64,9 @@ class NotebookDocumentFileService {
         return utf8.encode(document.content.text);
       case 'pdf':
         return exporter.exportToPdf();
-      case 'doc':
       case 'rtf':
+        return rtfCodec.encodeHtml(await exporter.exportToHtml());
+      case 'doc':
         final docx = await exporter.exportToDocx();
         final converted = await legacyConverter.fromDocx(
           docx,

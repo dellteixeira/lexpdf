@@ -6,8 +6,12 @@ import 'dart:math' as math;
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_editor/fluent_document.dart';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/ai/remote_vision_service.dart';
+import '../core/backend/backend_config.dart';
 import '../core/ink/ink_models.dart';
 import '../core/notebook/ink_shape_recognizer.dart';
 import '../core/notebook/legacy_notebook_text_migrator.dart';
@@ -15,6 +19,7 @@ import '../core/notebook/notebook_document_file_service.dart';
 import '../core/notebook/notebook_history.dart';
 import '../core/notebook/notebook_object_models.dart';
 import '../core/storage/local_ink_store.dart';
+import '../core/storage/local_knowledge_rag_store.dart';
 import '../core/storage/local_notebook_document_store.dart';
 import '../core/storage/local_notebook_layer_store.dart';
 import '../core/storage/local_notebook_object_store.dart';
@@ -105,6 +110,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
   NotebookTextAlign _defaultTextAlign = NotebookTextAlign.left;
   int _defaultTextColorValue = 0xFF000000;
   bool _suppressMutationHistory = false;
+  bool _legacyDocAvailable = false;
+  bool _notebookVisionIndexing = false;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -124,6 +131,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _layerStore = LocalNotebookLayerStore(widget.inkStore.db);
     _documentStore = LocalNotebookDocumentStore(widget.inkStore.db);
     _loadFuture = _loadInitial();
+    unawaited(_loadDocumentFormatCapabilities());
+  }
+
+  Future<void> _loadDocumentFormatCapabilities() async {
+    final available = await _documentFileService.supportsLegacyDoc();
+    if (mounted) setState(() => _legacyDocAvailable = available);
   }
 
   @override
@@ -548,6 +561,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onExportPdf: () => unawaited(_saveRichDocumentAs('pdf')),
             onSaveDoc: () => unawaited(_saveRichDocumentAs('doc')),
             onSaveRtf: () => unawaited(_saveRichDocumentAs('rtf')),
+            legacyDocAvailable: _legacyDocAvailable,
+            onIndexImagesAi: () => unawaited(_indexNotebookImagesWithAi()),
             onRibbonTabChanged: (tab) {
               if (tab == NotebookRibbonTab.home) _activateTextMode();
               if (tab == NotebookRibbonTab.drawing) {
@@ -728,12 +743,133 @@ class _NotebookScreenState extends State<NotebookScreen> {
     );
   }
 
+  Future<void> _indexNotebookImagesWithAi() async {
+    if (_notebookVisionIndexing) return;
+    final notebook = _currentNotebook;
+    if (notebook == null) return;
+
+    final rows = widget.inkStore.db.database.select('''
+      SELECT o.id, o.image_path, p.page_number
+      FROM notebook_objects o
+      JOIN notebook_pages p ON p.id = o.page_id
+      WHERE p.notebook_id = ?
+        AND o.type = 'image'
+        AND trim(COALESCE(o.image_path, '')) <> ''
+      ORDER BY p.page_number, o.created_at;
+    ''', [notebook.id]);
+    if (rows.isEmpty) {
+      _showNotebookMessage(
+        'Este caderno não possui imagens locais para analisar.',
+      );
+      return;
+    }
+
+    setState(() => _notebookVisionIndexing = true);
+    var indexed = 0;
+    var skipped = 0;
+    try {
+      const config = BackendConfig.fromEnvironment;
+      if (!config.hasAiGateway || !config.hasSupabase) {
+        throw StateError(
+          'A análise visual exige gateway e autenticação LexPDF.',
+        );
+      }
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      if (token == null || token.trim().isEmpty) {
+        throw StateError('Entre na sua conta LexPDF para analisar imagens.');
+      }
+      final base = Uri.parse(config.aiGatewayUrl);
+      final vision = RemoteAiVisionService(
+        endpoint: base.replace(
+          path: '/v1/ai/vision',
+          query: null,
+          fragment: null,
+        ),
+        bearerToken: token,
+      );
+      final knowledge = LocalKnowledgeRagStore(widget.inkStore.db);
+
+      for (final row in rows) {
+        final path = row['image_path'] as String?;
+        if (path == null || path.isEmpty) {
+          skipped++;
+          continue;
+        }
+        final file = File(path);
+        if (!await file.exists()) {
+          skipped++;
+          continue;
+        }
+        try {
+          final original = await file.readAsBytes();
+          final decoded = img.decodeImage(original);
+          if (decoded == null) {
+            skipped++;
+            continue;
+          }
+          var prepared = decoded;
+          final maxDimension = math.max(decoded.width, decoded.height);
+          if (maxDimension > 1800) {
+            final scale = 1800 / maxDimension;
+            prepared = img.copyResize(
+              decoded,
+              width: math.max(1, (decoded.width * scale).round()).toInt(),
+              height: math.max(1, (decoded.height * scale).round()).toInt(),
+            );
+          }
+          final bytes = img.encodeJpg(prepared, quality: 86);
+          if (bytes.length > RemoteAiVisionService.maxImageBytes) {
+            skipped++;
+            continue;
+          }
+          final pageNumber = row['page_number'] as int;
+          final result = await vision.analyze(
+            imageBytes: bytes,
+            mimeType: 'image/jpeg',
+            prompt:
+                'Descreva fielmente esta imagem inserida no caderno '
+                '"${notebook.title}", página $pageNumber, para pesquisa semântica. '
+                'Preserve tabelas, diagramas, gráficos, texto legível, relações '
+                'e anotações manuscritas. Não use conhecimento externo.',
+          );
+          await knowledge.upsertVisualDescription(
+            id: 'notebook-image:${row['id']}',
+            sourceKind: 'notebook_visual',
+            ownerId: notebook.id,
+            ownerTitle: 'Imagem — ${notebook.title}',
+            pageNumber: pageNumber,
+            imagePath: path,
+            description: result.text,
+          );
+          indexed++;
+        } catch (_) {
+          skipped++;
+        }
+      }
+
+      _showNotebookMessage(
+        'IA visual: $indexed imagem${indexed == 1 ? '' : 's'} '
+        'indexada${indexed == 1 ? '' : 's'}'
+        '${skipped == 0 ? '.' : '; $skipped ignorada${skipped == 1 ? '' : 's'}.'}',
+      );
+    } catch (error) {
+      _showNotebookMessage('Não foi possível indexar imagens com IA: $error');
+    } finally {
+      if (mounted) setState(() => _notebookVisionIndexing = false);
+    }
+  }
+
   Future<void> _openRichDocumentFile() async {
-    const group = XTypeGroup(
+    final group = XTypeGroup(
       label: 'Documentos de texto',
-      extensions: ['docx', 'txt', 'doc', 'rtf'],
+      extensions: [
+        'docx',
+        'txt',
+        'rtf',
+        if (_legacyDocAvailable) 'doc',
+      ],
     );
-    final selected = await openFile(acceptedTypeGroups: const [group]);
+    final selected = await openFile(acceptedTypeGroups: [group]);
     if (selected == null) return;
     try {
       final length = await selected.length();

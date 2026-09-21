@@ -5,12 +5,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
+import '../core/ai/extended_hybrid_rag_service.dart';
 import '../core/ai/hybrid_rag_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/ai/remote_embedding_service.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_hybrid_rag_store.dart';
+import '../core/storage/local_knowledge_rag_store.dart';
 import '../core/study/advanced_study_models.dart';
 import 'ai_context_chat_screen.dart';
 
@@ -84,14 +86,20 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     );
   }
 
-  HybridRagService _hybridRagService(
+  ExtendedHybridRagService _hybridRagService(
     BackendConfig config,
     String token,
-  ) =>
-      HybridRagService(
+  ) {
+    final embeddings = _embeddingService(config, token);
+    return ExtendedHybridRagService(
+      base: HybridRagService(
         store: _hybridStore,
-        embeddings: _embeddingService(config, token),
-      );
+        embeddings: embeddings,
+      ),
+      knowledge: LocalKnowledgeRagStore(widget.store.db),
+      embeddings: embeddings,
+    );
+  }
 
   String _requireAiToken(BackendConfig config) {
     if (!config.hasAiGateway) {
@@ -390,8 +398,8 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Combina FTS5, embeddings, chunking e reranking em todos os PDFs '
-                    'indexados e responde somente com fontes rastreáveis.',
+                    'Combina PDFs, anotações, cadernos e descrições visuais com '
+                    'FTS5, embeddings, chunking e reranking, sempre com fonte rastreável.',
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -529,7 +537,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                                     ),
                                     title: Text(_ragHits[index].documentTitle),
                                     subtitle: Text(
-                                      'Página ${_ragHits[index].pageNumber}\n'
+                                      '${_ragHits[index].locationLabel ?? 'Página ${_ragHits[index].pageNumber}'}\n'
                                       '${LocalHybridRagStore.ragExcerpt(
                                         _ragHits[index].content,
                                         _ragController.text,
@@ -537,13 +545,15 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                                       )}',
                                     ),
                                     isThreeLine: true,
-                                    trailing: widget.onOpenSource == null
+                                    trailing: widget.onOpenSource == null ||
+                                            !_ragHits[index].canOpenPdf
                                         ? null
                                         : const Icon(Icons.open_in_new),
-                                    onTap: widget.onOpenSource == null
+                                    onTap: widget.onOpenSource == null ||
+                                            !_ragHits[index].canOpenPdf
                                         ? null
                                         : () => widget.onOpenSource!(
-                                              _ragHits[index].documentId,
+                                              _ragHits[index].pdfDocumentId!,
                                               _ragHits[index].pageNumber,
                                             ),
                                   ),

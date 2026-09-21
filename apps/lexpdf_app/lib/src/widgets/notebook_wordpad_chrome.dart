@@ -9,6 +9,7 @@ enum _NotebookFileAction {
   exportPdf,
   saveDoc,
   saveRtf,
+  indexImagesAi,
   newNotebook,
   renameNotebook,
   deleteNotebook,
@@ -36,6 +37,8 @@ class NotebookWordPadScaffold extends StatefulWidget {
     required this.onExportPdf,
     required this.onSaveDoc,
     required this.onSaveRtf,
+    required this.legacyDocAvailable,
+    required this.onIndexImagesAi,
     required this.onNewNotebook,
     required this.onRenameNotebook,
     required this.onDeleteNotebook,
@@ -70,6 +73,8 @@ class NotebookWordPadScaffold extends StatefulWidget {
   final VoidCallback onExportPdf;
   final VoidCallback onSaveDoc;
   final VoidCallback onSaveRtf;
+  final bool legacyDocAvailable;
+  final VoidCallback onIndexImagesAi;
   final VoidCallback onNewNotebook;
   final VoidCallback onRenameNotebook;
   final VoidCallback? onDeleteNotebook;
@@ -115,6 +120,7 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
             canDeleteNotebook: widget.onDeleteNotebook != null,
             canDuplicatePage: widget.onDuplicatePage != null,
             canDeletePage: widget.onDeletePage != null,
+            legacyDocAvailable: widget.legacyDocAvailable,
           ),
           Container(
             height: 96,
@@ -160,6 +166,8 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
         widget.onSaveDoc();
       case _NotebookFileAction.saveRtf:
         widget.onSaveRtf();
+      case _NotebookFileAction.indexImagesAi:
+        widget.onIndexImagesAi();
       case _NotebookFileAction.newNotebook:
         widget.onNewNotebook();
       case _NotebookFileAction.renameNotebook:
@@ -249,6 +257,7 @@ class _WordPadTabStrip extends StatelessWidget {
     required this.canDeleteNotebook,
     required this.canDuplicatePage,
     required this.canDeletePage,
+    required this.legacyDocAvailable,
   });
 
   final NotebookRibbonTab activeTab;
@@ -257,6 +266,7 @@ class _WordPadTabStrip extends StatelessWidget {
   final bool canDeleteNotebook;
   final bool canDuplicatePage;
   final bool canDeletePage;
+  final bool legacyDocAvailable;
 
   @override
   Widget build(BuildContext context) {
@@ -302,18 +312,35 @@ class _WordPadTabStrip extends StatelessWidget {
                   label: 'Exportar PDF',
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: _NotebookFileAction.saveDoc,
-                child: _FileMenuLabel(
+                enabled: legacyDocAvailable,
+                child: const _FileMenuLabel(
                   icon: Icons.description_outlined,
                   label: 'Salvar como DOC',
                 ),
               ),
+              if (!legacyDocAvailable)
+                const PopupMenuItem(
+                  enabled: false,
+                  child: _FileMenuLabel(
+                    icon: Icons.info_outline,
+                    label: 'DOC requer Word/LibreOffice no Windows',
+                  ),
+                ),
               const PopupMenuItem(
                 value: _NotebookFileAction.saveRtf,
                 child: _FileMenuLabel(
                   icon: Icons.description_outlined,
                   label: 'Salvar como RTF',
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: _NotebookFileAction.indexImagesAi,
+                child: _FileMenuLabel(
+                  icon: Icons.image_search_outlined,
+                  label: 'Indexar imagens do caderno com IA',
                 ),
               ),
               const PopupMenuDivider(),

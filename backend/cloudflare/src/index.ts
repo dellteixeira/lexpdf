@@ -12,6 +12,8 @@ export interface Env {
   AI_EMBEDDING_MODEL?: string;
   AI_RAG_MAX_INPUT_CHARS?: string;
   AI_EMBED_RATE_LIMIT_PER_MINUTE?: string;
+  AI_VISION_MODEL?: string;
+  AI_VISION_MAX_IMAGE_BYTES?: string;
   AI: Ai;
   DOCUMENTS: R2Bucket;
   SYNC_QUEUE?: Queue<SyncMessage>;
@@ -39,6 +41,8 @@ const DEFAULT_AI_RAG_MAX_INPUT_CHARS = 30000;
 const DEFAULT_AI_EMBED_RATE_LIMIT_PER_MINUTE = 60;
 const MAX_AI_EMBED_BATCH = 32;
 const MAX_AI_EMBED_TEXT_CHARS = 24000;
+const DEFAULT_AI_VISION_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_AI_VISION_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 type AiExplanationDepth = 'quick' | 'detailed' | 'deep';
 type AiExplanationIntent = 'explain' | 'contest' | 'simplify' | 'example' | 'flashcard' | 'crossStudy' | 'reviewTutor' | 'libraryRag' | 'contextChat';
@@ -97,6 +101,10 @@ async function route(request: Request, env: Env, requestId: string): Promise<Res
 
   if (url.pathname === "/v1/ai/embed") {
     return handleAiEmbed(request, env, requestId);
+  }
+
+  if (url.pathname === "/v1/ai/vision") {
+    return handleAiVision(request, env, requestId);
   }
 
   if (!url.pathname.startsWith("/v1/cloud/")) return json({ error: "not_found" }, 404, requestId);
@@ -206,6 +214,100 @@ async function route(request: Request, env: Env, requestId: string): Promise<Res
   }
 
   return json({ error: "method_not_allowed" }, 405, requestId);
+}
+
+async function handleAiVision(request: Request, env: Env, requestId: string): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405, requestId);
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.startsWith("application/json")) return json({ error: "unsupported_media_type" }, 415, requestId);
+  const user = await authenticate(request, env);
+  if (!user) return json({ error: "unauthorized" }, 401, requestId);
+  if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
+
+  let body: { imageBase64?: unknown; mimeType?: unknown; prompt?: unknown };
+  try {
+    body = (await request.json()) as { imageBase64?: unknown; mimeType?: unknown; prompt?: unknown };
+  } catch {
+    return json({ error: "invalid_json" }, 400, requestId);
+  }
+  const imageBase64 = typeof body.imageBase64 === "string" ? body.imageBase64.trim() : "";
+  const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().toLowerCase() : "";
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!imageBase64 || !prompt) return json({ error: "invalid_vision_payload" }, 400, requestId);
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mimeType)) {
+    return json({ error: "unsupported_image_type" }, 415, requestId);
+  }
+  if (prompt.length > 4000) return json({ error: "vision_prompt_too_large" }, 413, requestId);
+  const estimatedBytes = Math.floor(imageBase64.length * 3 / 4);
+  const maxImageBytes = parsePositiveInt(env.AI_VISION_MAX_IMAGE_BYTES) ?? DEFAULT_AI_VISION_MAX_IMAGE_BYTES;
+  if (estimatedBytes < 1 || estimatedBytes > maxImageBytes) {
+    return json({ error: "vision_image_too_large", maxBytes: maxImageBytes }, 413, requestId);
+  }
+
+  const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
+  const minuteLimit = parsePositiveInt(env.AI_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_RATE_LIMIT_PER_MINUTE;
+  const creditCost = 4;
+  const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
+  if (!quota.allowed) {
+    return json({
+      error: quota.reason === "rate_limit" ? "ai_rate_limit" : "ai_daily_limit",
+      quota: { ...quota, dailyCreditLimit: dailyLimit, creditCost },
+    }, 429, requestId);
+  }
+
+  const model = env.AI_VISION_MODEL?.trim() || env.AI_DEEP_MODEL?.trim() || DEFAULT_AI_VISION_MODEL;
+  const dataUrl = `data:${mimeType};base64,${imageBase64}`;
+  const system = [
+    "Você é o analisador visual do LexPDF.",
+    "Descreva somente o que é sustentado pela imagem.",
+    "Para tabelas, gráficos, diagramas ou material jurídico, preserve títulos, rótulos, relações e texto legível.",
+    "Não invente legislação, jurisprudência, valores, nomes ou conteúdo que não esteja visível.",
+    "Quando algo estiver ilegível ou ambíguo, declare a limitação.",
+    "Responda em português do Brasil com uma descrição autocontida adequada para indexação semântica."
+  ].join("\n");
+
+  let output: unknown;
+  try {
+    output = await env.AI.run(model as any, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
+      image: dataUrl,
+      max_tokens: 1000,
+      temperature: 0.1,
+      stream: false,
+    } as any);
+  } catch (error) {
+    console.error("lexpdf_ai_vision_failed", { requestId, model, error: String(error) });
+    return json({ error: "ai_vision_unavailable", requestId }, 502, requestId);
+  }
+
+  const text = extractAiText(output);
+  if (!text) return json({ error: "ai_vision_empty_response", requestId }, 502, requestId);
+  return json({
+    text,
+    model,
+    quota: {
+      creditsUsed: quota.creditsUsed,
+      creditsRemaining: quota.creditsRemaining,
+      dailyCreditLimit: dailyLimit,
+      creditCost,
+      requests: quota.requests,
+    },
+  }, 200, requestId);
+}
+
+function extractAiText(output: unknown): string {
+  const value = output as any;
+  const candidate = typeof value?.response === "string"
+    ? value.response
+    : typeof value?.result?.response === "string"
+      ? value.result.response
+      : typeof value?.choices?.[0]?.message?.content === "string"
+        ? value.choices[0].message.content
+        : "";
+  return candidate.trim();
 }
 
 async function handleAiEmbed(request: Request, env: Env, requestId: string): Promise<Response> {

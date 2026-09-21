@@ -13,6 +13,8 @@ class AiChatSource {
     required this.pageNumber,
     required this.excerpt,
     this.score,
+    this.sourceKind = 'pdf',
+    this.locationLabel,
   });
 
   final String documentId;
@@ -20,6 +22,10 @@ class AiChatSource {
   final int pageNumber;
   final String excerpt;
   final double? score;
+  final String sourceKind;
+  final String? locationLabel;
+
+  bool get canOpenPdf => documentId.trim().isNotEmpty;
 
   Map<String, Object?> toJson() => {
         'documentId': documentId,
@@ -27,6 +33,8 @@ class AiChatSource {
         'pageNumber': pageNumber,
         'excerpt': excerpt,
         'score': score,
+        'sourceKind': sourceKind,
+        'locationLabel': locationLabel,
       };
 
   factory AiChatSource.fromJson(Map<String, dynamic> json) => AiChatSource(
@@ -37,6 +45,8 @@ class AiChatSource {
         score: json['score'] is num
             ? (json['score'] as num).toDouble()
             : double.tryParse(json['score']?.toString() ?? ''),
+        sourceKind: json['sourceKind']?.toString() ?? 'pdf',
+        locationLabel: json['locationLabel']?.toString(),
       );
 }
 
