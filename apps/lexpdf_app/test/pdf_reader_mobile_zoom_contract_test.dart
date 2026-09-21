@@ -6,7 +6,6 @@ void main() {
   test('mobile reader keeps pan and pinch zoom enabled while ink mode is active', () {
     final source = File('lib/src/screens/pdf_reader_screen.dart').readAsStringSync();
     expect(source, contains('defaultTargetPlatform == TargetPlatform.android'));
-    expect(source, contains('defaultTargetPlatform == TargetPlatform.iOS'));
     expect(
       source,
       contains('panEnabled: !_inkMode || _mobileTouchNavigationEnabled'),

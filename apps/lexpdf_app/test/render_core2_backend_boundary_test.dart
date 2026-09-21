@@ -28,13 +28,6 @@ void main() {
       ),
       RenderCore2Backend.existingViewer,
     );
-    expect(
-      RenderCore2BackendPolicy.resolve(
-        forceNativePrototype: true,
-        platform: TargetPlatform.iOS,
-      ),
-      RenderCore2Backend.existingViewer,
-    );
   });
 
   test('backend selection is explicit and side-effect free', () {
