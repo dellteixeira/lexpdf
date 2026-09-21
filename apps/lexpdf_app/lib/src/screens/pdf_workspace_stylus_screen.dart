@@ -31,7 +31,7 @@ import 'pdf_print_screen.dart';
 
 enum _PdfViewMode { continuous, horizontal, facing }
 
-enum _WorkspaceMoreAction { forms, export, print }
+enum _WorkspaceMoreAction { readingMode, forms, export, print }
 
 enum _StylusMode { hand, selectText, note, pen, highlighter, eraser }
 
@@ -112,6 +112,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   double _eraserWidth = 36.0;
   bool _historyNavigation = false;
   bool _loadingInk = false;
+  bool _readingMode = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
 
@@ -160,6 +161,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     _inkLoadGeneration++;
     _controller.removeListener(_syncZoomFromController);
     _keyboardFocusNode.dispose();
+    if (_android && _readingMode) {
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    }
     super.dispose();
   }
 
@@ -176,7 +180,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: _readingMode
+          ? null
+          : AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -210,14 +216,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
               unawaited(_previousPage()),
           const SingleActivator(LogicalKeyboardKey.pageDown): () =>
               unawaited(_nextPage()),
+          const SingleActivator(LogicalKeyboardKey.keyH, control: true):
+              _toggleReadingMode,
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (_readingMode) {
+              unawaited(_setReadingMode(false));
+            }
+          },
         },
         child: Focus(
           focusNode: _keyboardFocusNode,
           autofocus: true,
           child: Column(
             children: [
-              _buildCommandBar(path),
-              const Divider(height: 1),
+              if (!_readingMode) _buildCommandBar(path),
+              if (!_readingMode) const Divider(height: 1),
               Expanded(
                 child: Stack(
                   children: [
@@ -232,6 +245,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           _zoomAnchorLocal = position;
                         },
                         onNavigationEnd: _syncZoomFromController,
+                        onSingleTap: _handleAndroidPdfTap,
                         child: PdfViewer.file(
                           path,
                           controller: _controller,
@@ -642,6 +656,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 onPressed: _zoomIn,
                 icon: const Icon(Icons.zoom_in),
               ),
+              IconButton(
+                tooltip: 'Modo leitura (Ctrl+H)',
+                onPressed: _toggleReadingMode,
+                icon: const Icon(Icons.fullscreen_outlined),
+              ),
               PopupMenuButton<_PdfViewMode>(
                 tooltip: 'Modo de visualização',
                 initialValue: _viewMode,
@@ -669,6 +688,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                 tooltip: 'Mais ferramentas',
                 onSelected: _handleMoreAction,
                 itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _WorkspaceMoreAction.readingMode,
+                    child: ListTile(
+                      leading: Icon(Icons.chrome_reader_mode_outlined),
+                      title: Text('Modo leitura'),
+                      subtitle: Text('Ctrl+H no Windows'),
+                    ),
+                  ),
                   PopupMenuItem(
                     value: _WorkspaceMoreAction.forms,
                     child: ListTile(
@@ -722,6 +749,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     if (_stylusMode == mode) return;
     setState(() => _stylusMode = mode);
     _controller.invalidate();
+  }
+
+  void _handleAndroidPdfTap() {
+    if (!_android) return;
+    // Keep annotation, selection, note and ink taps dedicated to their tools.
+    // In reading mode, a tap always restores the interface.
+    if (!_readingMode && _stylusMode != _StylusMode.hand) return;
+    _toggleReadingMode();
+  }
+
+  void _toggleReadingMode() {
+    unawaited(_setReadingMode(!_readingMode));
+  }
+
+  Future<void> _setReadingMode(bool enabled) async {
+    if (!mounted || _readingMode == enabled) return;
+    setState(() {
+      _readingMode = enabled;
+      if (enabled) {
+        // Reading mode is navigation-only so an invisible annotation tool
+        // cannot capture the next tap while every toolbar is hidden.
+        _stylusMode = _StylusMode.hand;
+      }
+    });
+    _controller.invalidate();
+
+    if (_android) {
+      await SystemChrome.setEnabledSystemUIMode(
+        enabled ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+    }
   }
 
   Future<void> _loadInkCount() async {
@@ -1064,6 +1122,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _handleMoreAction(_WorkspaceMoreAction action) {
     switch (action) {
+      case _WorkspaceMoreAction.readingMode:
+        _toggleReadingMode();
       case _WorkspaceMoreAction.forms:
         unawaited(_openForms());
       case _WorkspaceMoreAction.export:
