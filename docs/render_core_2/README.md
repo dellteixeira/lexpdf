@@ -1,46 +1,47 @@
 # LexPDF Render Core 2
 
-Render Core 2 is executed as a sequence of hard gates. A later phase must not begin until the previous phase has objective evidence and is explicitly approved.
+Render Core 2 now has two separate gates:
 
-## Execution order
+1. **implementation/CI gate** — native Windows surface, exact physical geometry, stale-render cancellation, bounded cache and diagnostics must compile and pass automated contracts;
+2. **physical visual gate** — the affected Windows 10/11 machines must still be inspected at 75%, 100%, 125%, 200%, 300% and 400%.
 
-1. Visual baseline on the physical Windows 10 machine
-2. Coordinate and scale audit
-3. Isolated renderer branch/prototype boundary
-4. Minimal native PDFium renderer
-5. Exact physical-pixel full-page rendering
-6. Native Texture/surface presentation path
-7. Physical Windows 10 sharpness validation
-8. Stop/fix loop until sharpness passes
-9. Rendering benchmark document
-10. Golden-image regression tests
-11. Progressive zoom rendering
-12. Memory-bounded LRU cache
-13. Render scheduler and cancellation
-14. High-zoom regional rendering/tiles only when necessary
-15. Windows DPI/display-scale validation
-16. Performance instrumentation
-17. Workspace reintegration
-18. Text selection and search reintegration
-19. Thumbnail and navigation reintegration
-20. Annotation autosave hardening
-21. Windows 11 validation
-22. Android architecture port
-23. Reader UX cleanup
-24. Study mode
-25. Library and advanced features
-26. Release Candidate only after visual, performance, CI, Windows 10 and Windows 11 gates pass
+CI is necessary but cannot certify perceived sharpness on a real monitor.
 
-## Current gate
+## Production Windows path
 
-**Phase 1 — Visual baseline: IN PROGRESS / BLOCKING**
+The current production path is:
 
-Run from `apps/lexpdf_app`:
+`pdfrx layout/navigation -> WindowsNativePdfSurface -> Windows.Data.Pdf -> WIC -> exact 1:1 GDI child HWND`
 
-```bash
-python tool/validate_render_core2_visual_baseline.py
-```
+PDF page pixels are not presented through Flutter `ui.Image`, `RawImage` or a bilinear Flutter texture.
 
-The validator is expected to fail until all required physical-test evidence has been entered into `tool/render_core2_visual_baseline.json` and the baseline is explicitly approved.
+## Hardening now present
 
-No Phase 2 implementation should be merged while the Phase 1 validator reports `BLOCKED`.
+- exact physical bounds derived from Flutter logical geometry × DPR;
+- asynchronous native rendering;
+- generation-based stale-render cancellation during fast scroll/zoom/resize;
+- memory-bounded **128 MiB LRU** cache keyed by document/page/physical size;
+- exact-size presentation through `SetDIBitsToDevice`; no `StretchDIBits`;
+- diagnostics counters for render requests, cache hits/misses, stale discards, failures, total render time, cache bytes and cache entries;
+- explicit native badge during the physical validation cycle.
+
+The LRU intentionally caches only exact-size frames. It never rescales a cached frame to satisfy a new geometry, because doing that would recreate the blur path this renderer was designed to remove.
+
+## Physical validation protocol
+
+The release gate remains pending until a real Windows machine records:
+
+- 75%, 100%, 125%, 200%, 300%, 400%;
+- pan at 200% and 400%;
+- resize at 100%;
+- maximize → restore → maximize;
+- 75% → 200% → 400% → 100%;
+- at least one display-scale transition when multiple DPI monitors are available.
+
+For each case, compare with a reference reader using the same PDF/page and record whether text edges, glyph shape and line spacing remain sharp and geometrically stable.
+
+The old `tool/render_core2_visual_baseline.json` remains historical evidence of the original failure and must not be rewritten as a pass without new physical evidence.
+
+## Remaining external gate
+
+The code can be merged when CI is green, but **Render Core 2 visual acceptance is not complete until physical evidence is supplied**. Do not claim a Windows sharpness pass from CI alone.

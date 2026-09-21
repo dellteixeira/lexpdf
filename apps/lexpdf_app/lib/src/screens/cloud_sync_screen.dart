@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/backend/backend_config.dart';
+import '../core/documents/document_provider.dart';
 import '../core/cloud/cloud_credential_store.dart';
 import '../core/cloud/cloud_oauth_service.dart';
 import '../core/cloud/native_file_provider_service.dart';
@@ -11,6 +13,7 @@ import '../core/storage/local_cloud_account_store.dart';
 import '../core/storage/local_cloud_cache_store.dart';
 import '../core/storage/local_database.dart';
 import '../core/storage/local_document_catalog.dart';
+import '../core/storage/local_document_revision_store.dart';
 import '../core/storage/local_sync_store.dart';
 import '../core/sync/cloud_sync_coordinator.dart';
 import '../core/sync/cloud_sync_provider_factory.dart';
@@ -29,6 +32,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   late final LocalCloudAccountStore _accounts;
   late final LocalCloudCacheStore _cache;
   late final LocalDocumentCatalog _catalog;
+  late final LocalDocumentRevisionStore _revisions;
   late final LocalSyncStore _sync;
   final CloudCredentialStore _credentials = const CloudCredentialStore();
   final CloudOAuthService _oauth = CloudOAuthService();
@@ -39,6 +43,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   List<LocalSyncItem> _queue = const [];
   List<LocalSyncConflict> _conflicts = const [];
   List<CloudCacheEntry> _cacheItems = const [];
+  List<LocalDocumentRevision> _revisionItems = const [];
   bool _connecting = false;
   bool _syncing = false;
 
@@ -48,6 +53,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     _accounts = LocalCloudAccountStore(widget.db);
     _cache = LocalCloudCacheStore(widget.db);
     _catalog = LocalDocumentCatalog(widget.db);
+    _revisions = LocalDocumentRevisionStore(widget.db);
     _sync = LocalSyncStore(widget.db);
     _loadFuture = _bootstrap();
   }
@@ -63,12 +69,14 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     final queue = await _sync.list();
     final conflicts = await _sync.listConflicts(unresolvedOnly: true);
     final cacheItems = await _cache.list();
+    final revisions = await _revisions.listRecent(limit: 50);
     if (!mounted) return;
     setState(() {
       _accountItems = accounts;
       _queue = queue;
       _conflicts = conflicts;
       _cacheItems = cacheItems;
+      _revisionItems = revisions;
     });
   }
 
@@ -377,11 +385,57 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     }
   }
 
+  String _revisionReasonLabel(String value) => switch (value) {
+        'sync_upload' => 'Estado enviado à nuvem',
+        'before_remote_download' => 'Antes de atualização remota',
+        'synced_remote' => 'Estado recebido da nuvem',
+        _ => value,
+      };
+
   String _resolutionLabel(ConflictResolution value) => switch (value) {
         ConflictResolution.keepLocal => 'versão local mantida',
         ConflictResolution.keepRemote => 'versão remota mantida',
         ConflictResolution.keepBoth => 'ambas as versões preservadas',
       };
+
+  Future<void> _restoreRevision(LocalDocumentRevision revision) async {
+    final document = await _catalog.getById(revision.documentId);
+    final path = document?.localPath;
+    if (document == null || path == null || path.trim().isEmpty) {
+      _message('O documento desta versão não possui arquivo local restaurável.');
+      return;
+    }
+    try {
+      final checksum = await _revisions.restore(
+        revision,
+        targetPath: path,
+      );
+      await _catalog.updateSyncMetadata(
+        id: document.id,
+        checksum: checksum,
+        localVersion: document.localVersion + 1,
+        state: DocumentSyncState.syncPending,
+      );
+      final binding = await _sync.bindingFor(document.id);
+      if (binding != null) {
+        await _sync.enqueue(
+          entityId: document.id,
+          provider: binding.provider,
+          operation: LocalSyncOperation.upload,
+          payload: {'accountId': binding.accountId},
+        );
+      }
+      await _load();
+      _message('Versão restaurada. A alteração entrou na fila de sincronização.');
+    } catch (error) {
+      _message('Não foi possível restaurar a versão: $error');
+    }
+  }
+
+  Future<void> _deleteRevision(LocalDocumentRevision revision) async {
+    await _revisions.delete(revision);
+    await _load();
+  }
 
   Future<void> _setPinned(CloudCacheEntry entry, bool value) async {
     await _cache.setPinned(
@@ -611,6 +665,55 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                               icon: const Icon(Icons.replay),
                             )
                           : null,
+                    ),
+                  ),
+              const SizedBox(height: 24),
+              Text(
+                'Histórico de versões',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              if (_revisionItems.isEmpty)
+                const Card(
+                  child: ListTile(
+                    title: Text('Nenhuma versão histórica registrada.'),
+                    subtitle: Text(
+                      'Snapshots são criados antes de substituições remotas e em sincronizações relevantes.',
+                    ),
+                  ),
+                )
+              else
+                for (final revision in _revisionItems.take(30))
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.history),
+                      title: Text(revision.documentTitle),
+                      subtitle: Text(
+                        '${_revisionReasonLabel(revision.reason)} • '
+                        'v${revision.localVersion} • '
+                        '${(revision.sizeBytes / 1024 / 1024).toStringAsFixed(1)} MB\n'
+                        '${revision.createdAt.toLocal()}',
+                      ),
+                      isThreeLine: true,
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'restore') {
+                            unawaited(_restoreRevision(revision));
+                          } else if (value == 'delete') {
+                            unawaited(_deleteRevision(revision));
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'restore',
+                            child: Text('Restaurar esta versão'),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Excluir snapshot'),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               const SizedBox(height: 24),

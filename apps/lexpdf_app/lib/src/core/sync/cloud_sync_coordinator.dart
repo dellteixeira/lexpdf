@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../documents/document_provider.dart';
 import '../storage/local_document_catalog.dart';
+import '../storage/local_document_revision_store.dart';
 import '../storage/local_sync_store.dart';
 import 'sync_engine.dart';
 
@@ -43,11 +44,13 @@ class CloudSyncCoordinator {
     required this.catalog,
     required this.store,
     required this.resolveProvider,
-  });
+    LocalDocumentRevisionStore? revisions,
+  }) : revisions = revisions ?? LocalDocumentRevisionStore(catalog.db);
 
   final LocalDocumentCatalog catalog;
   final LocalSyncStore store;
   final SyncProviderResolver resolveProvider;
+  final LocalDocumentRevisionStore revisions;
   final Map<String, _CachedChecksum> _checksumCache = {};
 
   Future<SyncInspection> inspect({
@@ -279,6 +282,13 @@ class CloudSyncCoordinator {
       throw FileSystemException('Local sync source is missing.', path);
     }
     final localChecksum = await _checksumForFile(path);
+    await revisions.capture(
+      document,
+      reason: 'sync_upload',
+      provider: providerName,
+      remoteVersion: document.remoteVersion,
+      checksum: localChecksum,
+    );
     final remote = document.remoteId == null
         ? await provider.upload(path, parentId: document.remotePath)
         : await provider.replaceContent(document, path);
@@ -312,6 +322,15 @@ class CloudSyncCoordinator {
   ) async {
     final remoteId = document.remoteId;
     if (remoteId == null) throw StateError('Document has no remoteId.');
+    final currentPath = document.localPath;
+    if (currentPath != null && await File(currentPath).exists()) {
+      await revisions.capture(
+        document,
+        reason: 'before_remote_download',
+        provider: providerName,
+        remoteVersion: document.remoteVersion,
+      );
+    }
     final remote = await provider.getById(remoteId);
     if (remote == null) throw StateError('Remote document was deleted.');
     final remoteOnly = DocumentRef(
@@ -360,6 +379,13 @@ class CloudSyncCoordinator {
       syncState: DocumentSyncState.synced,
     );
     await catalog.upsert(updated);
+    await revisions.capture(
+      updated,
+      reason: 'synced_remote',
+      provider: providerName,
+      remoteVersion: remote.remoteVersion,
+      checksum: localChecksum,
+    );
     await _checkpoint(
       document: updated,
       provider: providerName,

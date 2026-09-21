@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -42,6 +44,89 @@ struct DecodedFrame {
   int height = 0;
   std::vector<uint8_t> bgra;
 };
+
+class NativePdfFrameCache {
+ public:
+  explicit NativePdfFrameCache(size_t max_bytes) : max_bytes_(max_bytes) {}
+
+  std::shared_ptr<const DecodedFrame> Get(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = entries_.find(key);
+    if (it == entries_.end()) return nullptr;
+    lru_.erase(it->second.lru);
+    lru_.push_front(key);
+    it->second.lru = lru_.begin();
+    return it->second.frame;
+  }
+
+  void Put(const std::string& key, std::shared_ptr<const DecodedFrame> frame) {
+    if (!frame || frame->bgra.empty()) return;
+    const size_t bytes = frame->bgra.size();
+    if (bytes > max_bytes_) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto existing = entries_.find(key);
+    if (existing != entries_.end()) {
+      current_bytes_ -= existing->second.bytes;
+      lru_.erase(existing->second.lru);
+      entries_.erase(existing);
+    }
+    lru_.push_front(key);
+    entries_.emplace(key, Entry{std::move(frame), bytes, lru_.begin()});
+    current_bytes_ += bytes;
+    while (current_bytes_ > max_bytes_ && !lru_.empty()) {
+      const std::string victim = lru_.back();
+      lru_.pop_back();
+      const auto victim_it = entries_.find(victim);
+      if (victim_it == entries_.end()) continue;
+      current_bytes_ -= victim_it->second.bytes;
+      entries_.erase(victim_it);
+    }
+  }
+
+  void Clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+    lru_.clear();
+    current_bytes_ = 0;
+  }
+
+  size_t bytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return current_bytes_;
+  }
+
+  size_t entries() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+  }
+
+ private:
+  struct Entry {
+    std::shared_ptr<const DecodedFrame> frame;
+    size_t bytes;
+    std::list<std::string>::iterator lru;
+  };
+
+  const size_t max_bytes_;
+  mutable std::mutex mutex_;
+  size_t current_bytes_ = 0;
+  std::list<std::string> lru_;
+  std::unordered_map<std::string, Entry> entries_;
+};
+
+std::string FrameCacheKey(const std::string& path, int page_number, int width,
+                          int height) {
+  return path + "|" + std::to_string(page_number) + "|" +
+         std::to_string(width) + "x" + std::to_string(height);
+}
+
+NativePdfFrameCache g_frame_cache(128ull * 1024ull * 1024ull);
+std::atomic<int64_t> g_render_requests{0};
+std::atomic<int64_t> g_cache_hits{0};
+std::atomic<int64_t> g_cache_misses{0};
+std::atomic<int64_t> g_stale_discards{0};
+std::atomic<int64_t> g_render_failures{0};
+std::atomic<int64_t> g_total_render_ms{0};
 
 std::wstring ErrorToWide(const std::string& value) {
   if (value.empty()) return {};
@@ -259,21 +344,45 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     InvalidateRect(window_, nullptr, FALSE);
 
     std::weak_ptr<NativePdfSurface> weak_self = shared_from_this();
+    ++g_render_requests;
     std::thread([weak_self, generation, path, page_number, width, height]() {
-      DecodedFrame frame;
+      const auto started = std::chrono::steady_clock::now();
+      const std::string cache_key =
+          FrameCacheKey(path, page_number, width, height);
+      std::shared_ptr<const DecodedFrame> frame = g_frame_cache.Get(cache_key);
       std::string error;
-      const bool ok = RenderWithWindowsPdf(path, page_number, width, height,
-                                           &frame, &error);
+      bool ok = frame != nullptr;
+      if (ok) {
+        ++g_cache_hits;
+      } else {
+        ++g_cache_misses;
+        auto rendered = std::make_shared<DecodedFrame>();
+        ok = RenderWithWindowsPdf(path, page_number, width, height,
+                                  rendered.get(), &error);
+        if (ok) {
+          frame = rendered;
+          g_frame_cache.Put(cache_key, frame);
+        } else {
+          ++g_render_failures;
+        }
+      }
+      const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - started);
+      g_total_render_ms.fetch_add(elapsed.count());
+
       const auto self = weak_self.lock();
-      if (!self || generation != self->generation_.load()) return;
+      if (!self || generation != self->generation_.load()) {
+        ++g_stale_discards;
+        return;
+      }
       {
         std::lock_guard<std::mutex> lock(self->mutex_);
         self->loading_ = false;
-        if (ok) {
+        if (ok && frame) {
           self->frame_ = std::move(frame);
           self->error_.clear();
         } else {
-          self->frame_ = DecodedFrame{};
+          self->frame_.reset();
           self->error_ = std::move(error);
         }
       }
@@ -335,7 +444,7 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
 
     FillRect(dc, &client, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
 
-    DecodedFrame frame;
+    std::shared_ptr<const DecodedFrame> frame;
     bool loading = false;
     std::string error;
     {
@@ -348,21 +457,22 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     const int client_width = client.right - client.left;
     const int client_height = client.bottom - client.top;
     bool geometry_mismatch = false;
-    if (!frame.bgra.empty() && frame.width > 0 && frame.height > 0) {
+    if (frame && !frame->bgra.empty() && frame->width > 0 &&
+        frame->height > 0) {
       BITMAPINFO info = {};
       info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      info.bmiHeader.biWidth = frame.width;
-      info.bmiHeader.biHeight = -frame.height;
+      info.bmiHeader.biWidth = frame->width;
+      info.bmiHeader.biHeight = -frame->height;
       info.bmiHeader.biPlanes = 1;
       info.bmiHeader.biBitCount = 32;
       info.bmiHeader.biCompression = BI_RGB;
-      if (frame.width == client_width && frame.height == client_height) {
+      if (frame->width == client_width && frame->height == client_height) {
         // Exact 1:1 presentation. Never silently resample the PDF page in GDI.
         // If Windows.Data.Pdf/WIC returns different dimensions, fail visibly
         // instead of recreating the blur/vertical-smear failure mode.
-        SetDIBitsToDevice(dc, 0, 0, static_cast<DWORD>(frame.width),
-                          static_cast<DWORD>(frame.height), 0, 0, 0,
-                          static_cast<UINT>(frame.height), frame.bgra.data(),
+        SetDIBitsToDevice(dc, 0, 0, static_cast<DWORD>(frame->width),
+                          static_cast<DWORD>(frame->height), 0, 0, 0,
+                          static_cast<UINT>(frame->height), frame->bgra.data(),
                           &info, DIB_RGB_COLORS);
       } else {
         geometry_mismatch = true;
@@ -380,8 +490,8 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
 
     if (geometry_mismatch) {
       const std::wstring geometry =
-          L"WINPDF SIZE MISMATCH frame=" + std::to_wstring(frame.width) +
-          L"x" + std::to_wstring(frame.height) + L" client=" +
+          L"WINPDF SIZE MISMATCH frame=" + std::to_wstring(frame ? frame->width : 0) +
+          L"x" + std::to_wstring(frame ? frame->height : 0) + L" client=" +
           std::to_wstring(client_width) + L"x" +
           std::to_wstring(client_height);
       RECT status = {12, 36, client.right - 12, 88};
@@ -411,7 +521,7 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
   int64_t key_ = 0;
   std::atomic<int64_t> generation_{0};
   std::mutex mutex_;
-  DecodedFrame frame_;
+  std::shared_ptr<const DecodedFrame> frame_;
   bool loading_ = false;
   std::string error_;
 };
@@ -563,6 +673,34 @@ void RegisterWindowsNativePdfSurfaceChannel(
 
         if (call.method_name() == "disposeAll") {
           g_host->DisposeAll();
+          result->Success();
+          return;
+        }
+
+        if (call.method_name() == "getDiagnostics") {
+          flutter::EncodableMap payload;
+          payload[flutter::EncodableValue("renderRequests")] =
+              flutter::EncodableValue(g_render_requests.load());
+          payload[flutter::EncodableValue("cacheHits")] =
+              flutter::EncodableValue(g_cache_hits.load());
+          payload[flutter::EncodableValue("cacheMisses")] =
+              flutter::EncodableValue(g_cache_misses.load());
+          payload[flutter::EncodableValue("staleDiscards")] =
+              flutter::EncodableValue(g_stale_discards.load());
+          payload[flutter::EncodableValue("renderFailures")] =
+              flutter::EncodableValue(g_render_failures.load());
+          payload[flutter::EncodableValue("totalRenderMs")] =
+              flutter::EncodableValue(g_total_render_ms.load());
+          payload[flutter::EncodableValue("cacheBytes")] =
+              flutter::EncodableValue(static_cast<int64_t>(g_frame_cache.bytes()));
+          payload[flutter::EncodableValue("cacheEntries")] =
+              flutter::EncodableValue(static_cast<int64_t>(g_frame_cache.entries()));
+          result->Success(flutter::EncodableValue(std::move(payload)));
+          return;
+        }
+
+        if (call.method_name() == "clearRenderCache") {
+          g_frame_cache.Clear();
           result->Success();
           return;
         }
