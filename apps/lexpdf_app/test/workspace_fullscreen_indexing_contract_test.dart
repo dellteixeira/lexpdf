@@ -1,0 +1,34 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('workspace fullscreen is exposed in menu, shortcut and native Windows channel', () {
+    final workspace =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+    final service =
+        File('lib/src/core/platform/workspace_full_screen_service.dart')
+            .readAsStringSync();
+    final native =
+        File('windows/runner/flutter_window.cpp').readAsStringSync();
+
+    expect(workspace, contains("'fullscreen'"));
+    expect(workspace, contains("'Tela cheia'"));
+    expect(workspace, contains('LogicalKeyboardKey.f11'));
+    expect(workspace, contains('onToggleFullScreen: _toggleFullScreen'));
+    expect(service, contains("MethodChannel('lexpdf/window_mode')"));
+    expect(service, contains('SystemUiMode.immersiveSticky'));
+    expect(native, contains('"lexpdf/window_mode"'));
+    expect(native, contains('SetFullScreen'));
+    expect(native, contains('MonitorFromWindow'));
+    expect(native, contains('SetWindowLongPtrW'));
+  });
+
+  test('successful OCR completion notice is cleared after three seconds', () {
+    final workspace =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+    expect(workspace, contains('Duration(seconds: 3)'));
+    expect(workspace, contains('task.summary = null'));
+    expect(workspace, contains('task.progress = null'));
+  });
+}

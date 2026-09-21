@@ -11,6 +11,7 @@ import '../core/backend/backend_config.dart';
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
+import '../core/platform/workspace_full_screen_service.dart';
 import '../core/storage/local_knowledge_rag_store.dart';
 import '../core/storage/local_ocr_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
@@ -58,6 +59,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final List<_WorkspaceTab> _tabs = <_WorkspaceTab>[];
   final Map<String, _WorkspaceOcrTask> _ocrTasks = <String, _WorkspaceOcrTask>{};
   final Set<String> _indexPrompted = <String>{};
+  final WorkspaceFullScreenService _fullScreenService =
+      const WorkspaceFullScreenService();
 
   late final LocalPdfWorkspaceSessionStore _sessionStore =
       LocalPdfWorkspaceSessionStore(widget.store.db);
@@ -79,6 +82,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _statusBarVisible = true;
   bool _denseToolbar = false;
   bool _visionAnalyzing = false;
+  bool _fullScreen = false;
 
   @override
   void initState() {
@@ -363,6 +367,24 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         },
       );
       task.summary = summary;
+      if (!summary.cancelled) {
+        unawaited(
+          Future<void>.delayed(const Duration(seconds: 3), () {
+            if (!mounted) return;
+            final current = _ocrTasks[document.id];
+            if (!identical(current, task) ||
+                task.running ||
+                task.error != null ||
+                !identical(task.summary, summary)) {
+              return;
+            }
+            setState(() {
+              task.summary = null;
+              task.progress = null;
+            });
+          }),
+        );
+      }
     } catch (error) {
       task.error = error;
     } finally {
@@ -528,6 +550,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       LocalWorkspaceUiPreferences.denseToolbarKey,
       value,
     );
+  }
+
+  void _toggleFullScreen() {
+    unawaited(_setFullScreen(!_fullScreen));
+  }
+
+  Future<void> _setFullScreen(bool enabled) async {
+    if (!mounted || _fullScreen == enabled) return;
+    setState(() => _fullScreen = enabled);
+    try {
+      await _fullScreenService.setEnabled(enabled);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _fullScreen = !enabled);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 3),
+          content: Text('Não foi possível alterar o modo de tela cheia.'),
+        ),
+      );
+    }
   }
 
   List<_WorkspaceCommand> _commands() {
@@ -853,6 +896,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _toggleStatusBar();
       case 'dense':
         _toggleDenseToolbar();
+      case 'fullscreen':
+        _toggleFullScreen();
       case 'index':
         _startActiveIndexing();
       case 'cancel-index':
@@ -888,6 +933,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     bind(LogicalKeyboardKey.keyB, _toggleWorkspacePanel);
     bind(LogicalKeyboardKey.keyI, _startActiveIndexing, shift: true);
     bind(LogicalKeyboardKey.keyP, () => unawaited(_showCommandPalette()), shift: true);
+    bindings[const SingleActivator(LogicalKeyboardKey.f11)] = _toggleFullScreen;
+    bindings[const SingleActivator(LogicalKeyboardKey.escape)] = () {
+      if (_fullScreen) unawaited(_setFullScreen(false));
+    };
     return bindings;
   }
 
@@ -912,17 +961,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           builder: (context, constraints) {
             final width = constraints.maxWidth;
             final sidePanelCapable = width >= _sidePanelBreakpoint;
-            final desktopMenus = width >= _desktopMenuBreakpoint;
-            final showSidePanel = sidePanelCapable && _panelVisible;
+            final desktopMenus =
+                !_fullScreen && width >= _desktopMenuBreakpoint;
+            final showSidePanel =
+                !_fullScreen && sidePanelCapable && _panelVisible;
             return Scaffold(
               body: Column(
                 children: [
                   if (desktopMenus) _buildDesktopMenuBar(activeTask),
-                  _buildTabStrip(
-                    sidePanelCapable: sidePanelCapable,
-                    activeTask: activeTask,
-                  ),
-                  const Divider(height: 1),
+                  if (!_fullScreen)
+                    _buildTabStrip(
+                      sidePanelCapable: sidePanelCapable,
+                      activeTask: activeTask,
+                    ),
+                  if (!_fullScreen) const Divider(height: 1),
                   Expanded(
                     child: Row(
                       children: [
@@ -949,11 +1001,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                         store: widget.store,
                                         annotations: widget.annotations,
                                         initialPage: tab.initialPage,
+                                        fullScreen: _fullScreen,
+                                        onToggleFullScreen: _toggleFullScreen,
                                       ),
                                   ],
                                 ),
                               ),
-                              if (activeTask != null &&
+                              if (!_fullScreen &&
+                                  activeTask != null &&
                                   (activeTask.running ||
                                       activeTask.summary != null ||
                                       activeTask.error != null))
@@ -973,7 +1028,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                       ],
                     ),
                   ),
-                  if (_statusBarVisible) _buildStatusBar(activeTask),
+                  if (!_fullScreen && _statusBarVisible)
+                    _buildStatusBar(activeTask),
                 ],
               ),
             );
@@ -1029,6 +1085,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 'dense',
                 _denseToolbar ? 'Barra confortável' : 'Barra compacta',
                 '',
+              ),
+              _WorkspaceMenuItem(
+                'fullscreen',
+                _fullScreen ? 'Sair da tela cheia' : 'Tela cheia',
+                'F11',
               ),
             ],
           ),

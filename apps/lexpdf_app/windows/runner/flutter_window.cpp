@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "render_core2_pdfium_channel.h"
@@ -67,6 +68,31 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "lexpdf/native_pdf_open",
           &flutter::StandardMethodCodec::GetInstance());
 
+  window_mode_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "lexpdf/window_mode",
+          &flutter::StandardMethodCodec::GetInstance());
+  window_mode_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() != "setFullScreen") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* enabled =
+            call.arguments() == nullptr
+                ? nullptr
+                : std::get_if<bool>(call.arguments());
+        if (enabled == nullptr) {
+          result->Error("invalid_argument",
+                        "setFullScreen expects a boolean argument.");
+          return;
+        }
+        SetFullScreen(*enabled);
+        result->Success(flutter::EncodableValue(full_screen_));
+      });
+
   // Windows Explorer can drop one or many files/folders directly on LexPDF.
   // Directories are expanded recursively and every PDF is forwarded to Dart,
   // where the normal multi-tab workspace opens it.
@@ -85,14 +111,60 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (full_screen_) {
+    SetFullScreen(false);
+  }
   ::DragAcceptFiles(GetHandle(), FALSE);
   ShutdownWindowsNativePdfSurfaceChannel();
+  window_mode_channel_.reset();
   native_pdf_open_channel_.reset();
   render_core2_registrar_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
   Win32Window::OnDestroy();
+}
+
+void FlutterWindow::SetFullScreen(bool enabled) {
+  HWND hwnd = GetHandle();
+  if (hwnd == nullptr || full_screen_ == enabled) {
+    return;
+  }
+
+  if (enabled) {
+    windowed_style_ = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
+    windowed_ex_style_ = ::GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    windowed_placement_.length = sizeof(WINDOWPLACEMENT);
+    ::GetWindowPlacement(hwnd, &windowed_placement_);
+
+    MONITORINFO monitor = {};
+    monitor.cbSize = sizeof(MONITORINFO);
+    const HMONITOR handle =
+        ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (!::GetMonitorInfoW(handle, &monitor)) {
+      return;
+    }
+
+    const LONG_PTR full_style =
+        windowed_style_ &
+        ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX |
+          WS_SYSMENU);
+    ::SetWindowLongPtrW(hwnd, GWL_STYLE, full_style);
+    ::SetWindowPos(hwnd, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top,
+                   monitor.rcMonitor.right - monitor.rcMonitor.left,
+                   monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+                   SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+    full_screen_ = true;
+    return;
+  }
+
+  ::SetWindowLongPtrW(hwnd, GWL_STYLE, windowed_style_);
+  ::SetWindowLongPtrW(hwnd, GWL_EXSTYLE, windowed_ex_style_);
+  ::SetWindowPlacement(hwnd, &windowed_placement_);
+  ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+                     SWP_NOOWNERZORDER | SWP_NOZORDER);
+  full_screen_ = false;
 }
 
 void FlutterWindow::DispatchOpenPath(const std::wstring& path) {
