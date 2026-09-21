@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/remote_ai_engine.dart';
+import '../core/ai/remote_embedding_service.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
+import '../core/storage/local_semantic_library_store.dart';
 import '../core/study/advanced_study_models.dart';
 
 class AdvancedStudyScreen extends StatefulWidget {
@@ -25,20 +28,219 @@ class AdvancedStudyScreen extends StatefulWidget {
 
 class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _ragController = TextEditingController();
   int _refreshToken = 0;
   List<StudySourceHit> _sourceHits = const [];
   bool _searching = false;
   bool _crossStudyLoading = false;
   AiStudyResult? _crossStudyResult;
   Object? _crossStudyError;
+  bool _ragLoading = false;
+  bool _ragIndexing = false;
+  double? _ragProgress;
+  AiStudyResult? _ragResult;
+  Object? _ragError;
+  List<SemanticLibraryHit> _ragHits = const [];
+  SemanticIndexStatus? _semanticStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshSemanticStatus());
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _ragController.dispose();
     super.dispose();
   }
 
   void _refresh() => setState(() => _refreshToken++);
+
+  LocalSemanticLibraryStore get _semanticStore =>
+      LocalSemanticLibraryStore(widget.store.db);
+
+  Future<void> _refreshSemanticStatus() async {
+    final status = await _semanticStore.status();
+    if (mounted) setState(() => _semanticStatus = status);
+  }
+
+  RemoteAiEmbeddingService _embeddingService(
+    BackendConfig config,
+    String token,
+  ) {
+    final explain = Uri.parse(config.aiGatewayUrl);
+    final embedding = explain.replace(
+      path: '/v1/ai/embed',
+      query: null,
+      fragment: null,
+    );
+    return RemoteAiEmbeddingService(
+      endpoint: embedding,
+      bearerToken: token,
+    );
+  }
+
+  String _requireAiToken(BackendConfig config) {
+    if (!config.hasAiGateway) {
+      throw StateError('O gateway de IA não está configurado neste build.');
+    }
+    if (!config.hasSupabase) {
+      throw StateError('A autenticação LexPDF não está configurada.');
+    }
+    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('Entre na sua conta LexPDF para usar a IA online.');
+    }
+    return token;
+  }
+
+  Future<void> _indexSemanticLibrary({
+    required RemoteAiEmbeddingService service,
+    required String model,
+  }) async {
+    final store = _semanticStore;
+    final pending = await store.pagesNeedingIndex(model: model);
+    if (pending.isEmpty) {
+      await _refreshSemanticStatus();
+      return;
+    }
+
+    setState(() {
+      _ragIndexing = true;
+      _ragProgress = 0;
+    });
+    try {
+      var completed = 0;
+      for (var offset = 0;
+          offset < pending.length;
+          offset += RemoteAiEmbeddingService.maxBatchSize) {
+        final end = (offset + RemoteAiEmbeddingService.maxBatchSize)
+            .clamp(0, pending.length);
+        final batch = pending.sublist(offset, end);
+        final embedded = await service.embed(
+          batch.map((page) => page.content).toList(growable: false),
+        );
+        if (embedded.model != model) {
+          throw StateError(
+            'O modelo de embeddings mudou durante a indexação. '
+            'Reinicie a atualização do índice.',
+          );
+        }
+        await store.saveEmbeddings(
+          pages: batch,
+          vectors: embedded.vectors,
+          model: embedded.model,
+        );
+        completed += batch.length;
+        if (mounted) {
+          setState(() => _ragProgress = completed / pending.length);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _ragIndexing = false;
+          _ragProgress = null;
+        });
+      }
+      await _refreshSemanticStatus();
+    }
+  }
+
+  Future<void> _updateSemanticIndex() async {
+    if (_ragLoading || _ragIndexing) return;
+    setState(() => _ragError = null);
+    try {
+      const config = BackendConfig.fromEnvironment;
+      final token = _requireAiToken(config);
+      final service = _embeddingService(config, token);
+      final probe = await service.embed(const ['Índice semântico LexPDF']);
+      await _indexSemanticLibrary(
+        service: service,
+        model: probe.model,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _ragError = error);
+    }
+  }
+
+  String _libraryRagContext(
+    String query,
+    List<SemanticLibraryHit> hits,
+  ) {
+    final parts = <String>['PERGUNTA DO USUÁRIO: $query'];
+    for (var index = 0; index < hits.length; index++) {
+      final hit = hits[index];
+      final excerpt = LocalSemanticLibraryStore.ragExcerpt(
+        hit.content,
+        query,
+      );
+      parts.add(
+        '[F${index + 1}] ${hit.documentTitle} — página ${hit.pageNumber}\n'
+        '$excerpt',
+      );
+    }
+    return parts.join('\n\n');
+  }
+
+  Future<void> _askLibrary() async {
+    final query = _ragController.text.trim();
+    if (query.isEmpty || _ragLoading || _ragIndexing) return;
+    setState(() {
+      _ragLoading = true;
+      _ragError = null;
+      _ragResult = null;
+      _ragHits = const [];
+    });
+
+    try {
+      const config = BackendConfig.fromEnvironment;
+      final token = _requireAiToken(config);
+      final embeddingService = _embeddingService(config, token);
+
+      final queryEmbedding = await embeddingService.embed([query]);
+      await _indexSemanticLibrary(
+        service: embeddingService,
+        model: queryEmbedding.model,
+      );
+
+      final hits = await _semanticStore.search(
+        queryVector: queryEmbedding.vectors.single,
+        model: queryEmbedding.model,
+        limit: 8,
+      );
+      if (hits.isEmpty) {
+        throw StateError(
+          'Nenhuma página com texto pesquisável foi encontrada. '
+          'Execute OCR/indexação nos PDFs antes de usar o RAG.',
+        );
+      }
+
+      final result = await RemoteAiStudyEngine(
+        endpoint: Uri.parse(config.aiGatewayUrl),
+        bearerToken: token,
+        inputPolicy: const AiInputPolicy(maxCharacters: 30000),
+      ).runExplanation(
+        action: AiStudyAction.explain,
+        text: _libraryRagContext(query, hits.take(6).toList(growable: false)),
+        explanationDepth: AiExplanationDepth.deep,
+        intent: AiExplanationIntent.libraryRag,
+      );
+
+      if (mounted) {
+        setState(() {
+          _ragHits = hits;
+          _ragResult = result;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _ragError = error);
+    } finally {
+      if (mounted) setState(() => _ragLoading = false);
+    }
+  }
 
   Future<void> _searchSources() async {
     final query = _searchController.text.trim();
@@ -177,6 +379,192 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
               }
               return _DashboardCard(stats: stats, onReview: _startReview);
             },
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Perguntar à biblioteca — RAG',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      if (_semanticStatus != null)
+                        Text(
+                          '${_semanticStatus!.indexedPages}/'
+                          '${_semanticStatus!.sourcePages} páginas indexadas',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Busca por significado em todos os PDFs indexados e responde '
+                    'somente com as páginas recuperadas, mantendo documento e página.',
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _ragController,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => unawaited(_askLibrary()),
+                    decoration: const InputDecoration(
+                      labelText: 'Pergunte aos seus PDFs…',
+                      hintText:
+                          'Ex.: Compare prisão preventiva e prisão temporária nos meus materiais.',
+                      prefixIcon: Icon(Icons.psychology_alt_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _ragLoading ||
+                                _ragIndexing ||
+                                !backendConfig.hasAiGateway
+                            ? null
+                            : _askLibrary,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('Perguntar à biblioteca'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _ragLoading ||
+                                _ragIndexing ||
+                                !backendConfig.hasAiGateway
+                            ? null
+                            : _updateSemanticIndex,
+                        icon: const Icon(Icons.hub_outlined),
+                        label: const Text('Atualizar índice semântico'),
+                      ),
+                    ],
+                  ),
+                  if (_ragIndexing) ...[
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(value: _ragProgress),
+                    const SizedBox(height: 6),
+                    Text(
+                      _ragProgress == null
+                          ? 'Preparando índice semântico…'
+                          : 'Indexando semanticamente '
+                              '${(_ragProgress! * 100).round()}%…',
+                    ),
+                  ],
+                  if (_ragLoading && !_ragIndexing) ...[
+                    const SizedBox(height: 12),
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 6),
+                    const Text('Recuperando fontes e preparando resposta…'),
+                  ],
+                  if (!backendConfig.hasAiGateway) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'O RAG exige o gateway de IA; a busca textual tradicional '
+                      'abaixo continua disponível localmente.',
+                    ),
+                  ],
+                  if (_ragError != null) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.error_outline),
+                        title: const Text('Não foi possível consultar a biblioteca'),
+                        subtitle: Text('$_ragError'),
+                      ),
+                    ),
+                  ],
+                  if (_ragResult?.text?.trim().isNotEmpty == true) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Resposta baseada na biblioteca',
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                ),
+                                if (_ragResult!.fallbackUsed)
+                                  const Tooltip(
+                                    message:
+                                        'O modelo alternativo foi usado automaticamente.',
+                                    child: Icon(Icons.swap_horiz, size: 20),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            SelectableText(_ragResult!.text!),
+                            if (_ragResult!.quotaRemaining != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'Saldo de IA hoje: '
+                                '${_ragResult!.quotaRemaining} créditos'
+                                '${_ragResult!.quotaLimit == null ? '' : ' de ${_ragResult!.quotaLimit}'}.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            ExpansionTile(
+                              tilePadding: EdgeInsets.zero,
+                              title: const Text('Fontes recuperadas'),
+                              subtitle: const Text(
+                                'Os marcadores [F1], [F2]… apontam para as '
+                                'páginas usadas na resposta.',
+                              ),
+                              children: [
+                                for (var index = 0;
+                                    index < _ragHits.take(6).length;
+                                    index++)
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      child: Text('F${index + 1}'),
+                                    ),
+                                    title: Text(_ragHits[index].documentTitle),
+                                    subtitle: Text(
+                                      'Página ${_ragHits[index].pageNumber}\n'
+                                      '${LocalSemanticLibraryStore.ragExcerpt(
+                                        _ragHits[index].content,
+                                        _ragController.text,
+                                        maxCharacters: 420,
+                                      )}',
+                                    ),
+                                    isThreeLine: true,
+                                    trailing: widget.onOpenSource == null
+                                        ? null
+                                        : const Icon(Icons.open_in_new),
+                                    onTap: widget.onOpenSource == null
+                                        ? null
+                                        : () => widget.onOpenSource!(
+                                              _ragHits[index].documentId,
+                                              _ragHits[index].pageNumber,
+                                            ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           Card(

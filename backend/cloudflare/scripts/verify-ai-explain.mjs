@@ -22,6 +22,11 @@ for (const expected of [
   'reviewTutor',
   'FLASHCARD EM REVISÃO',
   'O flashcard original não deve ser alterado',
+  '/v1/ai/embed',
+  '@cf/baai/bge-m3',
+  'libraryRag',
+  'BIBLIOTECA RECUPERADA',
+  'Cada afirmação substantiva deve citar ao menos um marcador [F#]',
 ]) {
   if (!worker.includes(expected)) {
     throw new Error(`Missing AI worker contract: ${expected}`);
