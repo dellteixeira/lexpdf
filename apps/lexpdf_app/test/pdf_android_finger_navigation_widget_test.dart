@@ -162,4 +162,54 @@ class _FakePdfViewerController extends PdfViewerController {
       ..setEntry(0, 3, newTranslation.dx)
       ..setEntry(1, 3, newTranslation.dy);
   }
+  testWidgets('single tap toggles UI callback but drag pinch and stylus do not', (
+    tester,
+  ) async {
+    final controller = _FakePdfViewerController();
+    var taps = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox.expand(
+            child: PdfAndroidFingerNavigationRegion(
+              active: true,
+              controller: controller,
+              onSingleTap: () => taps++,
+              child: const ColoredBox(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final tap = await tester.createGesture(kind: PointerDeviceKind.touch);
+    await tap.down(const Offset(180, 260));
+    await tap.up();
+    await tester.pump();
+    expect(taps, 1);
+
+    final drag = await tester.createGesture(kind: PointerDeviceKind.touch);
+    await drag.down(const Offset(180, 260));
+    await drag.moveTo(const Offset(230, 320));
+    await drag.up();
+    await tester.pump();
+    expect(taps, 1);
+
+    final first = await tester.createGesture(kind: PointerDeviceKind.touch);
+    final second = await tester.createGesture(kind: PointerDeviceKind.touch);
+    await first.down(const Offset(140, 260));
+    await second.down(const Offset(240, 260));
+    await first.up();
+    await second.up();
+    await tester.pump();
+    expect(taps, 1);
+
+    final stylus = await tester.createGesture(kind: PointerDeviceKind.stylus);
+    await stylus.down(const Offset(180, 260));
+    await stylus.up();
+    await tester.pump();
+    expect(taps, 1);
+  });
+
 }
