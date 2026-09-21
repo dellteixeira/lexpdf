@@ -83,16 +83,31 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       setState(() => _annotationRevision++);
       _controller.invalidate();
     },
-    onStudyAction: (context, selectedText, action) async {
+    onStudyAction: (
+      context,
+      selectedText,
+      action,
+      pageNumber,
+      anchorX,
+      anchorY,
+    ) async {
       if (action.name != 'explain') return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => AiSelectionExplanationScreen(
             selectedText: selectedText,
             studyStore: LocalStudyNotebookStore(widget.store.db),
+            annotations: widget.annotations,
             sourceDocumentId: widget.document.id,
             sourceDocumentTitle: widget.document.name,
-            sourcePage: _page,
+            sourcePage: pageNumber,
+            anchorX: anchorX,
+            anchorY: anchorY,
+            onAnnotationSaved: () {
+              if (!mounted) return;
+              setState(() => _annotationRevision++);
+              _controller.invalidate();
+            },
           ),
         ),
       );
