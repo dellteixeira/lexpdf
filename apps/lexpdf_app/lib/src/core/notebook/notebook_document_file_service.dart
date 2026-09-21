@@ -16,7 +16,8 @@ class LegacyWordBridgeUnavailable implements Exception {
 
   @override
   String toString() =>
-      'Conversão ${extension.toUpperCase()} indisponível: configure o bridge nativo/licença Aspose.';
+      'Conversão ${extension.toUpperCase()} indisponível. No Windows, instale '
+      'Microsoft Word ou LibreOffice para habilitar o formato DOC legado.';
 }
 
 class NotebookDocumentFileService {

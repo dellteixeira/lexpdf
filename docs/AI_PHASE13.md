@@ -59,3 +59,17 @@ The active RAG pipeline combines:
 5. source diversity limits to avoid overloading the answer with near-duplicate chunks.
 
 Embedding vectors and chat history remain local in SQLCipher. The Worker receives only bounded text needed for embedding or the current grounded answer.
+
+
+## Knowledge RAG and multimodal sources
+
+The hybrid retriever now includes local user knowledge in addition to PDF page text:
+
+- selected PDF annotations and highlighted source text;
+- text notes anchored to PDF pages;
+- rich notebook page text and legacy text objects;
+- explicit AI visual descriptions of PDF pages and notebook images.
+
+Visual analysis is always user-triggered. The app rasterizes or normalizes the selected local image, sends only that bounded image to the authenticated Worker, and stores the returned description locally. The description then becomes a source for semantic retrieval. The visual prompt forbids filling illegible or missing content with external knowledge.
+
+Non-PDF notebook sources remain non-navigable in the PDF viewer; PDF annotations and visual page descriptions retain their original PDF/page provenance.
