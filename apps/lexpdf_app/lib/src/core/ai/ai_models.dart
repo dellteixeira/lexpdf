@@ -12,6 +12,7 @@ enum AiExplanationIntent {
   flashcard,
   crossStudy,
   reviewTutor,
+  libraryRag,
 }
 
 extension AiExplanationIntentLabel on AiExplanationIntent {
@@ -23,6 +24,7 @@ extension AiExplanationIntentLabel on AiExplanationIntent {
         AiExplanationIntent.flashcard => 'Sugerir flashcard',
         AiExplanationIntent.crossStudy => 'Síntese cruzada',
         AiExplanationIntent.reviewTutor => 'Tutor de revisão',
+        AiExplanationIntent.libraryRag => 'Perguntar à biblioteca',
       };
 }
 

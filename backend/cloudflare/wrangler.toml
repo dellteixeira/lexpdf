@@ -34,6 +34,9 @@ AI_RATE_LIMIT_PER_MINUTE = "12"
 AI_MAX_INPUT_CHARS = "12000"
 AI_QUICK_MODEL = "@cf/zai-org/glm-4.7-flash"
 AI_DEEP_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_EMBEDDING_MODEL = "@cf/baai/bge-m3"
+AI_RAG_MAX_INPUT_CHARS = "30000"
+AI_EMBED_RATE_LIMIT_PER_MINUTE = "60"
 
 # Configure in Cloudflare as an encrypted secret:
 # SUPABASE_SECRET_KEY
