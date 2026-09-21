@@ -13,6 +13,7 @@ enum AiExplanationIntent {
   crossStudy,
   reviewTutor,
   libraryRag,
+  contextChat,
 }
 
 extension AiExplanationIntentLabel on AiExplanationIntent {
@@ -25,6 +26,7 @@ extension AiExplanationIntentLabel on AiExplanationIntent {
         AiExplanationIntent.crossStudy => 'Síntese cruzada',
         AiExplanationIntent.reviewTutor => 'Tutor de revisão',
         AiExplanationIntent.libraryRag => 'Perguntar à biblioteca',
+        AiExplanationIntent.contextChat => 'Chat contextual',
       };
 }
 

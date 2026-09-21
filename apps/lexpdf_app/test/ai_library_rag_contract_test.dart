@@ -10,12 +10,12 @@ void main() {
     final embeddings =
         File('lib/src/core/ai/remote_embedding_service.dart').readAsStringSync();
     final semantic = File(
-      'lib/src/core/storage/local_semantic_library_store.dart',
+      'lib/src/core/storage/local_hybrid_rag_store.dart',
     ).readAsStringSync();
 
     expect(screen, contains('Perguntar à biblioteca — RAG'));
     expect(screen, contains("label: const Text('Perguntar à biblioteca')"));
-    expect(screen, contains("label: const Text('Atualizar índice semântico')"));
+    expect(screen, contains("label: const Text('Atualizar índice híbrido')"));
     expect(screen, contains('AiExplanationIntent.libraryRag'));
     expect(screen, contains('currentSession?.accessToken'));
     expect(screen, contains("'[F\${index + 1}]"));
@@ -27,7 +27,7 @@ void main() {
     );
     expect(embeddings, contains("'texts': normalized"));
     expect(embeddings, contains('maxBatchSize = 32'));
-    expect(semantic, contains('semantic_page_embeddings'));
+    expect(semantic, contains('hybrid_rag_chunks'));
     expect(semantic, contains('_cosine(queryVector, vector)'));
   });
 }

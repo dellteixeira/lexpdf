@@ -27,6 +27,9 @@ for (const expected of [
   'libraryRag',
   'BIBLIOTECA RECUPERADA',
   'Cada afirmação substantiva deve citar ao menos um marcador [F#]',
+  'contextChat',
+  'CHAT CONTEXTUAL COM FONTES',
+  'O histórico é contexto conversacional, não evidência',
 ]) {
   if (!worker.includes(expected)) {
     throw new Error(`Missing AI worker contract: ${expected}`);

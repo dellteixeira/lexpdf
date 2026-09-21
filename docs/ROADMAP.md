@@ -78,6 +78,10 @@
 - summaries
 - flashcards
 - questions
+- source-bound cross-document synthesis
+- semantic library RAG
+- continuous contextual chat for one PDF or the full library
+- hybrid RAG with FTS5 + embeddings + chunking + reranking
 - future local model support
 
 ## First acceptance milestone

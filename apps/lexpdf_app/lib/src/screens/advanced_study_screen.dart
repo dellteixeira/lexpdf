@@ -5,12 +5,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
+import '../core/ai/hybrid_rag_service.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/ai/remote_embedding_service.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
-import '../core/storage/local_semantic_library_store.dart';
+import '../core/storage/local_hybrid_rag_store.dart';
 import '../core/study/advanced_study_models.dart';
+import 'ai_context_chat_screen.dart';
 
 class AdvancedStudyScreen extends StatefulWidget {
   const AdvancedStudyScreen({
@@ -40,8 +42,8 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
   double? _ragProgress;
   AiStudyResult? _ragResult;
   Object? _ragError;
-  List<SemanticLibraryHit> _ragHits = const [];
-  SemanticIndexStatus? _semanticStatus;
+  List<HybridRagHit> _ragHits = const [];
+  HybridRagIndexStatus? _semanticStatus;
 
   @override
   void initState() {
@@ -58,11 +60,11 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
 
   void _refresh() => setState(() => _refreshToken++);
 
-  LocalSemanticLibraryStore get _semanticStore =>
-      LocalSemanticLibraryStore(widget.store.db);
+  LocalHybridRagStore get _hybridStore =>
+      LocalHybridRagStore(widget.store.db);
 
   Future<void> _refreshSemanticStatus() async {
-    final status = await _semanticStore.status();
+    final status = await _hybridStore.status();
     if (mounted) setState(() => _semanticStatus = status);
   }
 
@@ -82,6 +84,15 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     );
   }
 
+  HybridRagService _hybridRagService(
+    BackendConfig config,
+    String token,
+  ) =>
+      HybridRagService(
+        store: _hybridStore,
+        embeddings: _embeddingService(config, token),
+      );
+
   String _requireAiToken(BackendConfig config) {
     if (!config.hasAiGateway) {
       throw StateError('O gateway de IA não está configurado neste build.');
@@ -96,48 +107,23 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     return token;
   }
 
-  Future<void> _indexSemanticLibrary({
-    required RemoteAiEmbeddingService service,
-    required String model,
-  }) async {
-    final store = _semanticStore;
-    final pending = await store.pagesNeedingIndex(model: model);
-    if (pending.isEmpty) {
-      await _refreshSemanticStatus();
-      return;
-    }
-
+  Future<void> _updateSemanticIndex() async {
+    if (_ragLoading || _ragIndexing) return;
     setState(() {
+      _ragError = null;
       _ragIndexing = true;
       _ragProgress = 0;
     });
     try {
-      var completed = 0;
-      for (var offset = 0;
-          offset < pending.length;
-          offset += RemoteAiEmbeddingService.maxBatchSize) {
-        final end = (offset + RemoteAiEmbeddingService.maxBatchSize)
-            .clamp(0, pending.length);
-        final batch = pending.sublist(offset, end);
-        final embedded = await service.embed(
-          batch.map((page) => page.content).toList(growable: false),
-        );
-        if (embedded.model != model) {
-          throw StateError(
-            'O modelo de embeddings mudou durante a indexação. '
-            'Reinicie a atualização do índice.',
-          );
-        }
-        await store.saveEmbeddings(
-          pages: batch,
-          vectors: embedded.vectors,
-          model: embedded.model,
-        );
-        completed += batch.length;
-        if (mounted) {
-          setState(() => _ragProgress = completed / pending.length);
-        }
-      }
+      const config = BackendConfig.fromEnvironment;
+      final token = _requireAiToken(config);
+      await _hybridRagService(config, token).updateIndex(
+        onProgress: (progress) {
+          if (mounted) setState(() => _ragProgress = progress);
+        },
+      );
+    } catch (error) {
+      if (mounted) setState(() => _ragError = error);
     } finally {
       if (mounted) {
         setState(() {
@@ -149,31 +135,14 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     }
   }
 
-  Future<void> _updateSemanticIndex() async {
-    if (_ragLoading || _ragIndexing) return;
-    setState(() => _ragError = null);
-    try {
-      const config = BackendConfig.fromEnvironment;
-      final token = _requireAiToken(config);
-      final service = _embeddingService(config, token);
-      final probe = await service.embed(const ['Índice semântico LexPDF']);
-      await _indexSemanticLibrary(
-        service: service,
-        model: probe.model,
-      );
-    } catch (error) {
-      if (mounted) setState(() => _ragError = error);
-    }
-  }
-
   String _libraryRagContext(
     String query,
-    List<SemanticLibraryHit> hits,
+    List<HybridRagHit> hits,
   ) {
     final parts = <String>['PERGUNTA DO USUÁRIO: $query'];
     for (var index = 0; index < hits.length; index++) {
       final hit = hits[index];
-      final excerpt = LocalSemanticLibraryStore.ragExcerpt(
+      final excerpt = LocalHybridRagStore.ragExcerpt(
         hit.content,
         query,
       );
@@ -198,23 +167,22 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     try {
       const config = BackendConfig.fromEnvironment;
       final token = _requireAiToken(config);
-      final embeddingService = _embeddingService(config, token);
-
-      final queryEmbedding = await embeddingService.embed([query]);
-      await _indexSemanticLibrary(
-        service: embeddingService,
-        model: queryEmbedding.model,
-      );
-
-      final hits = await _semanticStore.search(
-        queryVector: queryEmbedding.vectors.single,
-        model: queryEmbedding.model,
+      final retrieval = await _hybridRagService(config, token).retrieve(
+        query,
         limit: 8,
+        onIndexProgress: (progress) {
+          if (!mounted) return;
+          setState(() {
+            _ragIndexing = progress < 1;
+            _ragProgress = progress < 1 ? progress : null;
+          });
+        },
       );
+      final hits = retrieval.hits;
       if (hits.isEmpty) {
         throw StateError(
-          'Nenhuma página com texto pesquisável foi encontrada. '
-          'Execute OCR/indexação nos PDFs antes de usar o RAG.',
+          'Nenhum trecho relevante foi encontrado. '
+          'Execute OCR/indexação nos PDFs antes de usar o RAG híbrido.',
         );
       }
 
@@ -238,9 +206,25 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     } catch (error) {
       if (mounted) setState(() => _ragError = error);
     } finally {
-      if (mounted) setState(() => _ragLoading = false);
+      if (mounted) {
+        setState(() {
+          _ragLoading = false;
+          _ragIndexing = false;
+          _ragProgress = null;
+        });
+      }
+      await _refreshSemanticStatus();
     }
   }
+
+  Future<void> _openLibraryChat() => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AiContextChatScreen(
+            database: widget.store.db,
+            onOpenSource: widget.onOpenSource,
+          ),
+        ),
+      );
 
   Future<void> _searchSources() async {
     final query = _searchController.text.trim();
@@ -391,22 +375,23 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Perguntar à biblioteca — RAG',
+                          'Perguntar à biblioteca — RAG híbrido',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
                       if (_semanticStatus != null)
                         Text(
+                          '${_semanticStatus!.indexedChunks} trechos • '
                           '${_semanticStatus!.indexedPages}/'
-                          '${_semanticStatus!.sourcePages} páginas indexadas',
+                          '${_semanticStatus!.sourcePages} páginas',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Busca por significado em todos os PDFs indexados e responde '
-                    'somente com as páginas recuperadas, mantendo documento e página.',
+                    'Combina FTS5, embeddings, chunking e reranking em todos os PDFs '
+                    'indexados e responde somente com fontes rastreáveis.',
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -444,7 +429,14 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                             ? null
                             : _updateSemanticIndex,
                         icon: const Icon(Icons.hub_outlined),
-                        label: const Text('Atualizar índice semântico'),
+                        label: const Text('Atualizar índice híbrido'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _ragLoading || _ragIndexing
+                            ? null
+                            : _openLibraryChat,
+                        icon: const Icon(Icons.forum_outlined),
+                        label: const Text('Chat com a biblioteca'),
                       ),
                     ],
                   ),
@@ -454,8 +446,8 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                     const SizedBox(height: 6),
                     Text(
                       _ragProgress == null
-                          ? 'Preparando índice semântico…'
-                          : 'Indexando semanticamente '
+                          ? 'Preparando índice híbrido…'
+                          : 'Indexando trechos híbridos '
                               '${(_ragProgress! * 100).round()}%…',
                     ),
                   ],
@@ -538,7 +530,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                                     title: Text(_ragHits[index].documentTitle),
                                     subtitle: Text(
                                       'Página ${_ragHits[index].pageNumber}\n'
-                                      '${LocalSemanticLibraryStore.ragExcerpt(
+                                      '${LocalHybridRagStore.ragExcerpt(
                                         _ragHits[index].content,
                                         _ragController.text,
                                         maxCharacters: 420,
