@@ -19,6 +19,9 @@ for (const expected of [
   'crossStudy',
   'FONTES INDEXADAS',
   'Não use conhecimento externo',
+  'reviewTutor',
+  'FLASHCARD EM REVISÃO',
+  'O flashcard original não deve ser alterado',
 ]) {
   if (!worker.includes(expected)) {
     throw new Error(`Missing AI worker contract: ${expected}`);
