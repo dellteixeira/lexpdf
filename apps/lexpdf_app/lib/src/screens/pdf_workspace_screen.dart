@@ -127,6 +127,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       task.cancelRequested = true;
     }
     unawaited(_saveSession());
+    if (_fullScreen) {
+      unawaited(_fullScreenService.setEnabled(false));
+    }
     _shortcutFocus.dispose();
     super.dispose();
   }
@@ -626,6 +629,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         action: () => unawaited(_closeActiveTab()),
       ),
       _WorkspaceCommand(
+        label: _fullScreen ? 'Sair da tela cheia' : 'Entrar em tela cheia',
+        shortcut: 'F11',
+        icon: _fullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
+        action: _toggleFullScreen,
+      ),
+      _WorkspaceCommand(
         label: _statusBarVisible ? 'Ocultar barra de status' : 'Mostrar barra de status',
         shortcut: '',
         icon: Icons.space_bar,
@@ -725,6 +734,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ('Ctrl/Cmd+B', 'Mostrar/ocultar painel'),
       ('Ctrl/Cmd+Shift+I', 'Iniciar/retomar OCR'),
       ('Ctrl/Cmd+Shift+P', 'Paleta de comandos'),
+      ('F11', 'Entrar/sair da tela cheia'),
+      ('Esc', 'Sair da tela cheia'),
     ];
     return showDialog<void>(
       context: context,
