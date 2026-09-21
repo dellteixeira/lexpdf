@@ -7,8 +7,9 @@ import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/extended_hybrid_rag_service.dart';
 import '../core/ai/hybrid_rag_service.dart';
+import '../core/ai/local_embedding_service.dart';
+import '../core/ai/local_grounded_answer_engine.dart';
 import '../core/ai/remote_ai_engine.dart';
-import '../core/ai/remote_embedding_service.dart';
 import '../core/backend/backend_config.dart';
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_hybrid_rag_store.dart';
@@ -70,27 +71,11 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     if (mounted) setState(() => _semanticStatus = status);
   }
 
-  RemoteAiEmbeddingService _embeddingService(
-    BackendConfig config,
-    String token,
-  ) {
-    final explain = Uri.parse(config.aiGatewayUrl);
-    final embedding = explain.replace(
-      path: '/v1/ai/embed',
-      query: null,
-      fragment: null,
-    );
-    return RemoteAiEmbeddingService(
-      endpoint: embedding,
-      bearerToken: token,
-    );
-  }
+  LocalAiEmbeddingService _embeddingService() =>
+      const LocalAiEmbeddingService();
 
-  ExtendedHybridRagService _hybridRagService(
-    BackendConfig config,
-    String token,
-  ) {
-    final embeddings = _embeddingService(config, token);
+  ExtendedHybridRagService _hybridRagService() {
+    final embeddings = _embeddingService();
     return ExtendedHybridRagService(
       base: HybridRagService(
         store: _hybridStore,
@@ -101,18 +86,14 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     );
   }
 
-  String _requireAiToken(BackendConfig config) {
-    if (!config.hasAiGateway) {
-      throw StateError('O gateway de IA não está configurado neste build.');
+  String? _onlineAiToken(BackendConfig config) {
+    if (!config.hasAiGateway || !config.hasSupabase) return null;
+    try {
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      return token == null || token.trim().isEmpty ? null : token;
+    } catch (_) {
+      return null;
     }
-    if (!config.hasSupabase) {
-      throw StateError('A autenticação LexPDF não está configurada.');
-    }
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null || token.trim().isEmpty) {
-      throw StateError('Entre na sua conta LexPDF para usar a IA online.');
-    }
-    return token;
   }
 
   Future<void> _updateSemanticIndex() async {
@@ -123,9 +104,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
       _ragProgress = 0;
     });
     try {
-      const config = BackendConfig.fromEnvironment;
-      final token = _requireAiToken(config);
-      await _hybridRagService(config, token).updateIndex(
+      await _hybridRagService().updateIndex(
         onProgress: (progress) {
           if (mounted) setState(() => _ragProgress = progress);
         },
@@ -174,8 +153,8 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
 
     try {
       const config = BackendConfig.fromEnvironment;
-      final token = _requireAiToken(config);
-      final retrieval = await _hybridRagService(config, token).retrieve(
+      final token = _onlineAiToken(config);
+      final retrieval = await _hybridRagService().retrieve(
         query,
         limit: 8,
         onIndexProgress: (progress) {
@@ -194,16 +173,34 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
         );
       }
 
-      final result = await RemoteAiStudyEngine(
-        endpoint: Uri.parse(config.aiGatewayUrl),
-        bearerToken: token,
-        inputPolicy: const AiInputPolicy(maxCharacters: 30000),
-      ).runExplanation(
-        action: AiStudyAction.explain,
-        text: _libraryRagContext(query, hits.take(6).toList(growable: false)),
-        explanationDepth: AiExplanationDepth.deep,
-        intent: AiExplanationIntent.libraryRag,
-      );
+      AiStudyResult result;
+      if (token != null) {
+        try {
+          result = await RemoteAiStudyEngine(
+            endpoint: Uri.parse(config.aiGatewayUrl),
+            bearerToken: token,
+            inputPolicy: const AiInputPolicy(maxCharacters: 30000),
+          ).runExplanation(
+            action: AiStudyAction.explain,
+            text: _libraryRagContext(
+              query,
+              hits.take(6).toList(growable: false),
+            ),
+            explanationDepth: AiExplanationDepth.deep,
+            intent: AiExplanationIntent.libraryRag,
+          );
+        } catch (_) {
+          result = const LocalGroundedAnswerEngine().answer(
+            query: query,
+            hits: hits,
+          );
+        }
+      } else {
+        result = const LocalGroundedAnswerEngine().answer(
+          query: query,
+          hits: hits,
+        );
+      }
 
       if (mounted) {
         setState(() {
@@ -399,7 +396,8 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
                   const SizedBox(height: 6),
                   const Text(
                     'Combina PDFs, anotações, cadernos e descrições visuais com '
-                    'FTS5, embeddings, chunking e reranking, sempre com fonte rastreável.',
+                    'FTS5, embeddings locais, índice vetorial LSH, chunking e reranking. '
+                    'Funciona offline; síntese online é opcional.',
                   ),
                   const SizedBox(height: 12),
                   TextField(
