@@ -543,6 +543,7 @@ class _StudyReviewScreen extends StatefulWidget {
 class _StudyReviewScreenState extends State<_StudyReviewScreen> {
   int _index = 0;
   bool _revealed = false;
+  bool _reviewTutorLoading = false;
   String? _sessionId;
 
   @override
@@ -564,6 +565,7 @@ class _StudyReviewScreenState extends State<_StudyReviewScreen> {
   }
 
   Future<void> _grade(StudyReviewGrade grade) async {
+    if (_reviewTutorLoading) return;
     final item = widget.items[_index];
     await widget.store.recordReview(
       itemId: item.id,
@@ -571,6 +573,18 @@ class _StudyReviewScreenState extends State<_StudyReviewScreen> {
       sessionId: _sessionId,
     );
     if (!mounted) return;
+
+    final needsTutor = item.kind == StudyItemKind.flashcard &&
+        (grade == StudyReviewGrade.again ||
+            grade == StudyReviewGrade.hard);
+    if (needsTutor) {
+      await _showReviewTutor(item, grade);
+      if (!mounted) return;
+    }
+    _advanceReview();
+  }
+
+  void _advanceReview() {
     if (_index + 1 >= widget.items.length) {
       Navigator.of(context).pop();
       return;
@@ -579,6 +593,120 @@ class _StudyReviewScreenState extends State<_StudyReviewScreen> {
       _index++;
       _revealed = false;
     });
+  }
+
+  String _reviewTutorContext(StudyItem item, StudyReviewGrade grade) {
+    final gradeLabel =
+        grade == StudyReviewGrade.again ? 'ERREI' : 'DIFÍCIL';
+    return [
+      'RESULTADO DA REVISÃO: $gradeLabel',
+      'PERGUNTA DO FLASHCARD:\n${item.prompt}',
+      'RESPOSTA DO FLASHCARD:\n${item.answer}',
+      if (item.sourceText.trim().isNotEmpty)
+        'TRECHO-FONTE ORIGINAL:\n${item.sourceText.trim()}',
+      if (item.documentTitle?.trim().isNotEmpty == true)
+        'DOCUMENTO DE ORIGEM: ${item.documentTitle}'
+            '${item.sourcePage == null ? '' : ' — página ${item.sourcePage}'}',
+    ].join('\n\n');
+  }
+
+  Future<void> _showReviewTutor(
+    StudyItem item,
+    StudyReviewGrade grade,
+  ) async {
+    setState(() => _reviewTutorLoading = true);
+    try {
+      const config = BackendConfig.fromEnvironment;
+      if (!config.hasAiGateway || !config.hasSupabase) {
+        throw StateError(
+          'O Tutor IA exige gateway e autenticação LexPDF configurados.',
+        );
+      }
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      if (token == null || token.trim().isEmpty) {
+        throw StateError('Entre na sua conta LexPDF para usar o Tutor IA.');
+      }
+
+      final result = await RemoteAiStudyEngine(
+        endpoint: Uri.parse(config.aiGatewayUrl),
+        bearerToken: token,
+      ).runExplanation(
+        action: AiStudyAction.explain,
+        text: _reviewTutorContext(item, grade),
+        explanationDepth: AiExplanationDepth.detailed,
+        intent: AiExplanationIntent.reviewTutor,
+      );
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            grade == StudyReviewGrade.again
+                ? 'Tutor IA — Errei'
+                : 'Tutor IA — Difícil',
+          ),
+          content: SizedBox(
+            width: 680,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'O flashcard original não foi alterado. '
+                    'A resposta abaixo é apenas um reforço para esta revisão.',
+                  ),
+                  const SizedBox(height: 14),
+                  SelectableText(
+                    result.text?.trim().isNotEmpty == true
+                        ? result.text!
+                        : 'A IA não retornou conteúdo de reforço.',
+                  ),
+                  if (result.quotaRemaining != null) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      'Saldo de IA hoje: ${result.quotaRemaining} créditos'
+                      '${result.quotaLimit == null ? '' : ' de ${result.quotaLimit}'}.',
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            if (item.documentId != null &&
+                item.sourcePage != null &&
+                widget.onOpenSource != null)
+              TextButton.icon(
+                onPressed: () => widget.onOpenSource!(
+                  item.documentId!,
+                  item.sourcePage!,
+                ),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir página original'),
+              ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Fechar e continuar'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Revisão registrada. O Tutor IA não pôde ser aberto: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _reviewTutorLoading = false);
+    }
   }
 
   @override
@@ -643,23 +771,47 @@ class _StudyReviewScreenState extends State<_StudyReviewScreen> {
                           runSpacing: 8,
                           children: [
                             OutlinedButton(
-                              onPressed: () => _grade(StudyReviewGrade.again),
+                              onPressed: _reviewTutorLoading
+                                  ? null
+                                  : () => unawaited(
+                                        _grade(StudyReviewGrade.again),
+                                      ),
                               child: const Text('Errei'),
                             ),
                             OutlinedButton(
-                              onPressed: () => _grade(StudyReviewGrade.hard),
+                              onPressed: _reviewTutorLoading
+                                  ? null
+                                  : () => unawaited(
+                                        _grade(StudyReviewGrade.hard),
+                                      ),
                               child: const Text('Difícil'),
                             ),
                             FilledButton.tonal(
-                              onPressed: () => _grade(StudyReviewGrade.good),
+                              onPressed: _reviewTutorLoading
+                                  ? null
+                                  : () => unawaited(
+                                        _grade(StudyReviewGrade.good),
+                                      ),
                               child: const Text('Bom'),
                             ),
                             FilledButton(
-                              onPressed: () => _grade(StudyReviewGrade.easy),
+                              onPressed: _reviewTutorLoading
+                                  ? null
+                                  : () => unawaited(
+                                        _grade(StudyReviewGrade.easy),
+                                      ),
                               child: const Text('Fácil'),
                             ),
                           ],
                         ),
+                        if (_reviewTutorLoading) ...[
+                          const SizedBox(height: 14),
+                          const LinearProgressIndicator(),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Preparando reforço com o Tutor IA…',
+                          ),
+                        ],
                       ],
                       if (item.documentId != null &&
                           item.sourcePage != null &&
