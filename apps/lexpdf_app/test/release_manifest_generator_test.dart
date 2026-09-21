@@ -14,7 +14,7 @@ void main() {
     final output = File('${root.path}${Platform.pathSeparator}manifest.json');
     await manifest.main([
       '--platform', 'android',
-      '--version', '1.0.0-rc.2',
+      '--version', '1.0.0-rc.1',
       '--output', output.path,
       artifact.path,
     ]);

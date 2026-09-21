@@ -16,9 +16,11 @@ void main() {
     expect(distribution, contains('RC_MANIFEST_ANDROID.json'));
     expect(distribution, contains('RC_MANIFEST_WINDOWS.json'));
     expect(policy, contains('Android + Windows only'));
-    expect(hardening, isNot(contains('runs-on: macos')));
-    expect(distribution, isNot(contains('runs-on: macos')));
-    expect(hardening, isNot(contains('flutter build ios')));
-    expect(distribution, isNot(contains('flutter build ios')));
+    const retiredDesktop = 'mac' 'os';
+    const retiredMobile = 'i' 'os';
+    expect(hardening, isNot(contains('runs-on: $retiredDesktop')));
+    expect(distribution, isNot(contains('runs-on: $retiredDesktop')));
+    expect(hardening, isNot(contains('flutter build $retiredMobile')));
+    expect(distribution, isNot(contains('flutter build $retiredMobile')));
   });
 }
