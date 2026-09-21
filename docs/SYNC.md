@@ -80,3 +80,26 @@ After a successful resolution, a fresh checkpoint is written and the conflict is
 ## iCloud / File Provider
 
 Apple File Provider documents imported through the native picker are treated as local/offline copies. Managed bidirectional API sync in Phase 10 applies to Google Drive, OneDrive and LexPDF Cloud/R2; File Provider lifecycle and coordination remain under the operating system.
+
+
+## Local version history
+
+Managed synchronization now creates restorable local snapshots around destructive or authoritative cloud transitions.
+
+Snapshots are recorded for:
+
+- the local state being uploaded when its checksum is new;
+- the local file immediately before a remote download replaces it;
+- the successfully downloaded remote state after integrity verification.
+
+The history is checksum-deduplicated, bounded per document to 20 revisions / 512 MiB, and stored beside the local file under a hidden `.lexpdf-revisions` directory. Metadata lives in SQLCipher.
+
+Restoring a revision:
+
+1. verifies the snapshot SHA-256;
+2. replaces the current file atomically with rollback protection;
+3. increments the local version;
+4. marks the document `sync_pending`;
+5. queues an upload automatically when the document has a managed cloud binding.
+
+This means a remote update or conflict resolution no longer destroys the previously known local state without a restorable copy.
