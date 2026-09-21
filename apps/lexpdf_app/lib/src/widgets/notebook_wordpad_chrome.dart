@@ -36,6 +36,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
     required this.onExportPdf,
     required this.onSaveDoc,
     required this.onSaveRtf,
+    required this.legacyDocAvailable,
     required this.onNewNotebook,
     required this.onRenameNotebook,
     required this.onDeleteNotebook,
@@ -70,6 +71,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
   final VoidCallback onExportPdf;
   final VoidCallback onSaveDoc;
   final VoidCallback onSaveRtf;
+  final bool legacyDocAvailable;
   final VoidCallback onNewNotebook;
   final VoidCallback onRenameNotebook;
   final VoidCallback? onDeleteNotebook;
@@ -115,6 +117,7 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
             canDeleteNotebook: widget.onDeleteNotebook != null,
             canDuplicatePage: widget.onDuplicatePage != null,
             canDeletePage: widget.onDeletePage != null,
+            legacyDocAvailable: widget.legacyDocAvailable,
           ),
           Container(
             height: 96,
@@ -249,6 +252,7 @@ class _WordPadTabStrip extends StatelessWidget {
     required this.canDeleteNotebook,
     required this.canDuplicatePage,
     required this.canDeletePage,
+    required this.legacyDocAvailable,
   });
 
   final NotebookRibbonTab activeTab;
@@ -257,6 +261,7 @@ class _WordPadTabStrip extends StatelessWidget {
   final bool canDeleteNotebook;
   final bool canDuplicatePage;
   final bool canDeletePage;
+  final bool legacyDocAvailable;
 
   @override
   Widget build(BuildContext context) {
@@ -302,11 +307,14 @@ class _WordPadTabStrip extends StatelessWidget {
                   label: 'Exportar PDF',
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: _NotebookFileAction.saveDoc,
+                enabled: legacyDocAvailable,
                 child: _FileMenuLabel(
                   icon: Icons.description_outlined,
-                  label: 'Salvar como DOC',
+                  label: legacyDocAvailable
+                      ? 'Salvar como DOC'
+                      : 'Salvar como DOC (requer Word/LibreOffice)',
                 ),
               ),
               const PopupMenuItem(

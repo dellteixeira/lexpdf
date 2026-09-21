@@ -105,6 +105,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   NotebookTextAlign _defaultTextAlign = NotebookTextAlign.left;
   int _defaultTextColorValue = 0xFF000000;
   bool _suppressMutationHistory = false;
+  bool _legacyDocAvailable = false;
 
   static const _palette = <int>[
     0xFF1C1B1F,
@@ -124,6 +125,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _layerStore = LocalNotebookLayerStore(widget.inkStore.db);
     _documentStore = LocalNotebookDocumentStore(widget.inkStore.db);
     _loadFuture = _loadInitial();
+    unawaited(_loadDocumentFormatCapabilities());
+  }
+
+  Future<void> _loadDocumentFormatCapabilities() async {
+    final available = await _documentFileService.supportsLegacyDoc();
+    if (mounted) setState(() => _legacyDocAvailable = available);
   }
 
   @override
@@ -548,6 +555,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
             onExportPdf: () => unawaited(_saveRichDocumentAs('pdf')),
             onSaveDoc: () => unawaited(_saveRichDocumentAs('doc')),
             onSaveRtf: () => unawaited(_saveRichDocumentAs('rtf')),
+            legacyDocAvailable: _legacyDocAvailable,
             onRibbonTabChanged: (tab) {
               if (tab == NotebookRibbonTab.home) _activateTextMode();
               if (tab == NotebookRibbonTab.drawing) {
@@ -729,11 +737,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   Future<void> _openRichDocumentFile() async {
-    const group = XTypeGroup(
+    final group = XTypeGroup(
       label: 'Documentos de texto',
-      extensions: ['docx', 'txt', 'doc', 'rtf'],
+      extensions: [
+        'docx',
+        'txt',
+        'rtf',
+        if (_legacyDocAvailable) 'doc',
+      ],
     );
-    final selected = await openFile(acceptedTypeGroups: const [group]);
+    final selected = await openFile(acceptedTypeGroups: [group]);
     if (selected == null) return;
     try {
       final length = await selected.length();
