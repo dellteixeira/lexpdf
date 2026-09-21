@@ -53,6 +53,20 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     required String text,
     int itemCount = 8,
     AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
+  }) =>
+      runExplanation(
+        action: action,
+        text: text,
+        itemCount: itemCount,
+        explanationDepth: explanationDepth,
+      );
+
+  Future<AiStudyResult> runExplanation({
+    required AiStudyAction action,
+    required String text,
+    int itemCount = 8,
+    AiExplanationDepth explanationDepth = AiExplanationDepth.detailed,
+    AiExplanationIntent intent = AiExplanationIntent.explain,
   }) async {
     final input = inputPolicy.prepare(text, itemCount);
     final request = await _http.postUrl(endpoint);
@@ -67,6 +81,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
       'text': input.text,
       'itemCount': input.itemCount,
       'depth': explanationDepth.name,
+      'intent': intent.name,
     }));
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
