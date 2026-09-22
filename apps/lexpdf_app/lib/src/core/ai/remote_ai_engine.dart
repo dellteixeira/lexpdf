@@ -87,7 +87,7 @@ class RemoteAiStudyEngine implements AiStudyEngine {
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       if (response.statusCode == 401) {
-        throw StateError('Entre na sua conta LexPDF para usar a IA online.');
+        throw StateError('A sessão privada da IA expirou. Tente novamente.');
       }
       if (response.statusCode == 429) {
         throw StateError(
