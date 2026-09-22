@@ -9,8 +9,10 @@ import '../core/ai/ai_models.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/annotations/pdf_annotation_object.dart';
 import '../core/backend/backend_config.dart';
+import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_study_notebook_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../widgets/flashcard_organization_fields.dart';
 
 class AiSelectionExplanationScreen extends StatefulWidget {
   const AiSelectionExplanationScreen({
@@ -212,6 +214,8 @@ class _AiSelectionExplanationScreenState
       documentId: widget.sourceDocumentId,
       documentTitle: widget.sourceDocumentTitle,
       sourcePage: widget.sourcePage,
+      subject: edited.subject,
+      topic: edited.topic,
       result: AiStudyResult(
         action: AiStudyAction.flashcards,
         engine: AiEngineKind.remote,
@@ -240,44 +244,72 @@ class _AiSelectionExplanationScreenState
     }
   }
 
-  Future<AiFlashcard?> _editFlashcard(AiFlashcard suggestion) async {
+  Future<_AiFlashcardDraft?> _editFlashcard(
+    AiFlashcard suggestion,
+  ) async {
     final question = TextEditingController(text: suggestion.question);
     final answer = TextEditingController(text: suggestion.answer);
+    final subject = TextEditingController();
+    final topic = TextEditingController();
+    final catalog = FlashcardOrganizationCatalog.fromEntries(
+      await LocalAdvancedStudyStore(widget.studyStore.db).listFlashcardEntries(
+        limit: 20000,
+      ),
+    );
+    if (!mounted) {
+      question.dispose();
+      answer.dispose();
+      subject.dispose();
+      topic.dispose();
+      return null;
+    }
+
     try {
-      return await showDialog<AiFlashcard>(
+      return await showDialog<_AiFlashcardDraft>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Revisar flashcard sugerido'),
           content: SizedBox(
-            width: 560,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'A IA apenas sugere. Edite livremente antes de salvar.',
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: question,
-                  minLines: 2,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    labelText: 'Pergunta',
-                    border: OutlineInputBorder(),
+            width: 600,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'A IA apenas sugere. Edite livremente antes de salvar.',
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: answer,
-                  minLines: 4,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    labelText: 'Resposta',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: question,
+                    minLines: 2,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                      labelText: 'Pergunta',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: answer,
+                    minLines: 4,
+                    maxLines: 10,
+                    decoration: const InputDecoration(
+                      labelText: 'Resposta',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 10),
+                  FlashcardOrganizationFields(
+                    subjectController: subject,
+                    topicController: topic,
+                    catalog: catalog,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -287,7 +319,12 @@ class _AiSelectionExplanationScreenState
             ),
             FilledButton.icon(
               onPressed: () => Navigator.of(dialogContext).pop(
-                AiFlashcard(question: question.text, answer: answer.text),
+                _AiFlashcardDraft(
+                  question: question.text,
+                  answer: answer.text,
+                  subject: subject.text.trim(),
+                  topic: topic.text.trim(),
+                ),
               ),
               icon: const Icon(Icons.save_outlined),
               label: const Text('Salvar'),
@@ -298,6 +335,8 @@ class _AiSelectionExplanationScreenState
     } finally {
       question.dispose();
       answer.dispose();
+      subject.dispose();
+      topic.dispose();
     }
   }
 
@@ -514,6 +553,20 @@ class _AiSelectionExplanationScreenState
       ),
     );
   }
+}
+
+class _AiFlashcardDraft {
+  const _AiFlashcardDraft({
+    required this.question,
+    required this.answer,
+    required this.subject,
+    required this.topic,
+  });
+
+  final String question;
+  final String answer;
+  final String subject;
+  final String topic;
 }
 
 class _ModeButton extends StatelessWidget {
