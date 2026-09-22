@@ -12,9 +12,14 @@ void main() {
     ).readAsStringSync();
 
     expect(workspace, contains('bool _readingMode = false;'));
-    expect(workspace, contains('appBar: _readingMode'));
+    expect(
+      workspace,
+      contains("appBar: (_readingMode || !widget.showDocumentHeader)"),
+    );
     expect(workspace, contains('if (!_readingMode) _buildCommandBar(path)'));
     expect(workspace, contains('onSingleTap: _handleAndroidPdfTap'));
+    expect(workspace, contains('_requestFullScreen();'));
+    expect(workspace, contains('showDocumentHeader'));
     expect(workspace, contains('SystemUiMode.immersiveSticky'));
     expect(workspace, contains('SystemUiMode.edgeToEdge'));
     expect(
@@ -25,7 +30,10 @@ void main() {
     );
     expect(workspace, contains('LogicalKeyboardKey.escape'));
     expect(workspace, contains('_WorkspaceMoreAction.readingMode'));
-    expect(workspace, contains("title: Text('Modo leitura')"));
+    expect(
+      workspace,
+      contains("title: Text('Modo leitura em tela cheia')"),
+    );
     expect(workspace, contains('Icons.fullscreen_outlined'));
 
     expect(androidRouter, contains('final VoidCallback? onSingleTap;'));

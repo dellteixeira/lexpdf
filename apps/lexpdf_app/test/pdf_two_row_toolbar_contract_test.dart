@@ -14,7 +14,7 @@ void main() {
     expect(commandBar, contains('_fitToolbarRow'));
     expect(commandBar, contains('constraints.maxWidth < 760'));
     expect(commandBar, isNot(contains('SingleChildScrollView')));
-    expect(commandBar, contains("'Tela cheia (F11)'"));
+    expect(commandBar, contains("'Modo leitura (Ctrl+H)'"));
     expect(commandBar, contains("'Mais ferramentas'"));
   });
 
