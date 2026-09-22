@@ -25,6 +25,7 @@ class LocalStudyNotebookStore {
     required AiStudyResult result,
     int? sourcePage,
     String subject = '',
+    String topic = '',
     List<String> tags = const [],
   }) async {
     final entries = _entriesFor(result);
@@ -126,6 +127,7 @@ class LocalStudyNotebookStore {
           result: result,
           sourcePage: sourcePage ?? _inferSourcePage(documentId, result.sourceText),
           subject: subject,
+          topic: topic,
           tags: tags,
         );
       }
