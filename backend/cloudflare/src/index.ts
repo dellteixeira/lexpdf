@@ -43,6 +43,10 @@ const AI_INSTALL_TOKEN_PREFIX = "lexpdf-install-v1.";
 const DEFAULT_AI_MAX_INPUT_CHARS = 12000;
 const DEFAULT_AI_QUICK_MODEL = '@cf/zai-org/glm-4.7-flash';
 const DEFAULT_AI_DEEP_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_AI_TEXT_FALLBACK_MODELS = [
+  '@cf/qwen/qwen3-30b-a3b-fp8',
+  '@cf/meta/llama-3.2-3b-instruct',
+] as const;
 const DEFAULT_AI_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const DEFAULT_AI_RAG_MAX_INPUT_CHARS = 30000;
 const DEFAULT_AI_EMBED_RATE_LIMIT_PER_MINUTE = 60;
@@ -493,7 +497,12 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   const quickModel = env.AI_QUICK_MODEL?.trim() || DEFAULT_AI_QUICK_MODEL;
   const deepModel = env.AI_DEEP_MODEL?.trim() || DEFAULT_AI_DEEP_MODEL;
   const primaryModel = depth === "quick" ? quickModel : deepModel;
-  const fallbackModel = primaryModel === quickModel ? deepModel : quickModel;
+  const configuredAlternate = primaryModel === quickModel ? deepModel : quickModel;
+  const modelCandidates = uniqueStrings([
+    primaryModel,
+    configuredAlternate,
+    ...DEFAULT_AI_TEXT_FALLBACK_MODELS,
+  ]);
   const systemPrompt = aiSystemPrompt(depth, intent);
   const sourceLabel = intent === "crossStudy"
     ? "FONTES INDEXADAS"
@@ -515,21 +524,39 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   };
 
   let model = primaryModel;
-  let fallbackUsed = false;
-  let text: string;
-  try {
-    text = await runAiText(env, primaryModel, input);
-  } catch (primaryError) {
-    console.warn("lexpdf_ai_primary_failed", { requestId, model: primaryModel, error: String(primaryError) });
-    model = fallbackModel;
-    fallbackUsed = true;
+  let text = "";
+  const failures: Array<{ model: string; error: string }> = [];
+  for (const candidate of modelCandidates) {
     try {
-      text = await runAiText(env, fallbackModel, input);
-    } catch (fallbackError) {
-      console.error("lexpdf_ai_fallback_failed", { requestId, model: fallbackModel, error: String(fallbackError) });
-      return json({ error: "ai_provider_unavailable", requestId }, 502, requestId);
+      text = await runAiText(env, candidate, input);
+      model = candidate;
+      break;
+    } catch (error) {
+      failures.push({ model: candidate, error: String(error) });
+      console.warn("lexpdf_ai_model_failed", {
+        requestId,
+        model: candidate,
+        attempt: failures.length,
+        error: String(error),
+      });
     }
   }
+  if (!text) {
+    console.error("lexpdf_ai_all_models_failed", {
+      requestId,
+      failures,
+    });
+    return json(
+      {
+        error: "ai_provider_unavailable",
+        requestId,
+        attemptedModels: modelCandidates.length,
+      },
+      502,
+      requestId,
+    );
+  }
+  const fallbackUsed = model !== primaryModel;
 
   const flashcards = intent === "flashcard" ? parseFlashcardDraft(text) : [];
 
@@ -641,7 +668,13 @@ function parseFlashcardDraft(raw: string): Array<{ question: string; answer: str
 }
 
 async function runAiText(env: Env, model: string, input: Record<string, unknown>): Promise<string> {
-  const output = await env.AI.run(model as any, input as any) as any;
+  // Reject capacity queues quickly so the request can move to the next current
+  // Workers AI model instead of making the user wait for one overloaded model.
+  const output = await env.AI.run(
+    model as any,
+    input as any,
+    { rejectIfBusy: true } as any,
+  ) as any;
   const candidate = typeof output?.response === "string"
     ? output.response
     : typeof output?.result?.response === "string"
@@ -831,6 +864,18 @@ function safeFileName(value: string): string {
 
 function stripQuotes(value: string): string {
   return value.replace(/^W\//, "").replace(/^"|"$/g, "");
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function parsePositiveInt(value?: string): number | null {
