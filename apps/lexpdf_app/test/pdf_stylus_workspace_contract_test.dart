@@ -29,7 +29,7 @@ void main() {
     expect(workspace, contains("'Borracha'"));
     expect(
       workspace,
-      contains('enabled: _textSelectionMode'),
+      contains('enabled: _textSelectionEnabled'),
     );
     expect(workspace, contains('_stylusMode == _StylusMode.note'));
 
@@ -37,7 +37,7 @@ void main() {
     // pdfrx's gesture arena. Compact phones can reserve one finger for ink and
     // promote a two-finger sequence to navigation.
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
-    expect(workspace, contains('active: _android'));
+    expect(workspace, contains('active: _android && !_textSelectionOwnsGesture'));
     expect(workspace, contains('!_android &&'));
     expect(router, contains('_applySingleFingerPan'));
     expect(router, contains('_applyTwoFingerPanAndZoom'));
