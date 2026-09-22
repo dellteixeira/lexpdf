@@ -5,6 +5,7 @@ export interface Env {
   SUPABASE_SECRET_KEY?: string;
   MAX_UPLOAD_BYTES?: string;
   AI_DAILY_CREDIT_LIMIT?: string;
+  AI_GLOBAL_DAILY_CREDIT_LIMIT?: string;
   AI_RATE_LIMIT_PER_MINUTE?: string;
   AI_MAX_INPUT_CHARS?: string;
   AI_QUICK_MODEL?: string;
@@ -28,11 +29,17 @@ type SyncMessage = {
 };
 
 type AuthUser = { id: string; email?: string };
+type AiPrincipal = {
+  key: string;
+  kind: "account" | "installation";
+};
 
 const DEFAULT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_LIST_LIMIT = 1000;
 const DEFAULT_AI_DAILY_CREDIT_LIMIT = 240;
+const DEFAULT_AI_GLOBAL_DAILY_CREDIT_LIMIT = 1200;
 const DEFAULT_AI_RATE_LIMIT_PER_MINUTE = 12;
+const AI_INSTALL_TOKEN_PREFIX = "lexpdf-install-v1.";
 const DEFAULT_AI_MAX_INPUT_CHARS = 12000;
 const DEFAULT_AI_QUICK_MODEL = '@cf/zai-org/glm-4.7-flash';
 const DEFAULT_AI_DEEP_MODEL = '@cf/google/gemma-4-26b-a4b-it';
@@ -220,8 +227,8 @@ async function handleAiVision(request: Request, env: Env, requestId: string): Pr
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405, requestId);
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return json({ error: "unsupported_media_type" }, 415, requestId);
-  const user = await authenticate(request, env);
-  if (!user) return json({ error: "unauthorized" }, 401, requestId);
+  const principal = await resolveAiPrincipal(request, env);
+  if (!principal) return json({ error: "unauthorized" }, 401, requestId);
   if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
 
   let body: { imageBase64?: unknown; mimeType?: unknown; prompt?: unknown };
@@ -247,7 +254,17 @@ async function handleAiVision(request: Request, env: Env, requestId: string): Pr
   const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
   const minuteLimit = parsePositiveInt(env.AI_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_RATE_LIMIT_PER_MINUTE;
   const creditCost = 4;
-  const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
+  const globalDailyLimit =
+    parsePositiveInt(env.AI_GLOBAL_DAILY_CREDIT_LIMIT) ??
+    DEFAULT_AI_GLOBAL_DAILY_CREDIT_LIMIT;
+  const quota = await consumeAiQuota(
+    env,
+    principal.key,
+    creditCost,
+    dailyLimit,
+    minuteLimit,
+    globalDailyLimit,
+  );
   if (!quota.allowed) {
     return json({
       error: quota.reason === "rate_limit" ? "ai_rate_limit" : "ai_daily_limit",
@@ -315,8 +332,8 @@ async function handleAiEmbed(request: Request, env: Env, requestId: string): Pro
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return json({ error: "unsupported_media_type" }, 415, requestId);
 
-  const user = await authenticate(request, env);
-  if (!user) return json({ error: "unauthorized" }, 401, requestId);
+  const principal = await resolveAiPrincipal(request, env);
+  if (!principal) return json({ error: "unauthorized" }, 401, requestId);
   if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
 
   let body: { texts?: unknown };
@@ -342,7 +359,17 @@ async function handleAiEmbed(request: Request, env: Env, requestId: string): Pro
   const creditCost = Math.max(1, Math.ceil(texts.length / 16));
   const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
   const minuteLimit = parsePositiveInt(env.AI_EMBED_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_EMBED_RATE_LIMIT_PER_MINUTE;
-  const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
+  const globalDailyLimit =
+    parsePositiveInt(env.AI_GLOBAL_DAILY_CREDIT_LIMIT) ??
+    DEFAULT_AI_GLOBAL_DAILY_CREDIT_LIMIT;
+  const quota = await consumeAiQuota(
+    env,
+    principal.key,
+    creditCost,
+    dailyLimit,
+    minuteLimit,
+    globalDailyLimit,
+  );
   if (!quota.allowed) {
     return json({
       error: quota.reason === "rate_limit" ? "ai_rate_limit" : "ai_daily_limit",
@@ -417,8 +444,8 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return json({ error: "unsupported_media_type" }, 415, requestId);
 
-  const user = await authenticate(request, env);
-  if (!user) return json({ error: "unauthorized" }, 401, requestId);
+  const principal = await resolveAiPrincipal(request, env);
+  if (!principal) return json({ error: "unauthorized" }, 401, requestId);
   if (!env.AI) return json({ error: "ai_not_configured" }, 503, requestId);
 
   let body: { action?: string; text?: string; depth?: string; intent?: string };
@@ -445,7 +472,17 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
   const creditCost = aiCreditCost(depth, intent);
   const dailyLimit = parsePositiveInt(env.AI_DAILY_CREDIT_LIMIT) ?? DEFAULT_AI_DAILY_CREDIT_LIMIT;
   const minuteLimit = parsePositiveInt(env.AI_RATE_LIMIT_PER_MINUTE) ?? DEFAULT_AI_RATE_LIMIT_PER_MINUTE;
-  const quota = await consumeAiQuota(env, user.id, creditCost, dailyLimit, minuteLimit);
+  const globalDailyLimit =
+    parsePositiveInt(env.AI_GLOBAL_DAILY_CREDIT_LIMIT) ??
+    DEFAULT_AI_GLOBAL_DAILY_CREDIT_LIMIT;
+  const quota = await consumeAiQuota(
+    env,
+    principal.key,
+    creditCost,
+    dailyLimit,
+    minuteLimit,
+    globalDailyLimit,
+  );
   if (!quota.allowed) {
     return json({
       error: quota.reason === "rate_limit" ? "ai_rate_limit" : "ai_daily_limit",
@@ -619,14 +656,15 @@ async function runAiText(env: Env, model: string, input: Record<string, unknown>
 
 async function consumeAiQuota(
   env: Env,
-  userId: string,
+  principalKey: string,
   creditCost: number,
   dailyLimit: number,
   minuteLimit: number,
+  globalDailyLimit: number,
 ): Promise<AiQuotaResult> {
   const secret = env.SUPABASE_SECRET_KEY;
   if (!secret) throw new Error("SUPABASE_SECRET_KEY is required for AI quota enforcement.");
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_ai_daily_quota`, {
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_ai_principal_quota`, {
     method: "POST",
     headers: {
       apikey: secret,
@@ -635,10 +673,11 @@ async function consumeAiQuota(
       accept: "application/json",
     },
     body: JSON.stringify({
-      p_user_id: userId,
+      p_principal_key: principalKey,
       p_credit_cost: creditCost,
       p_daily_limit: dailyLimit,
       p_minute_limit: minuteLimit,
+      p_global_daily_limit: globalDailyLimit,
     }),
   });
   if (!response.ok) throw new Error(`AI quota RPC failed: ${response.status}`);
@@ -652,6 +691,43 @@ async function consumeAiQuota(
     creditsRemaining: Number(row.credits_remaining ?? 0),
     requests: Number(row.requests ?? 0),
   };
+}
+
+async function resolveAiPrincipal(
+  request: Request,
+  env: Env,
+): Promise<AiPrincipal | null> {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const token = authorization.slice("Bearer ".length).trim();
+
+  if (isInstallationToken(token)) {
+    return {
+      key: `install:${await sha256Hex(token)}`,
+      kind: "installation",
+    };
+  }
+
+  const user = await authenticate(request, env);
+  if (!user) return null;
+  return {
+    key: `user:${user.id}`,
+    kind: "account",
+  };
+}
+
+function isInstallationToken(token: string): boolean {
+  if (!token.startsWith(AI_INSTALL_TOKEN_PREFIX)) return false;
+  const opaque = token.slice(AI_INSTALL_TOKEN_PREFIX.length);
+  return /^[A-Za-z0-9_-]{40,80}$/.test(opaque);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function authenticate(request: Request, env: Env): Promise<AuthUser | null> {
