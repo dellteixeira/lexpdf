@@ -63,7 +63,7 @@ class AiAccessSession {
     } on AuthException catch (error) {
       throw StateError(
         'Não foi possível iniciar a sessão privada automática da IA '
-        '(\${error.message}).',
+        '(${error.message}).',
       );
     }
   }
