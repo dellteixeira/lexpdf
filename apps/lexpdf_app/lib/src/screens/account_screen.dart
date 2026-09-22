@@ -68,7 +68,8 @@ class _AccountScreenState extends State<AccountScreen> {
         if (!config.hasCloudGateway) {
           throw StateError('LexPDF Cloud gateway is not configured.');
         }
-        if (_client.auth.currentSession == null) {
+        final accountUser = _client.auth.currentUser;
+        if (accountUser?.email?.trim().isNotEmpty != true) {
           throw StateError('Entre na sua conta antes de ativar o LexPDF Cloud.');
         }
         final store = LocalCloudAccountStore(widget.database);
@@ -91,7 +92,10 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = _client.auth.currentUser;
+    final sessionUser = _client.auth.currentUser;
+    final user = sessionUser?.email?.trim().isNotEmpty == true
+        ? sessionUser
+        : null;
     return Scaffold(
       appBar: AppBar(title: const Text('Conta LexPDF')),
       body: ListView(
@@ -125,6 +129,18 @@ class _AccountScreenState extends State<AccountScreen> {
               ],
             ),
           ] else ...[
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.auto_awesome_outlined),
+                title: Text('A IA não exige conta'),
+                subtitle: Text(
+                  'O LexPDF cria uma sessão técnica privada automaticamente '
+                  'quando a IA online é usada. Login é necessário apenas para '
+                  'recursos de conta e LexPDF Cloud.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
