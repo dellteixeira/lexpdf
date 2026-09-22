@@ -29,11 +29,13 @@ void main() {
     expect(native, contains('SetWindowLongPtrW'));
   });
 
-  test('successful OCR completion notice is cleared after three seconds', () {
+  test('automatic OCR stays invisible while preserving background progress', () {
     final workspace =
         File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
-    expect(workspace, contains('Duration(seconds: 3)'));
-    expect(workspace, contains('task.summary = null'));
-    expect(workspace, contains('task.progress = null'));
+    expect(workspace, contains('task.progress = progress'));
+    expect(workspace, isNot(contains('_OcrProgressCard')));
+    expect(workspace, isNot(contains('OCR preparando…')));
+    expect(workspace, isNot(contains('OCR/indexação em segundo plano')));
+    expect(workspace, isNot(contains('Índice atualizado')));
   });
 }
