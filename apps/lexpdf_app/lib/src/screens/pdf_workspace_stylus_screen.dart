@@ -436,10 +436,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 : null,
                             textSelectionParams: PdfTextSelectionParams(
                               enabled: _textSelectionMode,
-                              // Touch platforms use stable selection handles
-                              // (Acrobat-style) while desktop keeps pdfrx's
-                              // pointer-adaptive behavior.
-                              enableSelectionHandles: _android ? true : null,
+                              // Leave handle policy adaptive: pdfrx shows
+                              // touch handles on mobile while preserving direct
+                              // drag-to-select when the input model supports it.
                               showContextMenuAutomatically: true,
                               onSelectionHandlePanStart: (_) {
                                 // Kill any kinetic pan left over from Hand mode
