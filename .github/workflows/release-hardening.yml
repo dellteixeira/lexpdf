@@ -180,6 +180,23 @@ jobs:
           if (-not (Test-Path $flutterDll -PathType Leaf)) { throw 'Missing flutter_windows.dll.' }
           if (-not (Test-Path $assets -PathType Container)) { throw 'Missing Flutter assets directory.' }
           Get-FileHash $exe -Algorithm SHA256
+      - name: Install Inno Setup for delivery build
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows 10 installer for delivery
+        shell: pwsh
+        run: |
+          $version = '1.0.0-rc.1'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
+          $installer = Get-ChildItem 'windows\installer\output\*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer was not produced.' }
+          Get-FileHash $installer.FullName -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-windows-installer
+          path: apps/lexpdf_app/windows/installer/output/*.exe
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-windows-release
