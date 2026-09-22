@@ -31,7 +31,14 @@ import 'pdf_print_screen.dart';
 
 enum _PdfViewMode { continuous, horizontal, facing }
 
-enum _WorkspaceMoreAction { readingMode, forms, export, print }
+enum _WorkspaceMoreAction {
+  readingMode,
+  outline,
+  bookmarks,
+  forms,
+  export,
+  print,
+}
 
 enum _StylusMode { hand, selectText, note, pen, highlighter, eraser }
 
@@ -41,6 +48,8 @@ class PdfWorkspaceScreen extends StatefulWidget {
     required this.store,
     required this.annotations,
     this.initialPage = 1,
+    this.fullScreen = false,
+    this.onToggleFullScreen,
     super.key,
   });
 
@@ -48,6 +57,8 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final LocalPdfNavigationStore store;
   final LocalTextAnnotationStore annotations;
   final int initialPage;
+  final bool fullScreen;
+  final VoidCallback? onToggleFullScreen;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -128,10 +139,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _historyNavigation = false;
   bool _loadingInk = false;
   bool _readingMode = false;
+  bool _fullScreenForcedReadingMode = false;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
 
   bool get _mobile => defaultTargetPlatform == TargetPlatform.android;
+
 
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
 
@@ -167,6 +180,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     _controller.addListener(_syncZoomFromController);
     unawaited(_reloadBookmarks());
     unawaited(_loadInkCount());
+  }
+
+  @override
+  void didUpdateWidget(covariant PdfWorkspaceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fullScreen == widget.fullScreen) return;
+    if (widget.fullScreen) {
+      if (!_readingMode) {
+        _readingMode = true;
+        _fullScreenForcedReadingMode = true;
+      }
+    } else if (_fullScreenForcedReadingMode) {
+      _readingMode = false;
+      _fullScreenForcedReadingMode = false;
+    }
+    _controller.invalidate();
   }
 
   @override
@@ -231,8 +260,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
               unawaited(_nextPage()),
           const SingleActivator(LogicalKeyboardKey.keyH, control: true):
               _toggleReadingMode,
+          const SingleActivator(LogicalKeyboardKey.f11): _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (_readingMode) {
+            if (widget.fullScreen) {
+              widget.onToggleFullScreen?.call();
+            } else if (_readingMode) {
               unawaited(_setReadingMode(false));
             }
           },
@@ -546,202 +578,320 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      child: SizedBox(
-        height: 58,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: 'Voltar na navegação',
-                onPressed: _backHistory.isEmpty ? null : _goBack,
-                icon: const Icon(Icons.arrow_back_outlined),
-              ),
-              IconButton(
-                tooltip: 'Avançar na navegação',
-                onPressed: _forwardHistory.isEmpty ? null : _goForward,
-                icon: const Icon(Icons.arrow_forward_outlined),
-              ),
-              IconButton(
-                tooltip: 'Página anterior',
-                onPressed: _page <= 1 ? null : _previousPage,
-                icon: const Icon(Icons.chevron_left),
-              ),
-              IconButton(
-                tooltip: 'Próxima página',
-                onPressed: _document != null && _page >= _document!.pages.length
-                    ? null
-                    : _nextPage,
-                icon: const Icon(Icons.chevron_right),
-              ),
-              IconButton(
-                tooltip: 'Ir para página',
-                onPressed: _jumpToPage,
-                icon: const Icon(Icons.numbers_outlined),
-              ),
-              const VerticalDivider(width: 20),
-              _stylusButton(_StylusMode.hand, Icons.pan_tool_outlined, 'Mão'),
-              _stylusButton(
-                _StylusMode.selectText,
-                Icons.text_fields_outlined,
-                'Selecionar',
-              ),
-              _stylusButton(
-                _StylusMode.note,
-                Icons.sticky_note_2_outlined,
-                'Anotar',
-              ),
-              _stylusButton(_StylusMode.pen, Icons.edit, 'Caneta'),
-              _stylusButton(
-                _StylusMode.highlighter,
-                Icons.border_color_outlined,
-                'Marca-texto',
-              ),
-              _stylusButton(
-                _StylusMode.eraser,
-                Icons.auto_fix_normal_outlined,
-                'Borracha',
-              ),
-              IconButton(
-                tooltip: _eraserMode
-                    ? 'Espessura da borracha: ${_eraserWidth.toStringAsFixed(0)}'
-                    : 'Cor e espessura da caneta',
-                onPressed: _showInkSettings,
-                icon: _eraserMode
-                    ? const Icon(Icons.line_weight)
-                    : Icon(Icons.palette_outlined, color: Color(_inkColor)),
-              ),
-              IconButton(
-                tooltip: 'Desfazer último traço nesta página',
-                onPressed: (_inkByPage[_page]?.isNotEmpty ?? false)
-                    ? _undoInk
-                    : null,
-                icon: const Icon(Icons.undo),
-              ),
-              const VerticalDivider(width: 20),
-              _CommandButton(
-                icon: Icons.grid_view_outlined,
-                label: 'Miniaturas',
-                onPressed: _document == null
-                    ? null
-                    : () => _showThumbnails(path),
-              ),
-              _CommandButton(
-                icon: Icons.account_tree_outlined,
-                label: 'Sumário',
-                onPressed: _outline.isEmpty ? null : _showOutline,
-              ),
-              _CommandButton(
-                icon: Icons.bookmarks_outlined,
-                label: 'Marcadores',
-                onPressed: _showBookmarks,
-              ),
-              IconButton(
-                tooltip: 'Marcar página $_page',
-                onPressed: _toggleCurrentBookmark,
-                icon: Icon(
-                  _bookmarks.any((item) => item.pageNumber == _page)
-                      ? Icons.bookmark
-                      : Icons.bookmark_border,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+          final rowHeight = compact ? 44.0 : 50.0;
+          return SizedBox(
+            height: rowHeight * 2 + 5,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: rowHeight,
+                  child: _fitToolbarRow(
+                    constraints.maxWidth,
+                    <Widget>[
+                      IconButton(
+                        tooltip: 'Voltar na navegação',
+                        onPressed: _backHistory.isEmpty ? null : _goBack,
+                        icon: const Icon(Icons.arrow_back_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Avançar na navegação',
+                        onPressed: _forwardHistory.isEmpty ? null : _goForward,
+                        icon: const Icon(Icons.arrow_forward_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Página anterior',
+                        onPressed: _page <= 1 ? null : _previousPage,
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      IconButton(
+                        tooltip: 'Próxima página',
+                        onPressed:
+                            _document != null && _page >= _document!.pages.length
+                                ? null
+                                : _nextPage,
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                      IconButton(
+                        tooltip: 'Ir para página',
+                        onPressed: _jumpToPage,
+                        icon: const Icon(Icons.numbers_outlined),
+                      ),
+                      const SizedBox(width: 4),
+                      _stylusButton(
+                        _StylusMode.hand,
+                        Icons.pan_tool_outlined,
+                        'Mão',
+                        compact: compact,
+                      ),
+                      _stylusButton(
+                        _StylusMode.selectText,
+                        Icons.text_fields_outlined,
+                        'Selecionar',
+                        compact: compact,
+                      ),
+                      _stylusButton(
+                        _StylusMode.note,
+                        Icons.sticky_note_2_outlined,
+                        'Anotar',
+                        compact: compact,
+                      ),
+                      _stylusButton(
+                        _StylusMode.pen,
+                        Icons.edit,
+                        'Caneta',
+                        compact: compact,
+                      ),
+                      IconButton(
+                        tooltip: widget.fullScreen
+                            ? 'Sair da tela cheia (F11)'
+                            : 'Tela cheia (F11)',
+                        onPressed: _requestFullScreen,
+                        icon: Icon(
+                          widget.fullScreen
+                              ? Icons.fullscreen_exit
+                              : Icons.fullscreen,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const VerticalDivider(width: 20),
-              _CommandButton(
-                icon: Icons.edit_document,
-                label: 'Páginas',
-                onPressed: _openPageTools,
-              ),
-              _CommandButton(
-                icon: Icons.document_scanner_outlined,
-                label: 'OCR',
-                onPressed: _openOcr,
-              ),
-              const VerticalDivider(width: 20),
-              IconButton(
-                tooltip: 'Zoom -',
-                onPressed: _zoomOut,
-                icon: const Icon(Icons.zoom_out),
-              ),
-              _buildZoomMenu(),
-              IconButton(
-                tooltip: 'Zoom +',
-                onPressed: _zoomIn,
-                icon: const Icon(Icons.zoom_in),
-              ),
-              IconButton(
-                tooltip: 'Modo leitura (Ctrl+H)',
-                onPressed: _toggleReadingMode,
-                icon: const Icon(Icons.fullscreen_outlined),
-              ),
-              PopupMenuButton<_PdfViewMode>(
-                tooltip: 'Modo de visualização',
-                initialValue: _viewMode,
-                onSelected: (value) {
-                  setState(() => _viewMode = value);
-                  _controller.invalidate();
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: _PdfViewMode.continuous,
-                    child: Text('Contínuo vertical'),
+                Divider(height: 5, color: scheme.outlineVariant),
+                SizedBox(
+                  height: rowHeight,
+                  child: _fitToolbarRow(
+                    constraints.maxWidth,
+                    <Widget>[
+                      _stylusButton(
+                        _StylusMode.highlighter,
+                        Icons.border_color_outlined,
+                        'Marca-texto',
+                        compact: compact,
+                      ),
+                      _stylusButton(
+                        _StylusMode.eraser,
+                        Icons.auto_fix_normal_outlined,
+                        'Borracha',
+                        compact: compact,
+                      ),
+                      IconButton(
+                        tooltip: _eraserMode
+                            ? 'Espessura da borracha: ${_eraserWidth.toStringAsFixed(0)}'
+                            : 'Cor e espessura da caneta',
+                        onPressed: _showInkSettings,
+                        icon: _eraserMode
+                            ? const Icon(Icons.line_weight)
+                            : Icon(
+                                Icons.palette_outlined,
+                                color: Color(_inkColor),
+                              ),
+                      ),
+                      IconButton(
+                        tooltip: 'Desfazer último traço nesta página',
+                        onPressed: (_inkByPage[_page]?.isNotEmpty ?? false)
+                            ? _undoInk
+                            : null,
+                        icon: const Icon(Icons.undo),
+                      ),
+                      _toolbarCommandButton(
+                        compact: compact,
+                        icon: Icons.grid_view_outlined,
+                        label: 'Miniaturas',
+                        onPressed: _document == null
+                            ? null
+                            : () => _showThumbnails(path),
+                      ),
+                      if (!compact)
+                        _toolbarCommandButton(
+                          compact: false,
+                          icon: Icons.account_tree_outlined,
+                          label: 'Sumário',
+                          onPressed: _outline.isEmpty ? null : _showOutline,
+                        ),
+                      if (!compact)
+                        _toolbarCommandButton(
+                          compact: false,
+                          icon: Icons.bookmarks_outlined,
+                          label: 'Marcadores',
+                          onPressed: _showBookmarks,
+                        ),
+                      IconButton(
+                        tooltip: 'Marcar página $_page',
+                        onPressed: _toggleCurrentBookmark,
+                        icon: Icon(
+                          _bookmarks.any((item) => item.pageNumber == _page)
+                              ? Icons.bookmark
+                              : Icons.bookmark_border,
+                        ),
+                      ),
+                      _toolbarCommandButton(
+                        compact: compact,
+                        icon: Icons.edit_document,
+                        label: 'Páginas',
+                        onPressed: _openPageTools,
+                      ),
+                      _toolbarCommandButton(
+                        compact: compact,
+                        icon: Icons.document_scanner_outlined,
+                        label: 'OCR',
+                        onPressed: _openOcr,
+                      ),
+                      IconButton(
+                        tooltip: 'Zoom -',
+                        onPressed: _zoomOut,
+                        icon: const Icon(Icons.zoom_out),
+                      ),
+                      _buildZoomMenu(),
+                      IconButton(
+                        tooltip: 'Zoom +',
+                        onPressed: _zoomIn,
+                        icon: const Icon(Icons.zoom_in),
+                      ),
+                      PopupMenuButton<_PdfViewMode>(
+                        tooltip: 'Modo de visualização',
+                        initialValue: _viewMode,
+                        onSelected: (value) {
+                          setState(() => _viewMode = value);
+                          _controller.invalidate();
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: _PdfViewMode.continuous,
+                            child: Text('Contínuo vertical'),
+                          ),
+                          PopupMenuItem(
+                            value: _PdfViewMode.horizontal,
+                            child: Text('Horizontal'),
+                          ),
+                          PopupMenuItem(
+                            value: _PdfViewMode.facing,
+                            child: Text('Páginas duplas'),
+                          ),
+                        ],
+                        icon: const Icon(Icons.view_carousel_outlined),
+                      ),
+                      PopupMenuButton<_WorkspaceMoreAction>(
+                        tooltip: 'Mais ferramentas',
+                        onSelected: _handleMoreAction,
+                        itemBuilder: (context) => [
+                          if (compact)
+                            PopupMenuItem(
+                              value: _WorkspaceMoreAction.outline,
+                              enabled: _outline.isNotEmpty,
+                              child: const ListTile(
+                                leading: Icon(Icons.account_tree_outlined),
+                                title: Text('Sumário'),
+                              ),
+                            ),
+                          if (compact)
+                            const PopupMenuItem(
+                              value: _WorkspaceMoreAction.bookmarks,
+                              child: ListTile(
+                                leading: Icon(Icons.bookmarks_outlined),
+                                title: Text('Marcadores'),
+                              ),
+                            ),
+                          const PopupMenuItem(
+                            value: _WorkspaceMoreAction.readingMode,
+                            child: ListTile(
+                              leading: Icon(Icons.fullscreen_outlined),
+                              title: Text('Modo leitura'),
+                              subtitle: Text('Ctrl+H'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: _WorkspaceMoreAction.forms,
+                            child: ListTile(
+                              leading: Icon(Icons.checklist_outlined),
+                              title: Text('Formulários'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: _WorkspaceMoreAction.export,
+                            child: ListTile(
+                              leading: Icon(Icons.ios_share_outlined),
+                              title: Text('Exportar PDF'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: _WorkspaceMoreAction.print,
+                            child: ListTile(
+                              leading: Icon(Icons.print_outlined),
+                              title: Text('Imprimir'),
+                            ),
+                          ),
+                        ],
+                        icon: const Icon(Icons.more_horiz),
+                      ),
+                    ],
                   ),
-                  PopupMenuItem(
-                    value: _PdfViewMode.horizontal,
-                    child: Text('Horizontal'),
-                  ),
-                  PopupMenuItem(
-                    value: _PdfViewMode.facing,
-                    child: Text('Páginas duplas'),
-                  ),
-                ],
-                icon: const Icon(Icons.view_carousel_outlined),
-              ),
-              PopupMenuButton<_WorkspaceMoreAction>(
-                tooltip: 'Mais ferramentas',
-                onSelected: _handleMoreAction,
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: _WorkspaceMoreAction.readingMode,
-                    child: ListTile(
-                      leading: Icon(Icons.chrome_reader_mode_outlined),
-                      title: Text('Modo leitura'),
-                      subtitle: Text('Ctrl+H no Windows'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _WorkspaceMoreAction.forms,
-                    child: ListTile(
-                      leading: Icon(Icons.checklist_outlined),
-                      title: Text('Formulários'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _WorkspaceMoreAction.export,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share_outlined),
-                      title: Text('Exportar PDF'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _WorkspaceMoreAction.print,
-                    child: ListTile(
-                      leading: Icon(Icons.print_outlined),
-                      title: Text('Imprimir'),
-                    ),
-                  ),
-                ],
-                icon: const Icon(Icons.more_horiz),
-              ),
-            ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _fitToolbarRow(double width, List<Widget> children) {
+    return SizedBox(
+      width: width,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: children,
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _stylusButton(_StylusMode mode, IconData icon, String label) {
+  Widget _toolbarCommandButton({
+    required bool compact,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    if (compact) {
+      return IconButton(
+        tooltip: label,
+        onPressed: onPressed,
+        icon: Icon(icon),
+      );
+    }
+    return _CommandButton(
+      icon: icon,
+      label: label,
+      onPressed: onPressed,
+    );
+  }
+
+  Widget _stylusButton(
+    _StylusMode mode,
+    IconData icon,
+    String label, {
+    bool compact = false,
+  }) {
     final selected = _stylusMode == mode;
+    if (compact) {
+      return IconButton(
+        tooltip: label,
+        isSelected: selected,
+        onPressed: () => _setStylusMode(mode),
+        icon: Icon(icon),
+        selectedIcon: Icon(icon),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: selected
@@ -766,9 +916,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _handleAndroidPdfTap() {
     if (!_android) return;
+    if (widget.fullScreen) {
+      widget.onToggleFullScreen?.call();
+      return;
+    }
     // Keep annotation, selection, note and ink taps dedicated to their tools.
     // In reading mode, a tap always restores the interface.
     if (!_readingMode && _stylusMode != _StylusMode.hand) return;
+    _toggleReadingMode();
+  }
+
+  void _requestFullScreen() {
+    final callback = widget.onToggleFullScreen;
+    if (callback != null) {
+      callback();
+      return;
+    }
     _toggleReadingMode();
   }
 
@@ -1137,6 +1300,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     switch (action) {
       case _WorkspaceMoreAction.readingMode:
         _toggleReadingMode();
+      case _WorkspaceMoreAction.outline:
+        if (_outline.isNotEmpty) unawaited(_showOutline());
+      case _WorkspaceMoreAction.bookmarks:
+        unawaited(_showBookmarks());
       case _WorkspaceMoreAction.forms:
         unawaited(_openForms());
       case _WorkspaceMoreAction.export:
