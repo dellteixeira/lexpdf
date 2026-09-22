@@ -12,7 +12,8 @@ void main() {
 
     expect(screen, contains("label: const Text('Sintetizar com IA')"));
     expect(screen, contains('AiExplanationIntent.crossStudy'));
-    expect(screen, contains('currentSession?.accessToken'));
+    expect(screen, contains('AiAccessSession.bearerToken'));
+    expect(screen, isNot(contains('Entre na sua conta LexPDF')));
     expect(screen, contains("'[F\${index + 1}]"));
     expect(screen, contains("title: const Text('Fontes consideradas')"));
     expect(
