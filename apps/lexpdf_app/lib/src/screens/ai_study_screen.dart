@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/ai/ai_engine.dart';
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/local_study_engine.dart';
 import '../core/ai/pdf_ai_text_service.dart';
@@ -98,13 +99,14 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
     }
   }
 
-  AiStudyEngine _engine() {
+  Future<AiStudyEngine> _engine() async {
     if (_engineKind == AiEngineKind.local) return _local;
     const config = BackendConfig.fromEnvironment;
-    if (!config.hasAiGateway) {
-      throw StateError('Nenhum gateway de IA foi configurado.');
-    }
-    return RemoteAiStudyEngine(endpoint: Uri.parse(config.aiGatewayUrl));
+    final token = await AiAccessSession.bearerToken(config: config);
+    return RemoteAiStudyEngine(
+      endpoint: Uri.parse(config.aiGatewayUrl),
+      bearerToken: token,
+    );
   }
 
   Future<void> _run(AiStudyAction action) async {
@@ -115,7 +117,8 @@ class _AiStudyScreenState extends State<AiStudyScreen> {
       _error = null;
     });
     try {
-      final result = await _engine().run(
+      final engine = await _engine();
+      final result = await engine.run(
         action: action,
         text: text,
         itemCount: _itemCount,
