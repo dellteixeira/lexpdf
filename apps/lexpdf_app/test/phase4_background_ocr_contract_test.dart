@@ -48,7 +48,14 @@ void main() {
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));
     expect(source, contains('pdf_page_text_index'));
-    expect(source, contains('_OcrProgressCard'));
+    expect(source, isNot(contains('_OcrProgressCard')));
+    expect(source, isNot(contains('OCR preparando…')));
+    expect(source, isNot(contains('OCR/indexação em segundo plano')));
+    expect(source, contains('Silent by design'));
+    expect(
+      source,
+      isNot(contains('task.progress = progress;\n          if (mounted) setState')),
+    );
   });
 
   test('manual OCR screen exposes range, cancellation and resume-friendly processing', () async {
