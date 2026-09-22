@@ -34,7 +34,6 @@ class PdfAndroidFingerNavigationRegion extends StatefulWidget {
     this.onFocalPointChanged,
     this.onNavigationChanged,
     this.onNavigationEnd,
-    this.onSingleTap,
     super.key,
   });
 
@@ -44,7 +43,6 @@ class PdfAndroidFingerNavigationRegion extends StatefulWidget {
   final ValueChanged<Offset>? onFocalPointChanged;
   final ValueChanged<bool>? onNavigationChanged;
   final VoidCallback? onNavigationEnd;
-  final VoidCallback? onSingleTap;
 
   @override
   State<PdfAndroidFingerNavigationRegion> createState() =>
@@ -64,11 +62,6 @@ class _PdfAndroidFingerNavigationRegionState
   bool _navigating = false;
   Offset? _lastFocalPoint;
   double? _lastDistance;
-  int? _tapCandidatePointer;
-  Offset? _tapDownPosition;
-  bool _tapDisqualified = false;
-
-  static const double _tapMoveTolerance = 18.0;
 
   @override
   void initState() {
@@ -117,7 +110,6 @@ class _PdfAndroidFingerNavigationRegionState
     if (!widget.active) return;
 
     if (_isStylus(event)) {
-      _disqualifyTapCandidate();
       PdfAndroidTouchInputPolicy.registerStylusContact();
       _stylusPointers.add(event.pointer);
       widget.controller.stopInteractiveViewerAnimation();
@@ -134,17 +126,8 @@ class _PdfAndroidFingerNavigationRegionState
 
     if (event.kind != PointerDeviceKind.touch) return;
     if (_stylusPointers.isNotEmpty) {
-      _disqualifyTapCandidate();
       _palmBlockedTouches.add(event.pointer);
       return;
-    }
-
-    if (_touchPositions.isEmpty) {
-      _tapCandidatePointer = event.pointer;
-      _tapDownPosition = event.localPosition;
-      _tapDisqualified = false;
-    } else {
-      _disqualifyTapCandidate();
     }
 
     _touchPositions[event.pointer] = event.localPosition;
@@ -174,11 +157,6 @@ class _PdfAndroidFingerNavigationRegionState
     if (!_touchPositions.containsKey(event.pointer)) return;
 
     _touchPositions[event.pointer] = event.localPosition;
-    if (_tapCandidatePointer == event.pointer && _tapDownPosition != null) {
-      if ((event.localPosition - _tapDownPosition!).distance > _tapMoveTolerance) {
-        _tapDisqualified = true;
-      }
-    }
     if (_stylusPointers.isNotEmpty || !widget.controller.isReady) return;
 
     if (PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
@@ -211,18 +189,9 @@ class _PdfAndroidFingerNavigationRegionState
     }
     if (event.kind != PointerDeviceKind.touch) return;
 
-    final shouldNotifyTap =
-        _tapCandidatePointer == event.pointer &&
-        !_tapDisqualified &&
-        !PdfAndroidTouchInputPolicy.compactPhoneInkActive &&
-        _stylusPointers.isEmpty;
     _palmBlockedTouches.remove(event.pointer);
     _touchPositions.remove(event.pointer);
     _afterTouchDeparture();
-    if (shouldNotifyTap) {
-      widget.onSingleTap?.call();
-    }
-    _clearTapCandidate();
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {
@@ -235,7 +204,6 @@ class _PdfAndroidFingerNavigationRegionState
     _palmBlockedTouches.remove(event.pointer);
     _touchPositions.remove(event.pointer);
     _afterTouchDeparture();
-    _clearTapCandidate();
   }
 
   void _beginNavigationIfNeeded() {
@@ -356,18 +324,7 @@ class _PdfAndroidFingerNavigationRegionState
     widget.onNavigationEnd?.call();
   }
 
-  void _disqualifyTapCandidate() {
-    _tapDisqualified = true;
-  }
-
-  void _clearTapCandidate() {
-    _tapCandidatePointer = null;
-    _tapDownPosition = null;
-    _tapDisqualified = false;
-  }
-
   void _resetTouchState({required bool notifyEnd}) {
-    _clearTapCandidate();
     _touchPositions.clear();
     _stylusPointers.clear();
     _palmBlockedTouches.clear();
