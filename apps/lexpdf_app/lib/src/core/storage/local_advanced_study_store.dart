@@ -292,6 +292,80 @@ class LocalAdvancedStudyStore {
     ]);
   }
 
+  Future<void> renameFlashcardSubject({
+    required Iterable<String> itemIds,
+    required String newSubject,
+  }) async {
+    final value = newSubject.trim();
+    if (value.isEmpty) {
+      throw ArgumentError.value(newSubject, 'newSubject', 'Folder name cannot be empty.');
+    }
+    await _bulkUpdateFlashcardClassification(
+      itemIds: itemIds,
+      subject: value,
+    );
+  }
+
+  Future<void> renameFlashcardTopic({
+    required Iterable<String> itemIds,
+    required String newTopic,
+  }) async {
+    final value = newTopic.trim();
+    if (value.isEmpty) {
+      throw ArgumentError.value(newTopic, 'newTopic', 'Subfolder name cannot be empty.');
+    }
+    await _bulkUpdateFlashcardClassification(
+      itemIds: itemIds,
+      topic: value,
+    );
+  }
+
+  Future<void> _bulkUpdateFlashcardClassification({
+    required Iterable<String> itemIds,
+    String? subject,
+    String? topic,
+  }) async {
+    final ids = itemIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty || (subject == null && topic == null)) return;
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    final savepoint =
+        'flashcard_folder_${DateTime.now().microsecondsSinceEpoch}';
+    db.database.execute('SAVEPOINT $savepoint;');
+    try {
+      for (final id in ids) {
+        if (subject != null && topic != null) {
+          db.database.execute('''
+            UPDATE study_items
+            SET subject = ?, topic = ?, updated_at = ?
+            WHERE id = ? AND kind = 'flashcard';
+          ''', [subject, topic, now, id]);
+        } else if (subject != null) {
+          db.database.execute('''
+            UPDATE study_items
+            SET subject = ?, updated_at = ?
+            WHERE id = ? AND kind = 'flashcard';
+          ''', [subject, now, id]);
+        } else {
+          db.database.execute('''
+            UPDATE study_items
+            SET topic = ?, updated_at = ?
+            WHERE id = ? AND kind = 'flashcard';
+          ''', [topic, now, id]);
+        }
+      }
+      db.database.execute('RELEASE SAVEPOINT $savepoint;');
+    } catch (_) {
+      db.database.execute('ROLLBACK TO SAVEPOINT $savepoint;');
+      db.database.execute('RELEASE SAVEPOINT $savepoint;');
+      rethrow;
+    }
+  }
+
   Future<List<StudyItem>> listDue({int limit = 100}) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final rows = db.database.select('''
