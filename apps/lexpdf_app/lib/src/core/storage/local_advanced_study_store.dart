@@ -206,6 +206,7 @@ class LocalAdvancedStudyStore {
   Future<List<FlashcardLibraryEntry>> listFlashcardEntries({
     int limit = 10000,
   }) async {
+    _ensureFlashcardReviewRows();
     final rows = db.database.select('''
       SELECT i.*, d.title AS document_title,
              r.due_at AS review_due_at,
@@ -232,7 +233,19 @@ class LocalAdvancedStudyStore {
         .toList(growable: false);
   }
 
+  void _ensureFlashcardReviewRows() {
+    db.database.execute('''
+      INSERT OR IGNORE INTO study_review_state(
+        item_id, due_at, interval_days, ease_factor, repetitions, lapses
+      )
+      SELECT id, created_at, 0, 2.5, 0, 0
+      FROM study_items
+      WHERE kind = 'flashcard';
+    ''');
+  }
+
   Future<FlashcardLibraryStats> flashcardLibraryStats() async {
+    _ensureFlashcardReviewRows();
     final now = DateTime.now().toUtc().toIso8601String();
     final row = db.database.select('''
       SELECT
@@ -277,13 +290,6 @@ class LocalAdvancedStudyStore {
       DateTime.now().toUtc().toIso8601String(),
       itemId,
     ]);
-  }
-
-  Future<void> deleteFlashcard(String itemId) async {
-    db.database.execute(
-      "DELETE FROM study_items WHERE id = ? AND kind = 'flashcard';",
-      [itemId],
-    );
   }
 
   Future<List<StudyItem>> listDue({int limit = 100}) async {

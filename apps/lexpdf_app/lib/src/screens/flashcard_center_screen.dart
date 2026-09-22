@@ -207,33 +207,6 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
     }
   }
 
-  Future<void> _delete(FlashcardLibraryEntry entry) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Excluir flashcard?'),
-        content: Text(
-          entry.item.prompt.isEmpty
-              ? 'Este cartão será excluído.'
-              : '“${entry.item.prompt}” será excluído.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await widget.store.deleteFlashcard(entry.item.id);
-    await _reload();
-  }
-
   Future<void> _showCard(FlashcardLibraryEntry entry) async {
     await showDialog<void>(
       context: context,
@@ -328,19 +301,6 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
             },
             icon: const Icon(Icons.play_arrow),
             label: const Text('Estudar'),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Mais opções',
-            onSelected: (value) {
-              Navigator.of(dialogContext).pop();
-              if (value == 'delete') unawaited(_delete(entry));
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'delete',
-                child: Text('Excluir flashcard'),
-              ),
-            ],
           ),
         ],
       ),
