@@ -338,7 +338,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           _zoomAnchorLocal = position;
                         },
                         onNavigationEnd: _syncZoomFromController,
-                        onSingleTap: _handleAndroidPdfTap,
                         child: PdfViewer.file(
                           path,
                           controller: _controller,
@@ -960,14 +959,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     if (_stylusMode == mode) return;
     setState(() => _stylusMode = mode);
     _controller.invalidate();
-  }
-
-  void _handleAndroidPdfTap() {
-    if (!_android) return;
-    // A single tap is the Android reading-mode gesture, but annotation,
-    // selection and ink tools keep ownership of taps while chrome is visible.
-    if (!widget.fullScreen && _stylusMode != _StylusMode.hand) return;
-    _requestFullScreen();
   }
 
   void _requestFullScreen() {
