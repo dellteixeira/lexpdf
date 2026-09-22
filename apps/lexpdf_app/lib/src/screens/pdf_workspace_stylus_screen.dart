@@ -164,6 +164,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   bool get _eraserMode => _stylusMode == _StylusMode.eraser;
 
+  bool get _textSelectionMode => _stylusMode == _StylusMode.selectText;
+
   InkTool get _inkTool => switch (_stylusMode) {
     _StylusMode.highlighter => InkTool.highlighter,
     _ => InkTool.pen,
@@ -332,7 +334,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           .colorScheme
                           .surfaceContainerHighest,
                       child: PdfAndroidFingerNavigationRegion(
-                        active: _android,
+                        // In text-selection mode, one-finger drag belongs
+                        // exclusively to pdfrx's native text-selection engine.
+                        // If our Android pan router also moves the controller,
+                        // the page slides underneath the selection handle.
+                        active: _android && !_textSelectionMode,
                         controller: _controller,
                         onFocalPointChanged: (position) {
                           _zoomAnchorLocal = position;
@@ -400,13 +406,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             boundaryMargin: EdgeInsets.all(
                               _mobile ? 320.0 : 120.0,
                             ),
+                            // Selection is a modal tool: dragging selects text,
+                            // it never pans/scales the document. Navigation
+                            // returns immediately when the Hand tool is chosen.
                             panEnabled:
                                 !_android &&
+                                !_textSelectionMode &&
                                 (_mobile ||
                                     (_stylusMode != _StylusMode.note &&
                                         !_inkMode)),
                             scaleEnabled:
                                 !_android &&
+                                !_textSelectionMode &&
                                 (_mobile ||
                                     (_stylusMode != _StylusMode.note &&
                                         !_inkMode)),
@@ -424,8 +435,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ? _selectionMenu.buildContextMenu
                                 : null,
                             textSelectionParams: PdfTextSelectionParams(
-                              enabled: _stylusMode == _StylusMode.selectText,
+                              enabled: _textSelectionMode,
+                              // Touch platforms use stable selection handles
+                              // (Acrobat-style) while desktop keeps pdfrx's
+                              // pointer-adaptive behavior.
+                              enableSelectionHandles: _android ? true : null,
                               showContextMenuAutomatically: true,
+                              onSelectionHandlePanStart: (_) {
+                                // Kill any kinetic pan left over from Hand mode
+                                // before the first handle movement.
+                                _controller.stopInteractiveViewerAnimation();
+                              },
                               onTextSelectionChange: (_) {
                                 if (_controller.isReady) {
                                   _controller.invalidate();
@@ -957,6 +977,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _setStylusMode(_StylusMode mode) {
     if (_stylusMode == mode) return;
+
+    if (mode == _StylusMode.selectText && _controller.isReady) {
+      // Acrobat-like tool exclusivity: entering Select freezes any residual
+      // fling immediately, so the page becomes a stationary selection canvas.
+      _controller.stopInteractiveViewerAnimation();
+    }
+
     setState(() => _stylusMode = mode);
     _controller.invalidate();
   }
