@@ -14,7 +14,7 @@ void main() {
     );
     expect(
       workspace,
-      contains('active: _android && !_textSelectionMode'),
+      contains('active: _android && !_textSelectionOwnsGesture'),
     );
     expect(
       workspace,
@@ -23,6 +23,26 @@ void main() {
     expect(
       workspace,
       contains('onSelectionHandlePanStart: (_)'),
+    );
+    expect(
+      workspace,
+      contains('_textSelectionMode || (_android && _stylusMode == _StylusMode.hand)'),
+    );
+    expect(
+      workspace,
+      contains('enableSelectionHandles:'),
+    );
+    expect(
+      workspace,
+      contains('_android && !_textSelectionMode ? true : null'),
+    );
+    expect(
+      workspace,
+      contains('selection.hasSelectedText'),
+    );
+    expect(
+      workspace,
+      contains('HapticFeedback.selectionClick()'),
     );
     expect(
       workspace,
@@ -36,7 +56,7 @@ void main() {
     ).readAsStringSync();
 
     expect(workspace, contains('PdfTextSelectionParams('));
-    expect(workspace, contains('enabled: _textSelectionMode'));
+    expect(workspace, contains('enabled: _textSelectionEnabled'));
     expect(workspace, contains('_selectionMenu.buildContextMenu'));
     expect(workspace, contains('showContextMenuAutomatically: true'));
   });
