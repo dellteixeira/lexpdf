@@ -12,6 +12,8 @@ import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
 import '../core/platform/workspace_full_screen_service.dart';
+import '../core/storage/local_advanced_study_store.dart';
+import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_knowledge_rag_store.dart';
 import '../core/storage/local_ocr_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
@@ -21,6 +23,7 @@ import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../core/storage/local_workspace_ui_preferences.dart';
 import 'ai_context_chat_screen.dart';
+import 'flashcard_center_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
 /// Persistent multi-document shell for the unified PDF editor.
@@ -843,6 +846,60 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
+  Future<void> _openFlashcardSource(
+    String documentId,
+    int pageNumber,
+  ) async {
+    final existing = _tabs.indexWhere(
+      (tab) => tab.document.id == documentId,
+    );
+    if (existing >= 0) {
+      setState(() {
+        _activeIndex = existing;
+        _tabs[existing].initialPage = pageNumber;
+        _tabs[existing].generation += 1;
+      });
+      await _saveSession();
+      return;
+    }
+
+    final document =
+        await LocalDocumentCatalog(widget.store.db).getById(documentId);
+    if (!mounted) return;
+    if (document == null || !document.hasLocalPath) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O PDF original deste flashcard não está disponível.'),
+        ),
+      );
+      return;
+    }
+    if (_tabs.length >= _maxTabs) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Feche uma aba antes de abrir a fonte do flashcard.'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _tabs.add(_WorkspaceTab(document: document, initialPage: pageNumber));
+      _activeIndex = _tabs.length - 1;
+    });
+    await _saveSession();
+  }
+
+  Future<void> _openFlashcardCenter() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FlashcardCenterScreen(
+          store: LocalAdvancedStudyStore(widget.store.db),
+          onOpenSource: _openFlashcardSource,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openDocumentChat() async {
     if (_tabs.isEmpty) return;
     final activeDocument = _tabs[_activeIndex].document;
@@ -919,6 +976,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         unawaited(_openDocumentChat());
       case 'vision-page':
         unawaited(_analyzeActivePageWithAi());
+      case 'flashcards':
+        unawaited(_openFlashcardCenter());
       case 'study-help':
         unawaited(_showStudyModeHelp());
       case 'shortcuts':
@@ -1141,6 +1200,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 '',
               ),
               _WorkspaceMenuItem(
+                'flashcards',
+                'Central de Flashcards',
+                '',
+              ),
+              _WorkspaceMenuItem(
                 'study-help',
                 'Como usar o modo de estudo',
                 '',
@@ -1256,6 +1320,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 : () => unawaited(_analyzeActivePageWithAi()),
           ),
           _PanelAction(
+            icon: Icons.style_outlined,
+            label: 'Central de Flashcards',
+            shortcut: '',
+            onTap: () => unawaited(_openFlashcardCenter()),
+          ),
+          _PanelAction(
             icon: Icons.school_outlined,
             label: 'Ajuda do modo de estudo',
             shortcut: '',
@@ -1338,6 +1408,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   _toggleFullScreen();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.style_outlined),
+                title: const Text('Central de Flashcards'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_openFlashcardCenter());
                 },
               ),
               ListTile(
