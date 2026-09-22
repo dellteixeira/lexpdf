@@ -34,7 +34,7 @@ void main() {
 
     expect(
       normalized,
-      contains('buildContextMenu: _stylusMode == _StylusMode.selectText'),
+      contains('buildContextMenu: _textSelectionEnabled'),
     );
     expect(source, contains('showContextMenuAutomatically: true'));
 
