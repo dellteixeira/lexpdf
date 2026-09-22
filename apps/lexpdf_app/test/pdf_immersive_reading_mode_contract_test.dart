@@ -17,7 +17,6 @@ void main() {
       contains("appBar: (_readingMode || !widget.showDocumentHeader)"),
     );
     expect(workspace, contains('if (!_readingMode) _buildCommandBar(path)'));
-    expect(workspace, contains('onSingleTap: _handleAndroidPdfTap'));
     expect(workspace, contains('_requestFullScreen();'));
     expect(workspace, contains('showDocumentHeader'));
     expect(workspace, contains('SystemUiMode.immersiveSticky'));
@@ -36,13 +35,10 @@ void main() {
     );
     expect(workspace, contains('Icons.fullscreen_outlined'));
 
-    expect(androidRouter, contains('final VoidCallback? onSingleTap;'));
-    expect(androidRouter, contains('_tapMoveTolerance'));
-    expect(androidRouter, contains('_tapDisqualified'));
-    expect(
-      androidRouter,
-      contains('!PdfAndroidTouchInputPolicy.compactPhoneInkActive'),
-    );
-    expect(androidRouter, contains('widget.onSingleTap?.call();'));
+    expect(workspace, isNot(contains('void _handleAndroidPdfTap()')));
+    expect(androidRouter, isNot(contains('final VoidCallback? onSingleTap;')));
+    expect(androidRouter, isNot(contains('_tapMoveTolerance')));
+    expect(androidRouter, isNot(contains('_tapDisqualified')));
+    expect(androidRouter, isNot(contains('widget.onSingleTap?.call();')));
   });
 }
