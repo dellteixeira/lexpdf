@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/extended_hybrid_rag_service.dart';
@@ -112,11 +111,10 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
     });
   }
 
-  String? _onlineToken(BackendConfig config) {
-    if (!config.hasAiGateway || !config.hasSupabase) return null;
+  Future<String?> _onlineToken(BackendConfig config) async {
+    if (!config.hasAiGateway) return null;
     try {
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      return token == null || token.trim().isEmpty ? null : token;
+      return await AiAccessSession.bearerToken(config: config);
     } catch (_) {
       return null;
     }
@@ -184,7 +182,7 @@ class _AiContextChatScreenState extends State<AiContextChatScreen> {
 
     try {
       const config = BackendConfig.fromEnvironment;
-      final token = _onlineToken(config);
+      final token = await _onlineToken(config);
       final embeddings = _embeddingService();
       final rag = ExtendedHybridRagService(
         base: HybridRagService(
