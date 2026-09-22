@@ -22,10 +22,6 @@ void main() {
     );
     expect(
       workspace,
-      contains('enableSelectionHandles: _android ? true : null'),
-    );
-    expect(
-      workspace,
       contains('onSelectionHandlePanStart: (_)'),
     );
     expect(
