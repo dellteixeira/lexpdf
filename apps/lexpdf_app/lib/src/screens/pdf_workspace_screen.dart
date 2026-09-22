@@ -354,7 +354,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ..summary = null
       ..progress = null;
     _ocrTasks[document.id] = task;
-    if (mounted) setState(() {});
     try {
       final summary = await _ocrService.process(
         documentId: document.id,
@@ -362,34 +361,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         resume: true,
         isCancelled: () => task.cancelRequested,
         onProgress: (progress) {
+          // Silent by design: background indexing must never repaint or cover
+          // the document while the user is reading.
           task.progress = progress;
-          if (mounted) setState(() {});
         },
       );
       task.summary = summary;
-      if (!summary.cancelled) {
-        unawaited(
-          Future<void>.delayed(const Duration(seconds: 3), () {
-            if (!mounted) return;
-            final current = _ocrTasks[document.id];
-            if (!identical(current, task) ||
-                task.running ||
-                task.error != null ||
-                !identical(task.summary, summary)) {
-              return;
-            }
-            setState(() {
-              task.summary = null;
-              task.progress = null;
-            });
-          }),
-        );
-      }
     } catch (error) {
+      // Keep diagnostics internal. Automatic indexing must not interrupt the
+      // reading surface with progress cards, snackbars or error banners.
       task.error = error;
     } finally {
       task.running = false;
-      if (mounted) setState(() {});
     }
   }
 
@@ -578,7 +561,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   List<_WorkspaceCommand> _commands() {
-    final activeTask = _tabs.isEmpty ? null : _ocrTasks[_tabs[_activeIndex].document.id];
     return [
       _WorkspaceCommand(
         label: 'Abrir outro PDF',
@@ -616,13 +598,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         icon: Icons.document_scanner_outlined,
         action: _startActiveIndexing,
       ),
-      if (activeTask?.running == true)
-        _WorkspaceCommand(
-          label: 'Cancelar OCR preservando progresso',
-          shortcut: '',
-          icon: Icons.stop_circle_outlined,
-          action: _cancelActiveIndexing,
-        ),
       _WorkspaceCommand(
         label: 'Fechar aba atual',
         shortcut: 'Ctrl+W',
@@ -1013,7 +988,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       return const Scaffold(body: SizedBox.shrink());
     }
 
-    final activeTask = _ocrTasks[_tabs[_activeIndex].document.id];
     return CallbackShortcuts(
       bindings: _shortcutBindings(),
       child: Focus(
@@ -1030,11 +1004,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             return Scaffold(
               body: Column(
                 children: [
-                  if (desktopMenus) _buildDesktopMenuBar(activeTask),
+                  if (desktopMenus) _buildDesktopMenuBar(),
                   if (!_fullScreen)
                     _buildTabStrip(
                       sidePanelCapable: sidePanelCapable,
-                      activeTask: activeTask,
                     ),
                   if (!_fullScreen) const Divider(height: 1),
                   Expanded(
@@ -1043,7 +1016,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                         if (showSidePanel) ...[
                           SizedBox(
                             width: 268,
-                            child: _buildWorkspacePanel(activeTask),
+                            child: _buildWorkspacePanel(),
                           ),
                           const VerticalDivider(width: 1),
                         ],
@@ -1072,21 +1045,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                   ],
                                 ),
                               ),
-                              if (!_fullScreen &&
-                                  activeTask != null &&
-                                  (activeTask.running ||
-                                      activeTask.summary != null ||
-                                      activeTask.error != null))
-                                Positioned(
-                                  right: 16,
-                                  bottom: _statusBarVisible ? 42 : 16,
-                                  child: _OcrProgressCard(
-                                    task: activeTask,
-                                    onCancel: activeTask.running
-                                        ? _cancelActiveIndexing
-                                        : null,
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1094,7 +1052,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                     ),
                   ),
                   if (!_fullScreen && _statusBarVisible)
-                    _buildStatusBar(activeTask),
+                    _buildStatusBar(),
                 ],
               ),
             );
@@ -1104,7 +1062,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildDesktopMenuBar(_WorkspaceOcrTask? activeTask) {
+  Widget _buildDesktopMenuBar() {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       height: 36,
@@ -1169,12 +1127,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 'Iniciar/retomar OCR',
                 'Ctrl+Shift+I',
               ),
-              if (activeTask?.running == true)
-                const _WorkspaceMenuItem(
-                  'cancel-index',
-                  'Cancelar OCR',
-                  '',
-                ),
               const _WorkspaceMenuItem(
                 'palette',
                 'Paleta de comandos',
@@ -1228,7 +1180,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildWorkspacePanel(_WorkspaceOcrTask? activeTask) {
+  Widget _buildWorkspacePanel() {
     final tab = _tabs[_activeIndex];
     final scheme = Theme.of(context).colorScheme;
     return Material(
@@ -1292,13 +1244,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           ),
           _PanelAction(
             icon: Icons.document_scanner_outlined,
-            label: activeTask?.running == true
-                ? 'OCR/indexação em andamento'
-                : 'Executar OCR/indexação',
-            shortcut: activeTask?.running == true ? '' : 'Ctrl+Shift+I',
-            onTap: activeTask?.running == true
-                ? _cancelActiveIndexing
-                : _startActiveIndexing,
+            label: 'OCR/indexação manual',
+            shortcut: 'Ctrl+Shift+I',
+            onTap: _startActiveIndexing,
           ),
           _PanelAction(
             icon: Icons.forum_outlined,
@@ -1374,7 +1322,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Future<void> _showWorkspacePanelSheet(_WorkspaceOcrTask? activeTask) {
+  Future<void> _showWorkspacePanelSheet() {
     final tab = _tabs[_activeIndex];
     return showModalBottomSheet<void>(
       context: context,
@@ -1425,18 +1373,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
               ListTile(
                 leading: const Icon(Icons.document_scanner_outlined),
-                title: Text(
-                  activeTask?.running == true
-                      ? 'Cancelar OCR preservando progresso'
-                      : 'Iniciar/retomar OCR',
-                ),
+                title: const Text('OCR/indexação manual'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  if (activeTask?.running == true) {
-                    _cancelActiveIndexing();
-                  } else {
-                    _startActiveIndexing();
-                  }
+                  _startActiveIndexing();
                 },
               ),
               ListTile(
@@ -1505,10 +1445,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildStatusBar(_WorkspaceOcrTask? activeTask) {
+  Widget _buildStatusBar() {
     final tab = _tabs[_activeIndex];
-    final progress = activeTask?.progress;
-    final running = activeTask?.running == true;
     final scheme = Theme.of(context).colorScheme;
     return Container(
       height: 28,
@@ -1535,34 +1473,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             style: Theme.of(context).textTheme.labelSmall,
           ),
           const Spacer(),
-          if (running) ...[
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                value: progress != null && progress.totalInRange > 0
-                    ? progress.completedInRange / progress.totalInRange
-                    : null,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              progress == null
-                  ? 'OCR preparando…'
-                  : 'OCR ${progress.completedInRange}/${progress.totalInRange}',
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-            const SizedBox(width: 12),
-          ] else if (activeTask?.summary != null) ...[
-            const Icon(Icons.check_circle_outline, size: 14),
-            const SizedBox(width: 5),
-            Text(
-              'Índice atualizado',
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-            const SizedBox(width: 12),
-          ],
           Text(
             'Ctrl+Shift+P comandos',
             style: Theme.of(context).textTheme.labelSmall,
@@ -1574,7 +1484,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildTabStrip({
     required bool sidePanelCapable,
-    required _WorkspaceOcrTask? activeTask,
   }) {
     final scheme = Theme.of(context).colorScheme;
     final height = _denseToolbar ? 40.0 : 48.0;
@@ -1593,7 +1502,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   : VisualDensity.standard,
               onPressed: sidePanelCapable
                   ? _toggleWorkspacePanel
-                  : () => unawaited(_showWorkspacePanelSheet(activeTask)),
+                  : () => unawaited(_showWorkspacePanelSheet()),
               icon: const Icon(Icons.space_dashboard_outlined, size: 20),
             ),
             Expanded(
@@ -1832,95 +1741,6 @@ class _ShortcutBadge extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall,
-      ),
-    );
-  }
-}
-
-class _OcrProgressCard extends StatelessWidget {
-  const _OcrProgressCard({required this.task, this.onCancel});
-
-  final _WorkspaceOcrTask task;
-  final VoidCallback? onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = task.progress;
-    final summary = task.summary;
-    final total = progress?.totalInRange ?? 0;
-    final completed = progress?.completedInRange ?? 0;
-    return Card(
-      elevation: 5,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 340),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    task.running
-                        ? Icons.document_scanner_outlined
-                        : task.error == null
-                            ? Icons.check_circle_outline
-                            : Icons.error_outline,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      task.running
-                          ? 'OCR/indexação em segundo plano'
-                          : task.error != null
-                              ? 'Indexação interrompida por erro'
-                              : summary?.cancelled == true
-                                  ? 'Indexação pausada'
-                                  : 'Indexação concluída',
-                    ),
-                  ),
-                  if (onCancel != null)
-                    IconButton(
-                      tooltip: 'Cancelar e preservar progresso',
-                      onPressed: onCancel,
-                      icon: const Icon(Icons.stop_circle_outlined),
-                    ),
-                ],
-              ),
-              if (task.running) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: total > 0 ? completed / total : null,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  progress == null
-                      ? 'Preparando páginas…'
-                      : 'Página ${progress.pageNumber}/${progress.pageCount} • $completed/$total',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ] else if (summary != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  summary.cancelled
-                      ? 'O que já foi processado foi salvo. Execute novamente para retomar.'
-                      : '${summary.recognizedPages} página(s) processada(s); busca local atualizada incrementalmente.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ] else if (task.error != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '${task.error}',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-            ],
-          ),
-        ),
       ),
     );
   }

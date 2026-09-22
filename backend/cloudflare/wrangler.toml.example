@@ -26,6 +26,7 @@ retry_delay = 30
 ENVIRONMENT = "development"
 SUPABASE_URL = "https://ibffselezupggrovfruz.supabase.co"
 MAX_UPLOAD_BYTES = "262144000"
+AI_GLOBAL_DAILY_CREDIT_LIMIT = "1200"
 
 # Configure outside git:
 # wrangler secret put SUPABASE_PUBLISHABLE_KEY

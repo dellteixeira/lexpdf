@@ -134,9 +134,10 @@ class _AccountScreenState extends State<AccountScreen> {
                 leading: Icon(Icons.auto_awesome_outlined),
                 title: Text('A IA não exige conta'),
                 subtitle: Text(
-                  'O LexPDF cria uma sessão técnica privada automaticamente '
-                  'quando a IA online é usada. Login é necessário apenas para '
-                  'recursos de conta e LexPDF Cloud.',
+                  'O LexPDF usa uma credencial técnica local do próprio '
+                  'dispositivo para a IA online. Não há login para usar IA. '
+                  'Conta continua necessária apenas para recursos pessoais '
+                  'de nuvem e sincronização.',
                 ),
               ),
             ),
