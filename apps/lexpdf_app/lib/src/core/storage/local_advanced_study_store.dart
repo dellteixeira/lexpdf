@@ -24,12 +24,17 @@ class LocalAdvancedStudyStore {
         source_page INTEGER CHECK(source_page IS NULL OR source_page >= 1),
         source_text TEXT NOT NULL DEFAULT '',
         subject TEXT NOT NULL DEFAULT '',
+        topic TEXT NOT NULL DEFAULT '',
         tags_json TEXT NOT NULL DEFAULT '[]',
         difficulty INTEGER NOT NULL DEFAULT 3 CHECK(difficulty BETWEEN 1 AND 5),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     ''');
+    _ensureStudyItemColumn(
+      'topic',
+      "ALTER TABLE study_items ADD COLUMN topic TEXT NOT NULL DEFAULT '';",
+    );
     db.database.execute('''
       CREATE INDEX IF NOT EXISTS study_items_notebook_idx
       ON study_items(notebook_id, updated_at DESC);
@@ -72,6 +77,7 @@ class LocalAdvancedStudyStore {
     required AiStudyResult result,
     int? sourcePage,
     String subject = '',
+    String topic = '',
     List<String> tags = const [],
   }) async {
     final now = DateTime.now().toUtc();
@@ -98,6 +104,7 @@ class LocalAdvancedStudyStore {
         sourcePage: sourcePage,
         sourceText: result.sourceText.trim(),
         subject: subject.trim(),
+        topic: topic.trim(),
         tags: tags
             .map((tag) => tag.trim())
             .where((tag) => tag.isNotEmpty)
@@ -194,6 +201,95 @@ class LocalAdvancedStudyStore {
       LIMIT ?;
     ''', args);
     return rows.map(_itemFromRow).toList(growable: false);
+  }
+
+  Future<List<FlashcardLibraryEntry>> listFlashcardEntries({
+    int limit = 10000,
+  }) async {
+    _ensureFlashcardReviewRows();
+    final rows = db.database.select('''
+      SELECT i.*, d.title AS document_title,
+             r.due_at AS review_due_at,
+             r.interval_days AS review_interval_days,
+             r.ease_factor AS review_ease_factor,
+             r.repetitions AS review_repetitions,
+             r.lapses AS review_lapses,
+             r.last_grade AS review_last_grade,
+             r.last_reviewed_at AS review_last_reviewed_at
+      FROM study_items i
+      JOIN study_review_state r ON r.item_id = i.id
+      LEFT JOIN documents d ON d.id = i.document_id
+      WHERE i.kind = 'flashcard'
+      ORDER BY i.updated_at DESC
+      LIMIT ?;
+    ''', [limit]);
+    return rows
+        .map(
+          (row) => FlashcardLibraryEntry(
+            item: _itemFromRow(row),
+            review: _reviewFromJoinedRow(row),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  void _ensureFlashcardReviewRows() {
+    db.database.execute('''
+      INSERT OR IGNORE INTO study_review_state(
+        item_id, due_at, interval_days, ease_factor, repetitions, lapses
+      )
+      SELECT id, created_at, 0, 2.5, 0, 0
+      FROM study_items
+      WHERE kind = 'flashcard';
+    ''');
+  }
+
+  Future<FlashcardLibraryStats> flashcardLibraryStats() async {
+    _ensureFlashcardReviewRows();
+    final now = DateTime.now().toUtc().toIso8601String();
+    final row = db.database.select('''
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN r.due_at <= ? THEN 1 ELSE 0 END) AS due,
+        SUM(CASE WHEN r.repetitions = 0 THEN 1 ELSE 0 END) AS new_cards,
+        SUM(CASE
+          WHEN r.lapses > 0 OR r.last_grade IN ('again', 'hard') THEN 1
+          ELSE 0
+        END) AS difficult
+      FROM study_items i
+      JOIN study_review_state r ON r.item_id = i.id
+      WHERE i.kind = 'flashcard';
+    ''', [now]).single;
+    return FlashcardLibraryStats(
+      total: row['total'] as int? ?? 0,
+      due: row['due'] as int? ?? 0,
+      newCards: row['new_cards'] as int? ?? 0,
+      difficult: row['difficult'] as int? ?? 0,
+    );
+  }
+
+  Future<void> updateFlashcardClassification({
+    required String itemId,
+    required String subject,
+    required String topic,
+    List<String> tags = const [],
+  }) async {
+    final normalizedTags = tags
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    db.database.execute('''
+      UPDATE study_items
+      SET subject = ?, topic = ?, tags_json = ?, updated_at = ?
+      WHERE id = ? AND kind = 'flashcard';
+    ''', [
+      subject.trim(),
+      topic.trim(),
+      jsonEncode(normalizedTags),
+      DateTime.now().toUtc().toIso8601String(),
+      itemId,
+    ]);
   }
 
   Future<List<StudyItem>> listDue({int limit = 100}) async {
@@ -415,6 +511,17 @@ class LocalAdvancedStudyStore {
         .toList(growable: false);
   }
 
+  void _ensureStudyItemColumn(String column, String statement) {
+    final columns = db.database
+        .select("PRAGMA table_info('study_items');")
+        .map((row) => row['name']?.toString())
+        .whereType<String>()
+        .toSet();
+    if (!columns.contains(column)) {
+      db.database.execute(statement);
+    }
+  }
+
   void _ensureFtsTable() {
     db.database.execute('''
       CREATE VIRTUAL TABLE IF NOT EXISTS global_search_fts USING fts5(
@@ -432,9 +539,9 @@ class LocalAdvancedStudyStore {
     db.database.execute('''
       INSERT INTO study_items(
         id, notebook_id, document_id, kind, prompt, answer, commentary,
-        source_page, source_text, subject, tags_json, difficulty,
+        source_page, source_text, subject, topic, tags_json, difficulty,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     ''', [
       item.id,
       item.notebookId,
@@ -446,6 +553,7 @@ class LocalAdvancedStudyStore {
       item.sourcePage,
       item.sourceText,
       item.subject,
+      item.topic,
       jsonEncode(item.tags),
       item.difficulty.clamp(1, 5),
       item.createdAt.toUtc().toIso8601String(),
@@ -482,12 +590,31 @@ class LocalAdvancedStudyStore {
       sourcePage: row['source_page'] as int?,
       sourceText: row['source_text'] as String? ?? '',
       subject: row['subject'] as String? ?? '',
+      topic: row['topic'] as String? ?? '',
       tags: tags,
       difficulty: row['difficulty'] as int? ?? 3,
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
     );
   }
+
+  StudyReviewState _reviewFromJoinedRow(dynamic row) => StudyReviewState(
+        itemId: row['id'] as String,
+        dueAt: DateTime.parse(row['review_due_at'] as String),
+        intervalDays: (row['review_interval_days'] as num).toDouble(),
+        easeFactor: (row['review_ease_factor'] as num).toDouble(),
+        repetitions: row['review_repetitions'] as int,
+        lapses: row['review_lapses'] as int,
+        lastGrade: row['review_last_grade'] == null
+            ? null
+            : StudyReviewGrade.values.firstWhere(
+                (value) => value.name == row['review_last_grade'],
+                orElse: () => StudyReviewGrade.good,
+              ),
+        lastReviewedAt: row['review_last_reviewed_at'] == null
+            ? null
+            : DateTime.parse(row['review_last_reviewed_at'] as String),
+      );
 
   StudyReviewState _reviewFromRow(dynamic row) => StudyReviewState(
         itemId: row['item_id'] as String,

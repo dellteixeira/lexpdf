@@ -277,6 +277,8 @@ class PdfSelectionActionMenu {
       documentId: documentId,
       documentTitle: documentTitle,
       sourcePage: ranges.first.pageNumber,
+      subject: draft.subject,
+      topic: draft.topic,
       result: AiStudyResult(
         action: AiStudyAction.flashcards,
         engine: AiEngineKind.local,
@@ -292,7 +294,12 @@ class PdfSelectionActionMenu {
     await delegate.clearTextSelection();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Flashcard salvo.')),
+        const SnackBar(
+          duration: Duration(seconds: 4),
+          content: Text(
+            'Flashcard salvo. Encontre-o em Flashcards na tela inicial.',
+          ),
+        ),
       );
     }
   }
@@ -618,9 +625,17 @@ class _RenderedTextAnnotation {
 }
 
 class _ManualFlashcardDraft {
-  const _ManualFlashcardDraft({required this.question, required this.answer});
+  const _ManualFlashcardDraft({
+    required this.question,
+    required this.answer,
+    required this.subject,
+    required this.topic,
+  });
+
   final String question;
   final String answer;
+  final String subject;
+  final String topic;
 }
 
 Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
@@ -629,6 +644,8 @@ Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
 }) async {
   final questionController = TextEditingController();
   final answerController = TextEditingController(text: selectedText);
+  final subjectController = TextEditingController();
+  final topicController = TextEditingController();
   try {
     return await showDialog<_ManualFlashcardDraft>(
       context: context,
@@ -676,6 +693,31 @@ Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
                     border: OutlineInputBorder(),
                   ),
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                Text(
+                  'Organização',
+                  style: Theme.of(dialogContext).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: subjectController,
+                  decoration: const InputDecoration(
+                    labelText: 'Matéria (opcional)',
+                    hintText: 'Ex.: Direito Constitucional',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: topicController,
+                  decoration: const InputDecoration(
+                    labelText: 'Assunto (opcional)',
+                    hintText: 'Ex.: Direitos fundamentais',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
               ],
             ),
           ),
@@ -684,7 +726,12 @@ Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
           TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancelar')),
           FilledButton.icon(
             onPressed: () => Navigator.of(dialogContext).pop(
-              _ManualFlashcardDraft(question: questionController.text, answer: answerController.text),
+              _ManualFlashcardDraft(
+                question: questionController.text,
+                answer: answerController.text,
+                subject: subjectController.text.trim(),
+                topic: topicController.text.trim(),
+              ),
             ),
             icon: const Icon(Icons.save_outlined),
             label: const Text('Salvar flashcard'),
@@ -695,6 +742,8 @@ Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
   } finally {
     questionController.dispose();
     answerController.dispose();
+    subjectController.dispose();
+    topicController.dispose();
   }
 }
 

@@ -230,7 +230,12 @@ class _AiSelectionExplanationScreenState
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Flashcard revisado e salvo.')),
+        const SnackBar(
+          duration: Duration(seconds: 4),
+          content: Text(
+            'Flashcard revisado e salvo. Acesse-o em Flashcards na tela inicial.',
+          ),
+        ),
       );
     }
   }

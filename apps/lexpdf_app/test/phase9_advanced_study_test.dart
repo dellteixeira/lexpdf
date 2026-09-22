@@ -42,7 +42,8 @@ void main() {
       documentTitle: 'Direito Constitucional',
       result: result,
       sourcePage: 5,
-      subject: 'Direitos fundamentais',
+      subject: 'Direito Constitucional',
+      topic: 'Direitos fundamentais',
       tags: const ['CF', 'art. 5º'],
     );
 
@@ -57,9 +58,33 @@ void main() {
     expect(items, hasLength(2));
     expect(items.first.documentId, 'doc-1');
     expect(items.first.sourcePage, 5);
-    expect(items.first.subject, 'Direitos fundamentais');
+    expect(items.first.subject, 'Direito Constitucional');
+    expect(items.first.topic, 'Direitos fundamentais');
     expect(items.first.tags, contains('art. 5º'));
     expect(await store.listDue(), hasLength(2));
+
+    final library = await store.listFlashcardEntries();
+    expect(library, hasLength(2));
+    expect(library.first.subject, 'Direito Constitucional');
+    expect(library.first.topic, 'Direitos fundamentais');
+
+    final before = await store.flashcardLibraryStats();
+    expect(before.total, 2);
+    expect(before.due, 2);
+    expect(before.newCards, 2);
+
+    await store.updateFlashcardClassification(
+      itemId: library.first.item.id,
+      subject: 'Direito Constitucional',
+      topic: 'Controle de constitucionalidade',
+      tags: const ['FCC', 'CF'],
+    );
+    final updated = await store.listFlashcardEntries();
+    final reorganized = updated.firstWhere(
+      (entry) => entry.item.id == library.first.item.id,
+    );
+    expect(reorganized.item.topic, 'Controle de constitucionalidade');
+    expect(reorganized.item.tags, contains('FCC'));
   });
 
   test('spaced review updates due date and session statistics', () async {

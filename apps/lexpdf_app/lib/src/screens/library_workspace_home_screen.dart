@@ -4,16 +4,26 @@ import 'package:flutter/material.dart';
 
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
+import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import 'cloud_sync_screen.dart';
+import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
 import 'notebook_screen.dart';
 import 'pdf_workspace_screen.dart';
 
-enum _HomeSection { library, recent, favorites, notebooks, offline, cloud }
+enum _HomeSection {
+  library,
+  recent,
+  favorites,
+  notebooks,
+  flashcards,
+  offline,
+  cloud,
+}
 enum _HomeMoreAction { account, print }
 
 class LibraryWorkspaceHomeScreen extends StatefulWidget {
@@ -43,6 +53,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     (_HomeSection.recent, Icons.history, 'Recentes'),
     (_HomeSection.favorites, Icons.star_border, 'Favoritos'),
     (_HomeSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
+    (_HomeSection.flashcards, Icons.style_outlined, 'Flashcards'),
     (_HomeSection.offline, Icons.offline_pin_outlined, 'Offline'),
     (_HomeSection.cloud, Icons.cloud_outlined, 'Nuvem'),
   ];
@@ -53,6 +64,9 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
 
   LocalPdfNavigationStore get _navigationStore =>
       LocalPdfNavigationStore(widget.annotations.db);
+
+  LocalAdvancedStudyStore get _studyStore =>
+      LocalAdvancedStudyStore(widget.annotations.db);
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +95,11 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Flashcards',
+            onPressed: () => _select(_HomeSection.flashcards),
+            icon: const Icon(Icons.style_outlined),
+          ),
           IconButton(
             tooltip: 'Buscar',
             onPressed: _openSearch,
@@ -183,6 +202,13 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         onTap: _openNotebook,
       );
     }
+    if (_section == _HomeSection.flashcards) {
+      return FlashcardCenterScreen(
+        store: _studyStore,
+        embedded: true,
+        onOpenSource: _openStudySource,
+      );
+    }
     if (_section == _HomeSection.cloud) {
       return _ActionPanel(
         icon: Icons.cloud_outlined,
@@ -207,6 +233,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         final documents = await widget.catalog.list(limit: 500);
         return documents.where((document) => document.hasLocalPath).toList(growable: false);
       case _HomeSection.notebooks:
+      case _HomeSection.flashcards:
       case _HomeSection.cloud:
         return const [];
     }
@@ -320,6 +347,29 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
+  Future<void> _openStudySource(String documentId, int pageNumber) async {
+    final document = await widget.catalog.getById(documentId);
+    if (!mounted) return;
+    if (document == null || !document.hasLocalPath) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O PDF original não está disponível localmente.'),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfWorkspaceScreen(
+          document: document,
+          store: _navigationStore,
+          annotations: widget.annotations,
+          initialPage: pageNumber,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openCloud() => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => CloudSyncScreen(db: widget.annotations.db),
@@ -414,6 +464,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Recentes',
       _HomeSection.favorites => 'Favoritos',
       _HomeSection.notebooks => 'Cadernos',
+      _HomeSection.flashcards => 'Flashcards',
       _HomeSection.offline => 'Offline',
       _HomeSection.cloud => 'Nuvem',
     };
@@ -422,6 +473,8 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Documentos realmente abertos por você.',
       _HomeSection.favorites => 'Documentos mantidos por perto.',
       _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.flashcards =>
+        'Todos os cartões, organizados por matéria e assunto.',
       _HomeSection.offline => 'Arquivos locais prontos para abrir.',
       _HomeSection.cloud => 'Arquivos remotos e sincronização opcional.',
     };
