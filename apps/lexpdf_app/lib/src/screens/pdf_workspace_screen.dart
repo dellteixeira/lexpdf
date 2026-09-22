@@ -60,7 +60,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final FocusNode _shortcutFocus = FocusNode(debugLabel: 'pdf-tab-shell');
   final List<_WorkspaceTab> _tabs = <_WorkspaceTab>[];
   final Map<String, _WorkspaceOcrTask> _ocrTasks = <String, _WorkspaceOcrTask>{};
-  final Set<String> _indexPrompted = <String>{};
+  final Set<String> _autoIndexAttempted = <String>{};
   final WorkspaceFullScreenService _fullScreenService =
       const WorkspaceFullScreenService();
 
@@ -311,38 +311,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Future<void> _inspectActiveDocumentForIndexing() async {
     if (!mounted || _tabs.isEmpty) return;
     final document = _tabs[_activeIndex].document;
-    if (!_indexPrompted.add(document.id)) return;
     if (_ocrTasks[document.id]?.running == true) return;
     final path = document.localPath;
     if (path == null || path.isEmpty || !File(path).existsSync()) return;
 
-    final indexed = widget.store.db.database.select('''
-      SELECT COUNT(*) AS count
-      FROM pdf_page_text_index
-      WHERE document_id = ? AND trim(content) <> '';
-    ''', [document.id]).single['count'] as int? ?? 0;
-    if (indexed > 0) return;
-
     try {
-      final availability = await _ocrService.inspectTextAvailability(filePath: path);
-      if (!mounted || _tabs.isEmpty || _tabs[_activeIndex].document.id != document.id) {
+      final availability = await _ocrService.inspectTextAvailability(
+        filePath: path,
+      );
+      final complete = await _ocrStore.hasCompleteDocumentIndex(
+        document.id,
+        pageCount: availability.pageCount,
+        acceptedEngines: _ocrService.resumeEngines,
+      );
+      if (complete) return;
+      if (!_autoIndexAttempted.add(document.id)) return;
+      if (!mounted ||
+          _tabs.isEmpty ||
+          _tabs[_activeIndex].document.id != document.id) {
         return;
       }
-      final message = availability.likelyScanned
-          ? 'Este PDF parece digitalizado. OCR/indexação pode rodar em segundo plano.'
-          : 'Indexe o texto deste PDF em segundo plano para busca local e Ctrl+F.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text(message),
-          action: SnackBarAction(
-            label: 'Indexar',
-            onPressed: () => unawaited(_startBackgroundIndexing(document)),
-          ),
-        ),
-      );
+
+      // Index silently and incrementally. Existing processed pages are durable
+      // and skipped, so reopening a document resumes only missing pages instead
+      // of asking the user or starting over.
+      unawaited(_startBackgroundIndexing(document));
     } catch (_) {
-      // Inspection is advisory; opening/reading the PDF must never depend on it.
+      // Inspection/index scheduling is advisory; reading must never depend on it.
     }
   }
 
