@@ -68,16 +68,13 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
       if (_selectedSubject != null && entry.subject != _selectedSubject) {
         return false;
       }
-      switch (_filter) {
-        case FlashcardLibraryFilter.all:
-          break;
-        case FlashcardLibraryFilter.due:
-          if (!entry.isDue) return false;
-        case FlashcardLibraryFilter.newCards:
-          if (!entry.isNew) return false;
-        case FlashcardLibraryFilter.difficult:
-          if (!entry.isDifficult) return false;
-      }
+      final matchesFilter = switch (_filter) {
+        FlashcardLibraryFilter.all => true,
+        FlashcardLibraryFilter.due => entry.isDue,
+        FlashcardLibraryFilter.newCards => entry.isNew,
+        FlashcardLibraryFilter.difficult => entry.isDifficult,
+      };
+      if (!matchesFilter) return false;
       if (query.isEmpty) return true;
       final item = entry.item;
       final haystack = [
@@ -461,18 +458,20 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
                 _count((entry) => entry.isDifficult),
               ),
               if (!desktop)
-                PopupMenuButton<String?>(
+                PopupMenuButton<String>(
                   tooltip: 'Filtrar matéria',
-                  initialValue: _selectedSubject,
-                  onSelected: (value) =>
-                      setState(() => _selectedSubject = value),
+                  initialValue: _selectedSubject ?? '__all__',
+                  onSelected: (value) => setState(
+                    () => _selectedSubject =
+                        value == '__all__' ? null : value,
+                  ),
                   itemBuilder: (_) => [
-                    const PopupMenuItem<String?>(
-                      value: null,
+                    const PopupMenuItem<String>(
+                      value: '__all__',
                       child: Text('Todas as matérias'),
                     ),
                     for (final subject in subjects)
-                      PopupMenuItem<String?>(
+                      PopupMenuItem<String>(
                         value: subject,
                         child: Text(subject),
                       ),
