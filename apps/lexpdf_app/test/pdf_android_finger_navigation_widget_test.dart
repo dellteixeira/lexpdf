@@ -55,6 +55,43 @@ void main() {
     expect(navigationStates, containsAllInOrder(<bool>[true, false, true, false]));
   });
 
+
+  testWidgets('inactive router yields touch drag to child without moving PDF', (
+    tester,
+  ) async {
+    final controller = _FakePdfViewerController();
+    var childPanDistance = Offset.zero;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox.expand(
+            child: PdfAndroidFingerNavigationRegion(
+              active: false,
+              controller: controller,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanUpdate: (details) {
+                  childPanDistance += details.delta;
+                },
+                child: const ColoredBox(color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final finger = await tester.createGesture(kind: PointerDeviceKind.touch);
+    await finger.down(const Offset(180, 300));
+    await finger.moveTo(const Offset(260, 220));
+    await tester.pump();
+    await finger.up();
+
+    expect(controller.translation, Offset.zero);
+    expect(childPanDistance.distance, greaterThan(1));
+  });
+
   testWidgets('active S Pen blocks palm touch until fingers are placed again', (
     tester,
   ) async {
