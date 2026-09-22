@@ -451,19 +451,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final hasIndex = widget.store.db.database.select('''
         SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
       ''', [tab.document.id]).isNotEmpty;
+      if (!hasIndex) {
+        unawaited(_startBackgroundIndexing(tab.document));
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             hasIndex
                 ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'Este PDF ainda não foi indexado. Inicie OCR/indexação para usar Ctrl+F em PDFs digitalizados.',
+                : 'Este PDF ainda está sendo indexado automaticamente. '
+                    'Tente a busca novamente em alguns instantes.',
           ),
-          action: hasIndex
-              ? null
-              : SnackBarAction(
-                  label: 'Indexar',
-                  onPressed: () => unawaited(_startBackgroundIndexing(tab.document)),
-                ),
         ),
       );
       return;
