@@ -51,6 +51,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
     this.fullScreen = false,
     this.showDocumentHeader = true,
     this.onToggleFullScreen,
+    this.onPageChanged,
     super.key,
   });
 
@@ -61,6 +62,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final bool fullScreen;
   final bool showDocumentHeader;
   final VoidCallback? onToggleFullScreen;
+  final ValueChanged<int>? onPageChanged;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -142,6 +144,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _loadingInk = false;
   bool _readingMode = false;
   bool _fullScreenForcedReadingMode = false;
+  int? _chromeTransitionPage;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
 
@@ -188,6 +191,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void didUpdateWidget(covariant PdfWorkspaceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.fullScreen == widget.fullScreen) return;
+
+    // Changing the amount of chrome changes the viewer viewport. pdfrx may
+    // transiently report page 1 while it recomputes that viewport, so capture
+    // the actual reading position before rebuilding and restore it after the
+    // new layout settles.
+    final preservedPage = _controller.pageNumber ?? _page;
+    _chromeTransitionPage = preservedPage;
     if (widget.fullScreen) {
       if (!_readingMode) {
         _readingMode = true;
@@ -198,6 +208,42 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       _fullScreenForcedReadingMode = false;
     }
     _controller.invalidate();
+    _schedulePageRestoreAfterChromeChange(preservedPage);
+  }
+
+  void _schedulePageRestoreAfterChromeChange(int pageNumber) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_restorePageAfterChromeChange(pageNumber));
+    });
+  }
+
+  Future<void> _restorePageAfterChromeChange(int pageNumber) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_controller.isReady) return;
+
+    Future<void> restoreIfNeeded() async {
+      if (!mounted || !_controller.isReady) return;
+      if (_controller.pageNumber == pageNumber) return;
+      await _controller.goToPage(
+        pageNumber: pageNumber,
+        anchor: PdfPageAnchor.top,
+        duration: Duration.zero,
+      );
+    }
+
+    await restoreIfNeeded();
+    await WidgetsBinding.instance.endOfFrame;
+    await restoreIfNeeded();
+
+    if (!mounted) return;
+    if (_chromeTransitionPage == pageNumber) {
+      _chromeTransitionPage = null;
+    }
+    if (_page != pageNumber) {
+      setState(() => _page = pageNumber);
+    }
+    widget.onPageChanged?.call(pageNumber);
   }
 
   @override
@@ -484,7 +530,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         ),
                       ),
                     ),
-                    if (_loadingInk)
+                    if (!_readingMode && _loadingInk)
                       const Positioned(
                         right: 16,
                         bottom: 16,
@@ -939,6 +985,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   Future<void> _setReadingMode(bool enabled) async {
     if (!mounted || _readingMode == enabled) return;
+    final preservedPage = _controller.pageNumber ?? _page;
+    _chromeTransitionPage = preservedPage;
     setState(() {
       _readingMode = enabled;
       if (enabled) {
@@ -948,6 +996,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       }
     });
     _controller.invalidate();
+    _schedulePageRestoreAfterChromeChange(preservedPage);
 
     if (_android) {
       await SystemChrome.setEnabledSystemUIMode(
@@ -1384,9 +1433,26 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   }
 
   void _onPageChanged(int? pageNumber) {
-    if (pageNumber == null || pageNumber == _page) return;
+    if (pageNumber == null) return;
+
+    final transitionTarget = _chromeTransitionPage;
+    if (transitionTarget != null && pageNumber != transitionTarget) {
+      // Ignore the transient first-page callback emitted while the viewport is
+      // being rebuilt for immersive mode. The preserved page is restored on
+      // the next settled frame.
+      return;
+    }
+    if (transitionTarget == pageNumber) {
+      _chromeTransitionPage = null;
+    }
+
+    if (pageNumber == _page) {
+      widget.onPageChanged?.call(pageNumber);
+      return;
+    }
     final previous = _page;
     setState(() => _page = pageNumber);
+    widget.onPageChanged?.call(pageNumber);
     final document = _document;
     if (document != null) unawaited(_loadInkWindow(document, pageNumber));
     if (_historyNavigation) {
