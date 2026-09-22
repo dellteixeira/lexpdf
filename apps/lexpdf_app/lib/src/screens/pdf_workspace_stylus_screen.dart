@@ -137,6 +137,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   int _inkLoadGeneration = 0;
   int _inkCount = 0;
   int _annotationRevision = 0;
+  bool _hasTextSelection = false;
   int _inkColor = 0xFF246BFD;
   double _inkWidth = 3.0;
   double _eraserWidth = 36.0;
@@ -165,6 +166,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool get _eraserMode => _stylusMode == _StylusMode.eraser;
 
   bool get _textSelectionMode => _stylusMode == _StylusMode.selectText;
+
+  /// Acrobat/Xodo-style mobile selection:
+  /// - Hand mode remains a navigation tool for normal drags;
+  /// - long-press with finger or stylus can still select a word on Android;
+  /// - explicit Select mode keeps free text-selection behavior;
+  /// - ink/note tools retain exclusive pointer ownership.
+  bool get _textSelectionEnabled =>
+      _textSelectionMode || (_android && _stylusMode == _StylusMode.hand);
+
+  bool get _textSelectionOwnsGesture =>
+      _textSelectionMode || _hasTextSelection;
 
   InkTool get _inkTool => switch (_stylusMode) {
     _StylusMode.highlighter => InkTool.highlighter,
@@ -338,7 +350,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         // exclusively to pdfrx's native text-selection engine.
                         // If our Android pan router also moves the controller,
                         // the page slides underneath the selection handle.
-                        active: _android && !_textSelectionMode,
+                        active: _android && !_textSelectionOwnsGesture,
                         controller: _controller,
                         onFocalPointChanged: (position) {
                           _zoomAnchorLocal = position;
@@ -430,22 +442,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             onInteractionEnd: (_) {
                               _syncZoomFromController();
                             },
-                            buildContextMenu:
-                                _stylusMode == _StylusMode.selectText
+                            buildContextMenu: _textSelectionEnabled
                                 ? _selectionMenu.buildContextMenu
                                 : null,
                             textSelectionParams: PdfTextSelectionParams(
-                              enabled: _textSelectionMode,
-                              // Leave handle policy adaptive: pdfrx shows
-                              // touch handles on mobile while preserving direct
-                              // drag-to-select when the input model supports it.
+                              enabled: _textSelectionEnabled,
+                              // In Hand mode on Android, long-press selects one
+                              // word and always exposes handles, including for
+                              // S Pen. Explicit Select mode stays adaptive so
+                              // drag-to-select remains available.
+                              enableSelectionHandles:
+                                  _android && !_textSelectionMode ? true : null,
                               showContextMenuAutomatically: true,
                               onSelectionHandlePanStart: (_) {
                                 // Kill any kinetic pan left over from Hand mode
                                 // before the first handle movement.
                                 _controller.stopInteractiveViewerAnimation();
                               },
-                              onTextSelectionChange: (_) {
+                              onTextSelectionChange: (selection) {
+                                final hasSelection =
+                                    selection.hasSelectedText;
+                                if (mounted &&
+                                    _hasTextSelection != hasSelection) {
+                                  if (hasSelection && _android) {
+                                    unawaited(
+                                      HapticFeedback.selectionClick(),
+                                    );
+                                  }
+                                  setState(
+                                    () => _hasTextSelection = hasSelection,
+                                  );
+                                }
                                 if (_controller.isReady) {
                                   _controller.invalidate();
                                 }
@@ -977,10 +1004,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void _setStylusMode(_StylusMode mode) {
     if (_stylusMode == mode) return;
 
-    if (mode == _StylusMode.selectText && _controller.isReady) {
-      // Acrobat-like tool exclusivity: entering Select freezes any residual
-      // fling immediately, so the page becomes a stationary selection canvas.
+    if ((mode == _StylusMode.selectText ||
+            mode == _StylusMode.pen ||
+            mode == _StylusMode.highlighter ||
+            mode == _StylusMode.eraser ||
+            mode == _StylusMode.note) &&
+        _controller.isReady) {
+      // Entering a modal tool freezes residual navigation immediately.
       _controller.stopInteractiveViewerAnimation();
+    }
+
+    if (_hasTextSelection &&
+        mode != _StylusMode.hand &&
+        mode != _StylusMode.selectText &&
+        _controller.isReady) {
+      unawaited(_controller.textSelectionDelegate.clearTextSelection());
     }
 
     setState(() => _stylusMode = mode);
