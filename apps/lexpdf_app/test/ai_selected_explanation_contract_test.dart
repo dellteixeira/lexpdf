@@ -24,7 +24,8 @@ void main() {
     expect(screen, contains("label: const Text('Sugerir flashcard')"));
     expect(screen, contains("label: const Text('Salvar como anotação')"));
     expect(screen, contains('lexpdf-note-v1:'));
-    expect(screen, contains('currentSession?.accessToken'));
+    expect(screen, contains('AiAccessSession.bearerToken'));
+    expect(screen, isNot(contains('Entre na sua conta LexPDF')));
     expect(workspace, contains('anchorX: anchorX'));
     expect(workspace, contains('anchorY: anchorY'));
     expect(menu, contains('enumerateFragmentBoundingRects()'));
