@@ -3,8 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/remote_ai_engine.dart';
 import '../core/annotations/pdf_annotation_object.dart';
@@ -54,16 +53,7 @@ class _AiSelectionExplanationScreenState
 
   Future<RemoteAiStudyEngine> _engine() async {
     const config = BackendConfig.fromEnvironment;
-    if (!config.hasAiGateway) {
-      throw StateError('O gateway de IA não está configurado neste build.');
-    }
-    if (!config.hasSupabase) {
-      throw StateError('A autenticação LexPDF não está configurada.');
-    }
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null || token.trim().isEmpty) {
-      throw StateError('Entre na sua conta LexPDF para usar a IA online.');
-    }
+    final token = await AiAccessSession.bearerToken(config: config);
     return RemoteAiStudyEngine(
       endpoint: Uri.parse(config.aiGatewayUrl),
       bearerToken: token,
