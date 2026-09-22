@@ -325,7 +325,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _StudyReviewScreen(
+        builder: (_) => StudyReviewScreen(
           store: widget.store,
           items: due,
           onOpenSource: widget.onOpenSource,
@@ -913,8 +913,8 @@ class _Metric extends StatelessWidget {
       );
 }
 
-class _StudyReviewScreen extends StatefulWidget {
-  const _StudyReviewScreen({
+class StudyReviewScreen extends StatefulWidget {
+  const StudyReviewScreen({
     required this.store,
     required this.items,
     this.onOpenSource,
@@ -925,10 +925,10 @@ class _StudyReviewScreen extends StatefulWidget {
   final Future<void> Function(String documentId, int pageNumber)? onOpenSource;
 
   @override
-  State<_StudyReviewScreen> createState() => _StudyReviewScreenState();
+  State<StudyReviewScreen> createState() => StudyReviewScreenState();
 }
 
-class _StudyReviewScreenState extends State<_StudyReviewScreen> {
+class StudyReviewScreenState extends State<StudyReviewScreen> {
   int _index = 0;
   bool _revealed = false;
   bool _reviewTutorLoading = false;
