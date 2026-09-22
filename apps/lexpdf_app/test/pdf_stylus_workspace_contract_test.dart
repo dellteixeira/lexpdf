@@ -29,7 +29,7 @@ void main() {
     expect(workspace, contains("'Borracha'"));
     expect(
       workspace,
-      contains('enabled: _stylusMode == _StylusMode.selectText'),
+      contains('enabled: _textSelectionMode'),
     );
     expect(workspace, contains('_stylusMode == _StylusMode.note'));
 
