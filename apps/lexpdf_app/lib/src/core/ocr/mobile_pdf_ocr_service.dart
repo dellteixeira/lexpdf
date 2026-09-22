@@ -237,7 +237,7 @@ class MobilePdfOcrService {
                 // pdfrx exposes rendered RGBA pixels, while ML Kit's bitmap
                 // bridge is format-sensitive on Android. Encode a real PNG and
                 // let the native decoder read it from a temporary file instead
-                // of handing arbitrary raw pixels to InputImage.fromBitmap.
+                // of handing arbitrary raw RGBA pixels to the native bridge.
                 final temporaryDirectory = await getTemporaryDirectory();
                 final temporaryFile = File(
                   '${temporaryDirectory.path}'
