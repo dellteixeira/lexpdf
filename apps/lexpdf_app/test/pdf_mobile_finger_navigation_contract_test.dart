@@ -7,12 +7,15 @@ void main() {
     final source = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
 
-    final appBarStart = source.indexOf('appBar: AppBar(');
+    final appBarStart = source.indexOf(
+      'appBar: (_readingMode || !widget.showDocumentHeader)',
+    );
     final bodyStart = source.indexOf('body: CallbackShortcuts', appBarStart);
     expect(appBarStart, greaterThanOrEqualTo(0));
     expect(bodyStart, greaterThan(appBarStart));
 
     final appBar = source.substring(appBarStart, bodyStart);
+    expect(appBar, contains('widget.document.name'));
     expect(appBar, isNot(contains('Icons.zoom_out')));
     expect(appBar, isNot(contains('Icons.zoom_in')));
     expect(appBar, isNot(contains('_buildZoomMenu')));

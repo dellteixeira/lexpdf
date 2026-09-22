@@ -15,7 +15,12 @@ void main() {
     expect(workspace, contains("'fullscreen'"));
     expect(workspace, contains("'Tela cheia'"));
     expect(workspace, contains('LogicalKeyboardKey.f11'));
+    expect(
+      workspace,
+      contains('bind(LogicalKeyboardKey.keyH, _toggleFullScreen)'),
+    );
     expect(workspace, contains('onToggleFullScreen: _toggleFullScreen'));
+    expect(workspace, contains('showDocumentHeader: false'));
     expect(service, contains("MethodChannel('lexpdf/window_mode')"));
     expect(service, contains('SystemUiMode.immersiveSticky'));
     expect(native, contains('"lexpdf/window_mode"'));

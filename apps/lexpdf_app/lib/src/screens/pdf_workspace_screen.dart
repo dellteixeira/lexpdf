@@ -737,8 +737,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ('Ctrl/Cmd+B', 'Mostrar/ocultar painel'),
       ('Ctrl/Cmd+Shift+I', 'Iniciar/retomar OCR'),
       ('Ctrl/Cmd+Shift+P', 'Paleta de comandos'),
+      ('Ctrl/Cmd+H', 'Modo leitura em tela cheia'),
       ('F11', 'Entrar/sair da tela cheia'),
-      ('Esc', 'Sair da tela cheia'),
+      ('Esc', 'Sair do modo leitura/tela cheia'),
     ];
     return showDialog<void>(
       context: context,
@@ -1001,6 +1002,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     bind(LogicalKeyboardKey.keyW, () => unawaited(_closeActiveTab()));
     bind(LogicalKeyboardKey.keyF, () => unawaited(_showDocumentSearch()));
     bind(LogicalKeyboardKey.keyB, _toggleWorkspacePanel);
+    bind(LogicalKeyboardKey.keyH, _toggleFullScreen);
     bind(LogicalKeyboardKey.keyI, _startActiveIndexing, shift: true);
     bind(LogicalKeyboardKey.keyP, () => unawaited(_showCommandPalette()), shift: true);
     bindings[const SingleActivator(LogicalKeyboardKey.f11)] = _toggleFullScreen;
@@ -1072,6 +1074,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                         annotations: widget.annotations,
                                         initialPage: tab.initialPage,
                                         fullScreen: _fullScreen,
+                                        showDocumentHeader: false,
                                         onToggleFullScreen: _toggleFullScreen,
                                       ),
                                   ],
@@ -1158,8 +1161,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
               _WorkspaceMenuItem(
                 'fullscreen',
-                _fullScreen ? 'Sair da tela cheia' : 'Tela cheia',
-                'F11',
+                _fullScreen
+                    ? 'Sair do modo leitura'
+                    : 'Modo leitura em tela cheia',
+                'Ctrl+H',
               ),
             ],
           ),

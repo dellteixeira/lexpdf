@@ -49,6 +49,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
     required this.annotations,
     this.initialPage = 1,
     this.fullScreen = false,
+    this.showDocumentHeader = true,
     this.onToggleFullScreen,
     super.key,
   });
@@ -58,6 +59,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final LocalTextAnnotationStore annotations;
   final int initialPage;
   final bool fullScreen;
+  final bool showDocumentHeader;
   final VoidCallback? onToggleFullScreen;
 
   @override
@@ -222,7 +224,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     }
 
     return Scaffold(
-      appBar: _readingMode
+      appBar: (_readingMode || !widget.showDocumentHeader)
           ? null
           : AppBar(
         title: Column(
@@ -259,7 +261,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           const SingleActivator(LogicalKeyboardKey.pageDown): () =>
               unawaited(_nextPage()),
           const SingleActivator(LogicalKeyboardKey.keyH, control: true):
-              _toggleReadingMode,
+              _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.f11): _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.escape): () {
             if (widget.fullScreen) {
@@ -646,8 +648,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                       ),
                       IconButton(
                         tooltip: widget.fullScreen
-                            ? 'Sair da tela cheia (F11)'
-                            : 'Tela cheia (F11)',
+                            ? 'Sair do modo leitura (Ctrl+H)'
+                            : 'Modo leitura (Ctrl+H)',
                         onPressed: _requestFullScreen,
                         icon: Icon(
                           widget.fullScreen
@@ -797,7 +799,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             value: _WorkspaceMoreAction.readingMode,
                             child: ListTile(
                               leading: Icon(Icons.fullscreen_outlined),
-                              title: Text('Modo leitura'),
+                              title: Text('Modo leitura em tela cheia'),
                               subtitle: Text('Ctrl+H'),
                             ),
                           ),
@@ -916,14 +918,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _handleAndroidPdfTap() {
     if (!_android) return;
-    if (widget.fullScreen) {
-      widget.onToggleFullScreen?.call();
-      return;
-    }
-    // Keep annotation, selection, note and ink taps dedicated to their tools.
-    // In reading mode, a tap always restores the interface.
-    if (!_readingMode && _stylusMode != _StylusMode.hand) return;
-    _toggleReadingMode();
+    // A single tap is the Android reading-mode gesture, but annotation,
+    // selection and ink tools keep ownership of taps while chrome is visible.
+    if (!widget.fullScreen && _stylusMode != _StylusMode.hand) return;
+    _requestFullScreen();
   }
 
   void _requestFullScreen() {
@@ -1299,7 +1297,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   void _handleMoreAction(_WorkspaceMoreAction action) {
     switch (action) {
       case _WorkspaceMoreAction.readingMode:
-        _toggleReadingMode();
+        _requestFullScreen();
       case _WorkspaceMoreAction.outline:
         if (_outline.isNotEmpty) unawaited(_showOutline());
       case _WorkspaceMoreAction.bookmarks:
