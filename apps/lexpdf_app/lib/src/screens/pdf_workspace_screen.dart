@@ -3,8 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/pdf_page_vision_rasterizer.dart';
 import '../core/ai/remote_vision_service.dart';
 import '../core/backend/backend_config.dart';
@@ -792,15 +791,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     setState(() => _visionAnalyzing = true);
     try {
       const config = BackendConfig.fromEnvironment;
-      if (!config.hasAiGateway || !config.hasSupabase) {
-        throw StateError(
-          'A análise visual exige o gateway de IA e autenticação LexPDF.',
-        );
-      }
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      if (token == null || token.trim().isEmpty) {
-        throw StateError('Entre na sua conta LexPDF para usar a análise visual.');
-      }
+      final token = await AiAccessSession.bearerToken(config: config);
       final progress = await _progressStore.get(document.id);
       final pageNumber = progress?.pageNumber ?? tab.initialPage;
       final image = await const PdfPageVisionRasterizer().rasterize(
