@@ -72,7 +72,7 @@ void main() {
     expect(workspace, contains('Windows10PdfTileOverlay('));
     expect(
       workspace,
-      contains('enabled: _stylusMode == _StylusMode.selectText'),
+      contains('enabled: _textSelectionMode'),
     );
   });
 }
