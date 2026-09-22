@@ -87,6 +87,44 @@ void main() {
     expect(reorganized.item.tags, contains('FCC'));
   });
 
+
+  test('folder and subfolder rename update every selected flashcard', () async {
+    final result = AiStudyResult(
+      action: AiStudyAction.flashcards,
+      engine: AiEngineKind.local,
+      sourceText: 'Texto base.',
+      flashcards: const [
+        AiFlashcard(question: 'P1', answer: 'R1'),
+        AiFlashcard(question: 'P2', answer: 'R2'),
+      ],
+    );
+    await LocalStudyNotebookStore(db).saveResult(
+      documentId: 'doc-1',
+      documentTitle: 'Direito Constitucional',
+      result: result,
+      subject: 'Direito Constitucional',
+      topic: 'Direitos fundamentais',
+    );
+
+    final store = LocalAdvancedStudyStore(db);
+    final before = await store.listFlashcardEntries();
+    final ids = before.map((entry) => entry.item.id).toList();
+
+    await store.renameFlashcardSubject(
+      itemIds: ids,
+      newSubject: 'Constitucional',
+    );
+    await store.renameFlashcardTopic(
+      itemIds: ids,
+      newTopic: 'Artigo 5º',
+    );
+
+    final after = await store.listFlashcardEntries();
+    expect(after.map((entry) => entry.subject).toSet(), {'Constitucional'});
+    expect(after.map((entry) => entry.topic).toSet(), {'Artigo 5º'});
+    expect(after, hasLength(2));
+  });
+
   test('spaced review updates due date and session statistics', () async {
     final result = AiStudyResult(
       action: AiStudyAction.flashcards,
