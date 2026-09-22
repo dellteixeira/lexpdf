@@ -52,6 +52,7 @@ jobs:
           grep -q '^SUPABASE_PUBLISHABLE_KEY = ' wrangler.toml
           grep -q '^AI_QUICK_MODEL = ' wrangler.toml
           grep -q '^AI_DEEP_MODEL = ' wrangler.toml
+          grep -q '^AI_GLOBAL_DAILY_CREDIT_LIMIT = ' wrangler.toml
           grep -q '^bucket_name = "lexpdf-files"$' wrangler.toml
           grep -q '^queue = "lexpdf-sync"$' wrangler.toml
 
@@ -105,19 +106,43 @@ jobs:
             throw new Error(`Unexpected Worker health response: ${JSON.stringify(body)}`);
           }
           NODE
-      - name: Verify AI route is live and auth-protected
+      - name: Verify accountless AI route end-to-end
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --output /tmp/ai-response.json --write-out '%{http_code}' \
+
+          code="$(curl --silent --show-error --output /tmp/ai-no-token.json --write-out '%{http_code}' \
             -X POST "${WORKER_URL}/v1/ai/explain" \
             -H 'content-type: application/json' \
             --data '{"action":"explain","depth":"quick","text":"deployment probe"}')"
-          cat /tmp/ai-response.json
+          cat /tmp/ai-no-token.json
           if [ "$code" != '401' ]; then
-            echo "::error::Expected unauthenticated AI probe to return 401, got ${code}."
+            echo "::error::Expected AI without a device credential to return 401, got ${code}."
             exit 1
           fi
+
+          opaque="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+          install_token="lexpdf-install-v1.${opaque}"
+          code="$(curl --silent --show-error --retry 3 --retry-delay 2 \
+            --output /tmp/ai-device.json --write-out '%{http_code}' \
+            -X POST "${WORKER_URL}/v1/ai/explain" \
+            -H 'content-type: application/json' \
+            -H "authorization: Bearer ${install_token}" \
+            --data '{"action":"explain","depth":"quick","intent":"explain","text":"Explique em uma frase: a Constituição é a norma fundamental."}')"
+          cat /tmp/ai-device.json
+          if [ "$code" != '200' ]; then
+            echo "::error::Expected accountless device AI probe to return 200, got ${code}."
+            exit 1
+          fi
+          AI_RESPONSE="$(cat /tmp/ai-device.json)" node --input-type=module <<'NODE'
+          const body = JSON.parse(process.env.AI_RESPONSE ?? '{}');
+          if (typeof body.text !== 'string' || body.text.trim().length === 0) {
+            throw new Error(`Accountless AI returned no text: ${JSON.stringify(body)}`);
+          }
+          if (typeof body.model !== 'string' || body.model.length === 0) {
+            throw new Error(`Accountless AI returned no model: ${JSON.stringify(body)}`);
+          }
+          NODE
       - name: Publish deployment summary
         if: success()
         shell: bash
@@ -129,5 +154,6 @@ jobs:
             echo "- Worker: \`${WORKER_URL}\`"
             echo '- Health: verified'
             echo '- Workers AI binding: verified'
-            echo '- AI route authentication: verified (401 without bearer token)'
+            echo '- AI without credential: verified (401)'
+            echo '- Accountless device AI: verified end-to-end (200 with generated installation credential)'
           } >> "$GITHUB_STEP_SUMMARY"
