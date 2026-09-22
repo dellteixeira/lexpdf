@@ -2,6 +2,9 @@ enum StudyItemKind { flashcard, question, explanation, summary }
 
 enum StudyReviewGrade { again, hard, good, easy }
 
+enum FlashcardLibraryFilter { all, due, newCards, difficult }
+
+
 class StudyItem {
   const StudyItem({
     required this.id,
@@ -16,6 +19,7 @@ class StudyItem {
     this.sourcePage,
     this.sourceText = '',
     this.subject = '',
+    this.topic = '',
     this.tags = const [],
     this.difficulty = 3,
     this.commentary = '',
@@ -31,6 +35,7 @@ class StudyItem {
   final int? sourcePage;
   final String sourceText;
   final String subject;
+  final String topic;
   final List<String> tags;
   final int difficulty;
   final String commentary;
@@ -91,4 +96,53 @@ class StudySourceHit {
   final String documentTitle;
   final int pageNumber;
   final String snippet;
+}
+
+
+class FlashcardLibraryEntry {
+  const FlashcardLibraryEntry({
+    required this.item,
+    required this.review,
+  });
+
+  final StudyItem item;
+  final StudyReviewState review;
+
+  bool get isDue => !review.dueAt.isAfter(DateTime.now().toUtc());
+  bool get isNew => review.repetitions == 0;
+  bool get isDifficult =>
+      review.lapses > 0 ||
+      review.lastGrade == StudyReviewGrade.again ||
+      review.lastGrade == StudyReviewGrade.hard;
+
+  String get subject {
+    final explicit = item.subject.trim();
+    if (explicit.isNotEmpty) return explicit;
+    final document = item.documentTitle?.trim() ?? '';
+    if (document.isNotEmpty) return document;
+    return 'Sem matéria';
+  }
+
+  String get topic {
+    final explicit = item.topic.trim();
+    if (explicit.isNotEmpty) return explicit;
+    if (item.tags.isNotEmpty && item.tags.first.trim().isNotEmpty) {
+      return item.tags.first.trim();
+    }
+    return 'Geral';
+  }
+}
+
+class FlashcardLibraryStats {
+  const FlashcardLibraryStats({
+    required this.total,
+    required this.due,
+    required this.newCards,
+    required this.difficult,
+  });
+
+  final int total;
+  final int due;
+  final int newCards;
+  final int difficult;
 }
