@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:platform_ocr/platform_ocr.dart';
 
@@ -81,6 +82,8 @@ class MobilePdfOcrService {
   bool get mlKitOcrSupported => Platform.isAndroid || Platform.isIOS;
   bool get desktopNativeOcrSupported => Platform.isWindows;
   bool get nativeOcrSupported => mlKitOcrSupported || desktopNativeOcrSupported;
+
+  Set<String> get resumeEngines => {_engineName, 'embedded-text'};
 
   String get _engineName {
     if (mlKitOcrSupported) return 'mlkit-latin-offline';
@@ -171,7 +174,7 @@ class MobilePdfOcrService {
       final resumeState = resume
           ? await ocrStore.processedPageState(
               documentId,
-              acceptedEngines: {engine, 'embedded-text'},
+              acceptedEngines: resumeEngines,
             )
           : const <int, bool>{};
 
@@ -205,8 +208,10 @@ class MobilePdfOcrService {
         List<OcrTextLine> lines = const [];
 
         final embedded = await _loadEmbeddedText(page);
-        if (embedded.length >= HugePdfPolicy.ocrEmbeddedTextMinChars ||
-            !nativeOcrSupported) {
+        // Any embedded text means this page already has a native text layer.
+        // OCR is reserved for pages with no extractable text at all. This avoids
+        // rasterizing short title/blank pages in otherwise searchable PDFs.
+        if (embedded.isNotEmpty || !nativeOcrSupported) {
           text = embedded;
           pageEngine = 'embedded-text';
           embeddedTextPages++;
@@ -228,30 +233,55 @@ class MobilePdfOcrService {
                 cancelled = true;
                 break;
               }
-              final input = InputImage.fromBitmap(
-                bitmap: rendered.pixels,
-                width: rendered.width,
-                height: rendered.height,
-              );
-              final recognized = await recognizer.processImage(input);
-              text = recognized.text.trim();
-              final collected = <OcrTextLine>[];
-              for (final block in recognized.blocks) {
-                for (final line in block.lines) {
-                  final box = line.boundingBox;
-                  if (line.text.trim().isEmpty) continue;
-                  collected.add(
-                    OcrTextLine(
-                      text: line.text.trim(),
-                      x: (box.left / rendered.width).clamp(0.0, 1.0),
-                      y: (box.top / rendered.height).clamp(0.0, 1.0),
-                      width: (box.width / rendered.width).clamp(0.0, 1.0),
-                      height: (box.height / rendered.height).clamp(0.0, 1.0),
-                    ),
+              try {
+                // pdfrx exposes rendered RGBA pixels, while ML Kit's bitmap
+                // bridge is format-sensitive on Android. Encode a real PNG and
+                // let the native decoder read it from a temporary file instead
+                // of handing arbitrary raw RGBA pixels to the native bridge.
+                final temporaryDirectory = await getTemporaryDirectory();
+                final temporaryFile = File(
+                  '${temporaryDirectory.path}'
+                  '${Platform.pathSeparator}'
+                  'lexpdf-ocr-${DateTime.now().microsecondsSinceEpoch}.png',
+                );
+                try {
+                  final png = Uint8List.fromList(
+                    img.encodePng(rendered.createImageNF()),
                   );
+                  await temporaryFile.writeAsBytes(png, flush: true);
+                  final recognized = await recognizer.processImage(
+                    InputImage.fromFilePath(temporaryFile.path),
+                  );
+                  text = recognized.text.trim();
+                  final collected = <OcrTextLine>[];
+                  for (final block in recognized.blocks) {
+                    for (final line in block.lines) {
+                      final box = line.boundingBox;
+                      if (line.text.trim().isEmpty) continue;
+                      collected.add(
+                        OcrTextLine(
+                          text: line.text.trim(),
+                          x: (box.left / rendered.width).clamp(0.0, 1.0),
+                          y: (box.top / rendered.height).clamp(0.0, 1.0),
+                          width: (box.width / rendered.width).clamp(0.0, 1.0),
+                          height: (box.height / rendered.height).clamp(0.0, 1.0),
+                        ),
+                      );
+                    }
+                  }
+                  lines = collected;
+                } finally {
+                  if (await temporaryFile.exists()) {
+                    await temporaryFile.delete();
+                  }
                 }
+              } catch (_) {
+                // A single problematic raster must not abort the whole
+                // background index. Persist an empty processed page below so
+                // the same failure does not loop every time the PDF is opened.
+                text = '';
+                lines = const [];
               }
-              lines = collected;
             } finally {
               rendered.dispose();
             }

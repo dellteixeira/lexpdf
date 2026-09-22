@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/ai_input_policy.dart';
 import '../core/ai/ai_models.dart';
 import '../core/ai/extended_hybrid_rag_service.dart';
@@ -86,11 +85,10 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     );
   }
 
-  String? _onlineAiToken(BackendConfig config) {
-    if (!config.hasAiGateway || !config.hasSupabase) return null;
+  Future<String?> _onlineAiToken(BackendConfig config) async {
+    if (!config.hasAiGateway) return null;
     try {
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      return token == null || token.trim().isEmpty ? null : token;
+      return await AiAccessSession.bearerToken(config: config);
     } catch (_) {
       return null;
     }
@@ -153,7 +151,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
 
     try {
       const config = BackendConfig.fromEnvironment;
-      final token = _onlineAiToken(config);
+      final token = await _onlineAiToken(config);
       final retrieval = await _hybridRagService().retrieve(
         query,
         limit: 8,
@@ -287,16 +285,7 @@ class _AdvancedStudyScreenState extends State<AdvancedStudyScreen> {
     });
     try {
       const config = BackendConfig.fromEnvironment;
-      if (!config.hasAiGateway) {
-        throw StateError('O gateway de IA não está configurado neste build.');
-      }
-      if (!config.hasSupabase) {
-        throw StateError('A autenticação LexPDF não está configurada.');
-      }
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      if (token == null || token.trim().isEmpty) {
-        throw StateError('Entre na sua conta LexPDF para usar a IA online.');
-      }
+      final token = await AiAccessSession.bearerToken(config: config);
       final result = await RemoteAiStudyEngine(
         endpoint: Uri.parse(config.aiGatewayUrl),
         bearerToken: token,
@@ -1005,15 +994,7 @@ class StudyReviewScreenState extends State<StudyReviewScreen> {
     setState(() => _reviewTutorLoading = true);
     try {
       const config = BackendConfig.fromEnvironment;
-      if (!config.hasAiGateway || !config.hasSupabase) {
-        throw StateError(
-          'O Tutor IA exige gateway e autenticação LexPDF configurados.',
-        );
-      }
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      if (token == null || token.trim().isEmpty) {
-        throw StateError('Entre na sua conta LexPDF para usar o Tutor IA.');
-      }
+      final token = await AiAccessSession.bearerToken(config: config);
 
       final result = await RemoteAiStudyEngine(
         endpoint: Uri.parse(config.aiGatewayUrl),

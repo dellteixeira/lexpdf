@@ -61,6 +61,59 @@ void main() {
     expect(page?.lines.single.text, 'texto atualizado');
   });
 
+  test('complete index counts processed blank pages and survives reopen checks', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final catalog = LocalDocumentCatalog(database);
+    await catalog.upsert(
+      const DocumentRef(
+        id: 'doc-complete',
+        name: 'complete.pdf',
+        provider: DocumentProviderKind.local,
+        localPath: '/tmp/complete.pdf',
+        availableOffline: true,
+      ),
+    );
+    final store = LocalOcrStore(database);
+    final now = DateTime.utc(2026, 9, 22);
+
+    await store.upsert(
+      OcrPageResult(
+        documentId: 'doc-complete',
+        pageNumber: 1,
+        text: 'texto',
+        engine: 'embedded-text',
+        processedAt: now,
+      ),
+    );
+    await store.upsert(
+      OcrPageResult(
+        documentId: 'doc-complete',
+        pageNumber: 2,
+        text: '',
+        engine: 'mlkit-latin-offline',
+        processedAt: now,
+      ),
+    );
+
+    expect(
+      await store.hasCompleteDocumentIndex(
+        'doc-complete',
+        pageCount: 2,
+        acceptedEngines: const {'embedded-text', 'mlkit-latin-offline'},
+      ),
+      isTrue,
+    );
+    expect(
+      await store.hasCompleteDocumentIndex(
+        'doc-complete',
+        pageCount: 3,
+        acceptedEngines: const {'embedded-text', 'mlkit-latin-offline'},
+      ),
+      isFalse,
+    );
+  });
+
   test('clears OCR results for one document', () async {
     final database = LocalDatabase.inMemory();
     addTearDown(database.close);

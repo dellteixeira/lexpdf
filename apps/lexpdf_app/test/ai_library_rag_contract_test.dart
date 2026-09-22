@@ -17,7 +17,7 @@ void main() {
     expect(screen, contains("label: const Text('Perguntar à biblioteca')"));
     expect(screen, contains("label: const Text('Atualizar índice híbrido')"));
     expect(screen, contains('AiExplanationIntent.libraryRag'));
-    expect(screen, contains('currentSession?.accessToken'));
+    expect(screen, contains('AiAccessSession.bearerToken'));
     expect(screen, contains("'[F\${index + 1}]"));
     expect(screen, contains("title: const Text('Fontes recuperadas')"));
     expect(models, contains('libraryRag'));

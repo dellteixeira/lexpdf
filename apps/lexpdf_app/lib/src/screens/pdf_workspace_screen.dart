@@ -3,8 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../core/ai/ai_access_session.dart';
 import '../core/ai/pdf_page_vision_rasterizer.dart';
 import '../core/ai/remote_vision_service.dart';
 import '../core/backend/backend_config.dart';
@@ -61,7 +60,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final FocusNode _shortcutFocus = FocusNode(debugLabel: 'pdf-tab-shell');
   final List<_WorkspaceTab> _tabs = <_WorkspaceTab>[];
   final Map<String, _WorkspaceOcrTask> _ocrTasks = <String, _WorkspaceOcrTask>{};
-  final Set<String> _indexPrompted = <String>{};
+  final Set<String> _autoIndexAttempted = <String>{};
   final WorkspaceFullScreenService _fullScreenService =
       const WorkspaceFullScreenService();
 
@@ -312,38 +311,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Future<void> _inspectActiveDocumentForIndexing() async {
     if (!mounted || _tabs.isEmpty) return;
     final document = _tabs[_activeIndex].document;
-    if (!_indexPrompted.add(document.id)) return;
     if (_ocrTasks[document.id]?.running == true) return;
     final path = document.localPath;
     if (path == null || path.isEmpty || !File(path).existsSync()) return;
 
-    final indexed = widget.store.db.database.select('''
-      SELECT COUNT(*) AS count
-      FROM pdf_page_text_index
-      WHERE document_id = ? AND trim(content) <> '';
-    ''', [document.id]).single['count'] as int? ?? 0;
-    if (indexed > 0) return;
-
     try {
-      final availability = await _ocrService.inspectTextAvailability(filePath: path);
-      if (!mounted || _tabs.isEmpty || _tabs[_activeIndex].document.id != document.id) {
+      final availability = await _ocrService.inspectTextAvailability(
+        filePath: path,
+      );
+      final complete = await _ocrStore.hasCompleteDocumentIndex(
+        document.id,
+        pageCount: availability.pageCount,
+        acceptedEngines: _ocrService.resumeEngines,
+      );
+      if (complete) return;
+      if (!_autoIndexAttempted.add(document.id)) return;
+      if (!mounted ||
+          _tabs.isEmpty ||
+          _tabs[_activeIndex].document.id != document.id) {
         return;
       }
-      final message = availability.likelyScanned
-          ? 'Este PDF parece digitalizado. OCR/indexação pode rodar em segundo plano.'
-          : 'Indexe o texto deste PDF em segundo plano para busca local e Ctrl+F.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text(message),
-          action: SnackBarAction(
-            label: 'Indexar',
-            onPressed: () => unawaited(_startBackgroundIndexing(document)),
-          ),
-        ),
-      );
+
+      // Index silently and incrementally. Existing processed pages are durable
+      // and skipped, so reopening a document resumes only missing pages instead
+      // of asking the user or starting over.
+      unawaited(_startBackgroundIndexing(document));
     } catch (_) {
-      // Inspection is advisory; opening/reading the PDF must never depend on it.
+      // Inspection/index scheduling is advisory; reading must never depend on it.
     }
   }
 
@@ -457,19 +451,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final hasIndex = widget.store.db.database.select('''
         SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
       ''', [tab.document.id]).isNotEmpty;
+      if (!hasIndex) {
+        unawaited(_startBackgroundIndexing(tab.document));
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             hasIndex
                 ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'Este PDF ainda não foi indexado. Inicie OCR/indexação para usar Ctrl+F em PDFs digitalizados.',
+                : 'Este PDF ainda está sendo indexado automaticamente. '
+                    'Tente a busca novamente em alguns instantes.',
           ),
-          action: hasIndex
-              ? null
-              : SnackBarAction(
-                  label: 'Indexar',
-                  onPressed: () => unawaited(_startBackgroundIndexing(tab.document)),
-                ),
         ),
       );
       return;
@@ -792,15 +784,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     setState(() => _visionAnalyzing = true);
     try {
       const config = BackendConfig.fromEnvironment;
-      if (!config.hasAiGateway || !config.hasSupabase) {
-        throw StateError(
-          'A análise visual exige o gateway de IA e autenticação LexPDF.',
-        );
-      }
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
-      if (token == null || token.trim().isEmpty) {
-        throw StateError('Entre na sua conta LexPDF para usar a análise visual.');
-      }
+      final token = await AiAccessSession.bearerToken(config: config);
       final progress = await _progressStore.get(document.id);
       final pageNumber = progress?.pageNumber ?? tab.initialPage;
       final image = await const PdfPageVisionRasterizer().rasterize(

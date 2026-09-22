@@ -133,6 +133,30 @@ class LocalOcrStore {
     };
   }
 
+  /// Returns true only when every page in the document has a durable processing
+  /// record produced by an engine compatible with the current platform.
+  ///
+  /// Empty pages count as processed. This is important because a blank page
+  /// should not cause automatic indexing to restart every time the PDF opens.
+  Future<bool> hasCompleteDocumentIndex(
+    String documentId, {
+    required int pageCount,
+    required Set<String> acceptedEngines,
+  }) async {
+    if (pageCount <= 0) return true;
+    if (acceptedEngines.isEmpty) return false;
+    final placeholders = List.filled(acceptedEngines.length, '?').join(', ');
+    final row = db.database.select('''
+      SELECT COUNT(DISTINCT page_number) AS processed_pages
+      FROM ocr_page_results
+      WHERE document_id = ?
+        AND page_number BETWEEN 1 AND ?
+        AND engine IN ($placeholders);
+    ''', [documentId, pageCount, ...acceptedEngines]).single;
+    final processed = row['processed_pages'] as int? ?? 0;
+    return processed >= pageCount;
+  }
+
   Future<OcrPageResult?> getPage(String documentId, int pageNumber) async {
     final rows = db.database.select('''
       SELECT * FROM ocr_page_results

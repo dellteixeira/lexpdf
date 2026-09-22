@@ -14,7 +14,8 @@ void main() {
     expect(screen, contains('grade == StudyReviewGrade.again'));
     expect(screen, contains('grade == StudyReviewGrade.hard'));
     expect(screen, contains('AiExplanationIntent.reviewTutor'));
-    expect(screen, contains('currentSession?.accessToken'));
+    expect(screen, contains('AiAccessSession.bearerToken'));
+    expect(screen, isNot(contains('Entre na sua conta LexPDF')));
     expect(screen, contains('O flashcard original não foi alterado.'));
     expect(screen, contains("child: const Text('Fechar e continuar')"));
     expect(screen, contains("label: const Text('Abrir página original')"));

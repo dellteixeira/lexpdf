@@ -42,6 +42,9 @@ void main() {
     expect(source, contains('_inspectActiveDocumentForIndexing'));
     expect(source, contains('_startBackgroundIndexing'));
     expect(source, contains('unawaited(_startBackgroundIndexing'));
+    expect(source, contains('hasCompleteDocumentIndex'));
+    expect(source, contains('_autoIndexAttempted'));
+    expect(source, isNot(contains("label: 'Indexar'")));
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));
     expect(source, contains('pdf_page_text_index'));

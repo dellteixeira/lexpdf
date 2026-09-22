@@ -18,7 +18,7 @@ void main() {
     expect(chat, contains('HybridRagService'));
     expect(chat, contains('Nova conversa'));
     expect(chat, contains('Fontes desta resposta'));
-    expect(chat, contains('currentSession?.accessToken'));
+    expect(chat, contains('AiAccessSession.bearerToken'));
     expect(pdf, contains("'chat-pdf'"));
     expect(pdf, contains('Chat com este PDF'));
     expect(study, contains('Chat com a biblioteca'));

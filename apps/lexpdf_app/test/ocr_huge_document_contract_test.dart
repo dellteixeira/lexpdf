@@ -13,8 +13,13 @@ void main() {
     expect(policy, contains('ocrMaxDimension'));
     expect(policy, contains('ocrEmbeddedTextMinChars'));
     expect(service, contains('processedPageState'));
+    expect(service, contains('resumeEngines'));
     expect(service, contains('loadStructuredText'));
     expect(service, contains("pageEngine = 'embedded-text'"));
+    expect(service, contains('if (embedded.isNotEmpty || !nativeOcrSupported)'));
+    expect(service, contains('InputImage.fromFilePath'));
+    expect(service, isNot(contains('InputImage.fromBitmap')));
+    expect(service, contains('getTemporaryDirectory'));
     expect(service, contains('isCancelled?.call() == true'));
     expect(service, contains('rendered.dispose()'));
     expect(store, contains('SELECT page_number, length(trim(text)) AS has_text'));
