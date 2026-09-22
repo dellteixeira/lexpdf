@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/study/advanced_study_models.dart';
+import '../widgets/flashcard_organization_fields.dart';
 import 'advanced_study_screen.dart';
 
 class FlashcardCenterScreen extends StatefulWidget {
@@ -132,6 +133,7 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
       text: entry.item.topic.trim().isEmpty ? entry.topic : entry.item.topic,
     );
     final tags = TextEditingController(text: entry.item.tags.join(', '));
+    final catalog = FlashcardOrganizationCatalog.fromEntries(_entries);
     try {
       final save = await showDialog<bool>(
         context: context,
@@ -142,27 +144,12 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: subject,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Matéria',
-                    hintText: 'Ex.: Direito Constitucional',
-                    prefixIcon: Icon(Icons.menu_book_outlined),
-                    border: OutlineInputBorder(),
-                  ),
+                FlashcardOrganizationFields(
+                  subjectController: subject,
+                  topicController: topic,
+                  catalog: catalog,
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: topic,
-                  decoration: const InputDecoration(
-                    labelText: 'Assunto',
-                    hintText: 'Ex.: Controle de constitucionalidade',
-                    prefixIcon: Icon(Icons.topic_outlined),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 TextField(
                   controller: tags,
                   decoration: const InputDecoration(
@@ -205,6 +192,110 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
       topic.dispose();
       tags.dispose();
     }
+  }
+
+  Future<String?> _showRenameFolderDialog({
+    required String title,
+    required String currentName,
+    required String fieldLabel,
+  }) async {
+    final controller = TextEditingController(text: currentName);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: fieldLabel,
+                    prefixIcon: const Icon(Icons.drive_file_rename_outline),
+                    border: const OutlineInputBorder(),
+                  ),
+                  onSubmitted: (value) =>
+                      Navigator.of(dialogContext).pop(value.trim()),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Se já existir uma pasta com esse nome, os cartões serão '
+                  'agrupados nela sem duplicação.',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              icon: const Icon(Icons.check),
+              label: const Text('Renomear'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _renameSubject(String subject) async {
+    final group = _entries
+        .where((entry) => entry.subject == subject)
+        .toList(growable: false);
+    if (group.isEmpty) return;
+    final renamed = await _showRenameFolderDialog(
+      title: 'Renomear pasta',
+      currentName: subject,
+      fieldLabel: 'Nome da pasta / matéria',
+    );
+    final value = renamed?.trim() ?? '';
+    if (!mounted || value.isEmpty || value == subject) return;
+
+    await widget.store.renameFlashcardSubject(
+      itemIds: group.map((entry) => entry.item.id),
+      newSubject: value,
+    );
+    if (_selectedSubject == subject) {
+      _selectedSubject = value;
+    }
+    await _reload();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Pasta renomeada para “$value”.')),
+    );
+  }
+
+  Future<void> _renameTopic(List<FlashcardLibraryEntry> group) async {
+    if (group.isEmpty) return;
+    final topic = group.first.topic;
+    final renamed = await _showRenameFolderDialog(
+      title: 'Renomear subpasta',
+      currentName: topic,
+      fieldLabel: 'Nome da subpasta / assunto',
+    );
+    final value = renamed?.trim() ?? '';
+    if (!mounted || value.isEmpty || value == topic) return;
+
+    await widget.store.renameFlashcardTopic(
+      itemIds: group.map((entry) => entry.item.id),
+      newTopic: value,
+    );
+    await _reload();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Subpasta renomeada para “$value”.')),
+    );
   }
 
   Future<void> _showCard(FlashcardLibraryEntry entry) async {
@@ -419,7 +510,7 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
               ),
               if (!desktop)
                 PopupMenuButton<String>(
-                  tooltip: 'Filtrar matéria',
+                  tooltip: 'Filtrar pasta',
                   initialValue: _selectedSubject ?? '__all__',
                   onSelected: (value) => setState(
                     () => _selectedSubject =
@@ -428,7 +519,7 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
                   itemBuilder: (_) => [
                     const PopupMenuItem<String>(
                       value: '__all__',
-                      child: Text('Todas as matérias'),
+                      child: Text('Todas as pastas'),
                     ),
                     for (final subject in subjects)
                       PopupMenuItem<String>(
@@ -437,9 +528,16 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
                       ),
                   ],
                   child: Chip(
-                    avatar: const Icon(Icons.menu_book_outlined, size: 18),
-                    label: Text(_selectedSubject ?? 'Todas as matérias'),
+                    avatar: const Icon(Icons.folder_outlined, size: 18),
+                    label: Text(_selectedSubject ?? 'Todas as pastas'),
                   ),
+                ),
+              if (!desktop && _selectedSubject != null)
+                ActionChip(
+                  avatar: const Icon(Icons.drive_file_rename_outline, size: 18),
+                  label: const Text('Renomear pasta'),
+                  onPressed: () =>
+                      unawaited(_renameSubject(_selectedSubject!)),
                 ),
             ],
           ),
@@ -468,41 +566,158 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
-          width: 260,
+          width: 280,
           child: Card(
             margin: EdgeInsets.zero,
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
               children: [
-                ListTile(
-                  selected: _selectedSubject == null,
-                  leading: const Icon(Icons.all_inbox_outlined),
-                  title: const Text('Todas as matérias'),
-                  trailing: _CountBadge(value: _entries.length),
-                  onTap: () => setState(() => _selectedSubject = null),
-                ),
-                for (final subject in subjects)
-                  ListTile(
-                    selected: _selectedSubject == subject,
-                    leading: const Icon(Icons.menu_book_outlined),
-                    title: Text(
-                      subject,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: _CountBadge(
-                      value:
-                          _entries.where((entry) => entry.subject == subject).length,
-                    ),
-                    onTap: () => setState(() => _selectedSubject = subject),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder_copy_outlined),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Pastas',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      Tooltip(
+                        message:
+                            'Pastas = matérias; subpastas = assuntos; tags = filtros transversais.',
+                        child: const Icon(Icons.info_outline, size: 19),
+                      ),
+                    ],
                   ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: [
+                      ListTile(
+                        selected: _selectedSubject == null,
+                        leading: const Icon(Icons.all_inbox_outlined),
+                        title: const Text('Todos os cartões'),
+                        trailing: _CountBadge(value: _entries.length),
+                        onTap: () => setState(() => _selectedSubject = null),
+                      ),
+                      for (final subject in subjects)
+                        ListTile(
+                          selected: _selectedSubject == subject,
+                          leading: Icon(
+                            _selectedSubject == subject
+                                ? Icons.folder_open
+                                : Icons.folder_outlined,
+                          ),
+                          title: Text(
+                            subject,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _CountBadge(
+                                value: _entries
+                                    .where((entry) => entry.subject == subject)
+                                    .length,
+                              ),
+                              PopupMenuButton<String>(
+                                tooltip: 'Opções da pasta',
+                                onSelected: (value) {
+                                  if (value == 'rename') {
+                                    unawaited(_renameSubject(subject));
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem<String>(
+                                    value: 'rename',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(
+                                        Icons.drive_file_rename_outline,
+                                      ),
+                                      title: Text('Renomear pasta'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          onTap: () =>
+                              setState(() => _selectedSubject = subject),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
         ),
         const SizedBox(width: 14),
-        Expanded(child: _buildTopics(visible)),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildFolderHeader(visible),
+              const SizedBox(height: 10),
+              Expanded(child: _buildTopics(visible)),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildFolderHeader(List<FlashcardLibraryEntry> visible) {
+    final title = _selectedSubject ?? 'Todos os cartões';
+    final due = visible.where((entry) => entry.isDue).length;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _selectedSubject == null
+                ? Icons.all_inbox_outlined
+                : Icons.folder_open_outlined,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  '${visible.length} cartão(ões)'
+                  '${due == 0 ? '' : ' • $due para revisar'}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          if (_selectedSubject != null)
+            IconButton(
+              tooltip: 'Renomear pasta',
+              onPressed: () => unawaited(_renameSubject(_selectedSubject!)),
+              icon: const Icon(Icons.drive_file_rename_outline),
+            ),
+          if (due > 0)
+            FilledButton.tonalIcon(
+              onPressed: () =>
+                  unawaited(_startReview(visible, dueOnly: true)),
+              icon: const Icon(Icons.play_arrow),
+              label: Text('Revisar · $due'),
+            ),
+        ],
+      ),
     );
   }
 
@@ -530,7 +745,7 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
         return Card(
           child: ExpansionTile(
             initiallyExpanded: keys.length <= 4,
-            leading: const Icon(Icons.topic_outlined),
+            leading: const Icon(Icons.folder_open_outlined),
             title: Text(entry.topic),
             subtitle: Text(
               '${entry.subject} • ${group.length} cartão(ões)'
@@ -546,6 +761,24 @@ class _FlashcardCenterScreenState extends State<FlashcardCenterScreen> {
                         unawaited(_startReview(group, dueOnly: true)),
                     icon: const Icon(Icons.play_circle_outline),
                   ),
+                PopupMenuButton<String>(
+                  tooltip: 'Opções da subpasta',
+                  onSelected: (value) {
+                    if (value == 'rename') {
+                      unawaited(_renameTopic(group));
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem<String>(
+                      value: 'rename',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.drive_file_rename_outline),
+                        title: Text('Renomear subpasta'),
+                      ),
+                    ),
+                  ],
+                ),
                 const Icon(Icons.expand_more),
               ],
             ),
