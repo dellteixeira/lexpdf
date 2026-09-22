@@ -7,8 +7,10 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/ai/ai_models.dart';
 import '../core/annotations/pdf_annotation_object.dart';
+import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_study_notebook_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import 'flashcard_organization_fields.dart';
 
 typedef PdfSelectionStudyAction = Future<void> Function(
   BuildContext context,
@@ -248,9 +250,16 @@ class PdfSelectionActionMenu {
     final selectedText = _selectionText(ranges);
     if (selectedText.isEmpty) return;
 
+    final catalog = FlashcardOrganizationCatalog.fromEntries(
+      await LocalAdvancedStudyStore(store.db).listFlashcardEntries(
+        limit: 20000,
+      ),
+    );
+    if (!context.mounted) return;
     final draft = await _showManualFlashcardDialog(
       context,
       selectedText: selectedText,
+      catalog: catalog,
     );
     if (draft == null) return;
     if (draft.question.trim().isEmpty || draft.answer.trim().isEmpty) {
@@ -641,6 +650,7 @@ class _ManualFlashcardDraft {
 Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
   BuildContext context, {
   required String selectedText,
+  required FlashcardOrganizationCatalog catalog,
 }) async {
   final questionController = TextEditingController();
   final answerController = TextEditingController(text: selectedText);
@@ -695,28 +705,11 @@ Future<_ManualFlashcardDraft?> _showManualFlashcardDialog(
                 ),
                 const SizedBox(height: 16),
                 const Divider(),
-                const SizedBox(height: 8),
-                Text(
-                  'Organização',
-                  style: Theme.of(dialogContext).textTheme.titleSmall,
-                ),
                 const SizedBox(height: 10),
-                TextField(
-                  controller: subjectController,
-                  decoration: const InputDecoration(
-                    labelText: 'Matéria (opcional)',
-                    hintText: 'Ex.: Direito Constitucional',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: topicController,
-                  decoration: const InputDecoration(
-                    labelText: 'Assunto (opcional)',
-                    hintText: 'Ex.: Direitos fundamentais',
-                    border: OutlineInputBorder(),
-                  ),
+                FlashcardOrganizationFields(
+                  subjectController: subjectController,
+                  topicController: topicController,
+                  catalog: catalog,
                 ),
               ],
             ),
