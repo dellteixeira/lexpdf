@@ -21,18 +21,23 @@ void main() {
     expect(shell, contains('tab.document.name'));
   });
 
-  test('Ctrl+H and Android single tap share the global reading mode', () {
+  test('reading mode is explicit and a normal PDF tap does not hide chrome', () {
     final shell =
         File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
     final editor =
         File('lib/src/screens/pdf_workspace_stylus_screen.dart').readAsStringSync();
+    final androidRouter = File(
+      'lib/src/widgets/pdf_android_finger_navigation_region.dart',
+    ).readAsStringSync();
 
     expect(shell, contains('bind(LogicalKeyboardKey.keyH, _toggleFullScreen)'));
     expect(shell, contains("if (!_fullScreen)"));
-    expect(editor, contains('onSingleTap: _handleAndroidPdfTap'));
-    expect(editor, contains('if (!widget.fullScreen && _stylusMode != _StylusMode.hand)'));
-    expect(editor, contains('_requestFullScreen();'));
+    expect(editor, contains('_requestFullScreen'));
     expect(editor, contains('widget.onToggleFullScreen'));
+    expect(editor, isNot(contains('onSingleTap: _handleAndroidPdfTap')));
+    expect(editor, isNot(contains('void _handleAndroidPdfTap()')));
+    expect(androidRouter, isNot(contains('final VoidCallback? onSingleTap;')));
+    expect(androidRouter, isNot(contains('widget.onSingleTap?.call();')));
   });
 
   test('immersive chrome transitions preserve the exact visible PDF page', () {
