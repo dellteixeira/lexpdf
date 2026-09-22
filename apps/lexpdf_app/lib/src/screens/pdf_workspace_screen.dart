@@ -531,6 +531,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     unawaited(_saveSession());
   }
 
+  void _recordVisiblePage(_WorkspaceTab tab, int pageNumber) {
+    if (pageNumber < 1 || tab.initialPage == pageNumber) return;
+    tab.initialPage = pageNumber;
+    unawaited(_saveSession());
+  }
+
   void _toggleWorkspacePanel() {
     final value = !_panelVisible;
     setState(() => _panelVisible = value);
@@ -1076,6 +1082,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                         fullScreen: _fullScreen,
                                         showDocumentHeader: false,
                                         onToggleFullScreen: _toggleFullScreen,
+                                        onPageChanged: (pageNumber) =>
+                                            _recordVisiblePage(tab, pageNumber),
                                       ),
                                   ],
                                 ),

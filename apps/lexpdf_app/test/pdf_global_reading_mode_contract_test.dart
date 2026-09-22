@@ -34,4 +34,28 @@ void main() {
     expect(editor, contains('_requestFullScreen();'));
     expect(editor, contains('widget.onToggleFullScreen'));
   });
+
+  test('immersive chrome transitions preserve the exact visible PDF page', () {
+    final shell =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+    final editor =
+        File('lib/src/screens/pdf_workspace_stylus_screen.dart').readAsStringSync();
+
+    expect(editor, contains('int? _chromeTransitionPage;'));
+    expect(
+      editor,
+      contains('final preservedPage = _controller.pageNumber ?? _page;'),
+    );
+    expect(editor, contains('_schedulePageRestoreAfterChromeChange'));
+    expect(editor, contains('_restorePageAfterChromeChange'));
+    expect(editor, contains('duration: Duration.zero'));
+    expect(
+      editor,
+      contains('if (transitionTarget != null && pageNumber != transitionTarget)'),
+    );
+    expect(editor, contains('widget.onPageChanged?.call(pageNumber);'));
+    expect(shell, contains('_recordVisiblePage'));
+    expect(shell, contains('onPageChanged: (pageNumber) =>'));
+    expect(editor, contains('if (!_readingMode && _loadingInk)'));
+  });
 }
