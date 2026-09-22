@@ -42,7 +42,7 @@ void main() {
     // one finger for ink only while an ink tool is active and use two fingers
     // for pan/pinch.
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
-    expect(workspace, contains('active: _android'));
+    expect(workspace, contains('active: _android && !_textSelectionOwnsGesture'));
     expect(workspace, contains('panAxis: PanAxis.free'));
     expect(workspace, contains('panEnabled:'));
     expect(workspace, contains('scaleEnabled:'));
@@ -72,7 +72,7 @@ void main() {
     expect(workspace, contains('Windows10PdfTileOverlay('));
     expect(
       workspace,
-      contains('enabled: _textSelectionMode'),
+      contains('enabled: _textSelectionEnabled'),
     );
   });
 }
