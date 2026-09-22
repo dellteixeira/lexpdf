@@ -41,8 +41,12 @@ const DEFAULT_AI_GLOBAL_DAILY_CREDIT_LIMIT = 1200;
 const DEFAULT_AI_RATE_LIMIT_PER_MINUTE = 12;
 const AI_INSTALL_TOKEN_PREFIX = "lexpdf-install-v1.";
 const DEFAULT_AI_MAX_INPUT_CHARS = 12000;
-const DEFAULT_AI_QUICK_MODEL = '@cf/zai-org/glm-4.7-flash';
-const DEFAULT_AI_DEEP_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_AI_QUICK_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
+const DEFAULT_AI_DEEP_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const AI_TEXT_EMERGENCY_MODELS = [
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/qwen/qwen3-30b-a3b-fp8',
+] as const;
 const DEFAULT_AI_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const DEFAULT_AI_RAG_MAX_INPUT_CHARS = 30000;
 const DEFAULT_AI_EMBED_RATE_LIMIT_PER_MINUTE = 60;
@@ -514,21 +518,42 @@ async function handleAiExplain(request: Request, env: Env, requestId: string): P
     stream: false,
   };
 
-  let model = primaryModel;
+  const candidateModels = [
+    primaryModel,
+    fallbackModel,
+    ...AI_TEXT_EMERGENCY_MODELS,
+  ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+
+  let model = candidateModels[0];
   let fallbackUsed = false;
-  let text: string;
-  try {
-    text = await runAiText(env, primaryModel, input);
-  } catch (primaryError) {
-    console.warn("lexpdf_ai_primary_failed", { requestId, model: primaryModel, error: String(primaryError) });
-    model = fallbackModel;
-    fallbackUsed = true;
+  let text = '';
+  let lastProviderError = '';
+
+  for (let index = 0; index < candidateModels.length; index++) {
+    const modelCandidate = candidateModels[index];
     try {
-      text = await runAiText(env, fallbackModel, input);
-    } catch (fallbackError) {
-      console.error("lexpdf_ai_fallback_failed", { requestId, model: fallbackModel, error: String(fallbackError) });
-      return json({ error: "ai_provider_unavailable", requestId }, 502, requestId);
+      text = await runAiText(env, modelCandidate, input);
+      model = modelCandidate;
+      fallbackUsed = index > 0;
+      break;
+    } catch (error) {
+      lastProviderError = String(error);
+      console.warn("lexpdf_ai_model_failed", {
+        requestId,
+        model: modelCandidate,
+        attempt: index + 1,
+        error: lastProviderError,
+      });
     }
+  }
+
+  if (!text) {
+    console.error("lexpdf_ai_all_models_failed", {
+      requestId,
+      models: candidateModels,
+      error: lastProviderError,
+    });
+    return json({ error: "ai_provider_unavailable", requestId }, 502, requestId);
   }
 
   const flashcards = intent === "flashcard" ? parseFlashcardDraft(text) : [];

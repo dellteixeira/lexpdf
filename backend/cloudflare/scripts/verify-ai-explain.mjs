@@ -5,15 +5,18 @@ const root = resolve(import.meta.dirname, '..');
 const worker = readFileSync(resolve(root, 'src/index.ts'), 'utf8');
 const wrangler = readFileSync(resolve(root, 'wrangler.toml'), 'utf8');
 const migration = readFileSync(
-  resolve(root, '../supabase/migrations/20260917210000_add_ai_usage_quota.sql'),
+  resolve(root, '../supabase/migrations/20260922143000_add_accountless_ai_principal_quota.sql'),
   'utf8',
 );
 
 for (const expected of [
   '/v1/ai/explain',
-  '@cf/zai-org/glm-4.7-flash',
-  '@cf/google/gemma-4-26b-a4b-it',
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/qwen/qwen3-30b-a3b-fp8',
+  'AI_TEXT_EMERGENCY_MODELS',
   'consumeAiQuota',
+  'resolveAiPrincipal',
+  'lexpdf-install-v1.',
   'SUPABASE_SECRET_KEY',
   'fallbackUsed',
   'crossStudy',
@@ -45,9 +48,9 @@ if (!wrangler.includes('[ai]') || !wrangler.includes('binding = "AI"')) {
 
 for (const expected of [
   'enable row level security',
-  'revoke all on public.ai_daily_usage from public, anon, authenticated',
+  'revoke all on public.ai_principal_daily_usage from public, anon, authenticated',
   'security definer',
-  'consume_ai_daily_quota',
+  'consume_ai_principal_quota',
   'to service_role',
 ]) {
   if (!migration.includes(expected)) {
