@@ -48,6 +48,10 @@ jobs:
   android-release:
     needs: prerelease-invariants
     runs-on: ubuntu-24.04
+    env:
+      # Gradle exposes ORG_GRADLE_PROJECT_* as project properties. If this
+      # repository secret is absent, Apryse intentionally runs in demo mode.
+      ORG_GRADLE_PROJECT_PDFTRON_LICENSE_KEY: ${{ secrets.PDFTRON_LICENSE_KEY }}
     defaults:
       run:
         working-directory: apps/lexpdf_app
