@@ -53,6 +53,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
     this.onToggleFullScreen,
     this.onPageChanged,
     this.onReaderActivity,
+    this.onViewerDocumentChanged,
     super.key,
   });
 
@@ -65,6 +66,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final VoidCallback? onToggleFullScreen;
   final ValueChanged<int>? onPageChanged;
   final VoidCallback? onReaderActivity;
+  final ValueChanged<PdfDocument?>? onViewerDocumentChanged;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -277,6 +279,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   @override
   void dispose() {
     _inkLoadGeneration++;
+    widget.onViewerDocumentChanged?.call(null);
     _controller.removeListener(_syncZoomFromController);
     _keyboardFocusNode.dispose();
     if (_android && _readingMode) {
@@ -585,11 +588,31 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             ],
                             onViewerReady: (document, controller) {
                               _document = document;
+                              widget.onViewerDocumentChanged?.call(document);
                               _syncZoomFromController();
                               if (mounted) setState(() {});
-                              unawaited(_loadOutline(document));
-                              unawaited(_loadInkWindow(document, _page));
-                              unawaited(_selectionMenu.load(document));
+
+                              // Reader-first startup: make the first page usable
+                              // before optional outline/annotation hydration.
+                              // On Android this avoids stacking text/object work
+                              // on top of PDFium's initial page render.
+                              final secondaryDelay = _android
+                                  ? HugePdfPolicy.androidSecondaryWorkDelay
+                                  : Duration.zero;
+                              Future<void>.delayed(secondaryDelay, () async {
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _loadOutline(document);
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _loadInkWindow(document, _page);
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _selectionMenu.load(document);
+                              });
                             },
                             onPageChanged: _onPageChanged,
                           ),
