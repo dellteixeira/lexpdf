@@ -33,7 +33,7 @@ void main() {
     );
     expect(entrypoint, contains('editor.PdfWorkspaceScreen('));
     expect(workspace, contains('PdfViewer.file('));
-    expect(workspace, contains('useProgressiveLoading: true'));
+    expect(workspace, contains('useProgressiveLoading: !_androidSafeLocalOpen'));
     expect(workspace, contains('_controller.zoomUpOnLocalPosition('));
     expect(workspace, contains('_controller.zoomDownOnLocalPosition('));
     expect(workspace, contains('localPosition: _effectiveZoomLocalAnchor()'));
