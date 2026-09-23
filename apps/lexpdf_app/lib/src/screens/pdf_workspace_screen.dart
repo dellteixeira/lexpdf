@@ -60,7 +60,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final FocusNode _shortcutFocus = FocusNode(debugLabel: 'pdf-tab-shell');
   final List<_WorkspaceTab> _tabs = <_WorkspaceTab>[];
   final Map<String, _WorkspaceOcrTask> _ocrTasks = <String, _WorkspaceOcrTask>{};
-  final Set<String> _autoIndexAttempted = <String>{};
+  final Set<String> _autoIndexInspected = <String>{};
   final WorkspaceFullScreenService _fullScreenService =
       const WorkspaceFullScreenService();
 
@@ -325,17 +325,19 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         acceptedEngines: _ocrService.resumeEngines,
       );
       if (complete) return;
-      if (!_autoIndexAttempted.add(document.id)) return;
+      if (!_autoIndexInspected.add(document.id)) return;
       if (!mounted ||
           _tabs.isEmpty ||
           _tabs[_activeIndex].document.id != document.id) {
         return;
       }
 
-      // Index silently and incrementally. Existing processed pages are durable
-      // and skipped, so reopening a document resumes only missing pages instead
-      // of asking the user or starting over.
-      unawaited(_startBackgroundIndexing(document));
+      // Opening a PDF must never start a full-document pass. On large Android
+      // and Windows files, a second PdfDocument walking every page competes with
+      // the visible reader for CPU, storage bandwidth and memory. Automatic
+      // localized indexing is scheduled separately; full indexing remains an
+      // explicit user/search action.
+      return;
     } catch (_) {
       // Inspection/index scheduling is advisory; reading must never depend on it.
     }
@@ -442,8 +444,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           content: Text(
             hasIndex
                 ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'Este PDF ainda está sendo indexado automaticamente. '
-                    'Tente a busca novamente em alguns instantes.',
+                : 'A indexação deste PDF foi iniciada para atender à busca. '
+                    'Tente novamente em alguns instantes.',
           ),
         ),
       );
