@@ -16,6 +16,7 @@ void main() {
     final policy = File(
       'lib/src/widgets/pdf_android_touch_input_policy.dart',
     ).readAsStringSync();
+    final normalizedWorkspace = workspace.replaceAll(RegExp(r'\s+'), ' ');
 
     // S Pen/stylus remains the primary ink source on tablets. Compact Android
     // phones may use one touch pointer as ink, while two fingers are promoted
@@ -64,13 +65,16 @@ void main() {
     );
     expect(workspace, contains('? 1000'));
     expect(
-      workspace,
-      contains('HugePdfPolicy.androidOnePassRenderingSizeThreshold'),
+      normalizedWorkspace,
+      contains('HugePdfPolicy .androidOnePassRenderingSizeThreshold'),
     );
-    expect(workspace, contains('getPageRenderingScale:'));
-    expect(workspace, contains('if (_windows10Tiles) return 1.0;'));
-    expect(workspace, contains("? 6000.0"));
-    expect(workspace, contains('HugePdfPolicy.androidMaxRenderLongEdge'));
+    expect(normalizedWorkspace, contains('getPageRenderingScale:'));
+    expect(normalizedWorkspace, contains('if (_windows10Tiles) return 1.0;'));
+    expect(normalizedWorkspace, contains('? 6000.0'));
+    expect(
+      normalizedWorkspace,
+      contains('HugePdfPolicy.androidMaxRenderLongEdge'),
+    );
     expect(workspace, contains('maxRenderPixels / page.width'));
     expect(workspace, contains('maxRenderPixels / page.height'));
     expect(workspace, contains('Windows10PdfTileOverlay('));
