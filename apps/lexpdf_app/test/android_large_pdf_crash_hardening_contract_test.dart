@@ -48,6 +48,7 @@ void main() {
     ).readAsStringSync();
     final policy =
         File('lib/src/core/pdf/huge_pdf_policy.dart').readAsStringSync();
+    final normalizedEditor = editor.replaceAll(RegExp(r'\s+'), ' ');
 
     expect(policy, contains('_mobileViewerCacheUnknownMaxBytes = 20 * 1024 * 1024'));
     expect(policy, contains('_mobileViewerCacheLargeMaxBytes = 24 * 1024 * 1024'));
@@ -58,12 +59,18 @@ void main() {
     expect(policy, contains('backgroundIndexIdleDelay = Duration(seconds: 5)'));
     expect(policy, contains('idleIndexChunkPages = 6'));
 
-    expect(editor, contains('HugePdfPolicy.androidOnePassRenderingSizeThreshold'));
-    expect(editor, contains('HugePdfPolicy.androidMaxRenderLongEdge'));
-    expect(editor, contains('HugePdfPolicy.androidCacheExtent'));
     expect(
-      editor,
-      contains('enableLowResolutionPagePreview:\n                                      !_windows && !_android'),
+      normalizedEditor,
+      contains('HugePdfPolicy .androidOnePassRenderingSizeThreshold'),
+    );
+    expect(
+      normalizedEditor,
+      contains('HugePdfPolicy.androidMaxRenderLongEdge'),
+    );
+    expect(normalizedEditor, contains('HugePdfPolicy.androidCacheExtent'));
+    expect(
+      normalizedEditor,
+      contains('enableLowResolutionPagePreview: !_windows && !_android'),
     );
   });
 
