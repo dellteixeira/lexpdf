@@ -37,6 +37,26 @@ void main() {
     }
   });
 
+  test('initial indexing stays bounded around the current reading page', () {
+    final middle = HugePdfPolicy.initialIndexWindow(
+      pageNumber: 2500,
+      pageCount: pageCount,
+    );
+    final first = HugePdfPolicy.initialIndexWindow(
+      pageNumber: 1,
+      pageCount: pageCount,
+    );
+    final last = HugePdfPolicy.initialIndexWindow(
+      pageNumber: pageCount,
+      pageCount: pageCount,
+    );
+
+    expect(middle, (start: 2498, end: 2506));
+    expect(first, (start: 1, end: 7));
+    expect(last, (start: 4998, end: 5000));
+    expect(middle.end - middle.start + 1, lessThanOrEqualTo(9));
+  });
+
   test('5000-page boundary jumps never materialize a document-sized window', () {
     final first = HugePdfPolicy.overlayWindow(
       pageNumber: -1000,
