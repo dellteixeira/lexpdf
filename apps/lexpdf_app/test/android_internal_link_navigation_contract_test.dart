@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Android internal PDF links use fully measured deterministic navigation', () {
+  test('Android keeps lazy page dimensions with guarded internal-link navigation', () {
     final source = File('lib/src/screens/pdf_workspace_stylus_screen.dart')
         .readAsStringSync();
     final normalizedSource = source.replaceAll(RegExp(r'\s+'), ' ');
@@ -13,8 +13,9 @@ void main() {
     // whitespace so the contract checks behavior, not source layout.
     expect(
       normalizedSource,
-      contains('loadPageDimensionsOnDemand: !_windows && !_android'),
+      contains('loadPageDimensionsOnDemand: !_windows'),
     );
+    expect(source, isNot(contains('loadPageDimensionsOnDemand: !_windows && !_android')));
     expect(source, contains('_goToInternalPdfDestination(dest)'));
     expect(source, contains('final targetPage = dest.pageNumber;'));
     expect(source, contains('pageNumber: targetPage'));

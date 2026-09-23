@@ -33,7 +33,11 @@ void main() {
     // may wrap the boolean expression after the named argument colon.
     expect(
       normalizedSource,
-      contains('loadPageDimensionsOnDemand: !_windows && !_android'),
+      contains('loadPageDimensionsOnDemand: !_windows'),
+    );
+    expect(
+      normalizedSource,
+      isNot(contains('loadPageDimensionsOnDemand: !_windows && !_android')),
     );
     expect(source, contains('enableLowResolutionPagePreview: !_windows'));
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
