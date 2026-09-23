@@ -34,7 +34,7 @@ void main() {
     expect(fts, contains("WHERE kind = 'pdf_text' AND owner_id = ? AND page_number = ?"));
   });
 
-  test('workspace offers nonblocking indexing and Ctrl+F uses indexed OCR text', () async {
+  test('workspace defers full indexing on open and Ctrl+F can start it on demand', () async {
     final source = await File(
       'lib/src/screens/pdf_workspace_screen.dart',
     ).readAsString();
@@ -43,7 +43,17 @@ void main() {
     expect(source, contains('_startBackgroundIndexing'));
     expect(source, contains('unawaited(_startBackgroundIndexing'));
     expect(source, contains('hasCompleteDocumentIndex'));
-    expect(source, contains('_autoIndexAttempted'));
+    expect(source, contains('_autoIndexInspected'));
+    final inspectStart =
+        source.indexOf('Future<void> _inspectActiveDocumentForIndexing');
+    final backgroundStart =
+        source.indexOf('Future<void> _startBackgroundIndexing', inspectStart);
+    expect(inspectStart, greaterThanOrEqualTo(0));
+    expect(backgroundStart, greaterThan(inspectStart));
+    final inspectBody = source.substring(inspectStart, backgroundStart);
+    expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
+    expect(source, contains('full indexing remains an'));
+    expect(source, contains('explicit user/search action'));
     expect(source, isNot(contains("label: 'Indexar'")));
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));

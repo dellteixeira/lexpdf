@@ -29,7 +29,7 @@ void main() {
     expect(native, contains('SetWindowLongPtrW'));
   });
 
-  test('automatic OCR stays invisible while preserving background progress', () {
+  test('background OCR stays invisible while preserving progress', () {
     final workspace =
         File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
     expect(workspace, contains('task.progress = progress'));
