@@ -53,7 +53,7 @@ void main() {
     final inspectBody = source.substring(inspectStart, backgroundStart);
     expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
     expect(source, contains('localizedIndexPending = true'));
-    expect(source, contains('_scheduleIdleIndexContinuation(activeTab)'));
+    expect(source, contains('_scheduleIdleIndexContinuation(tab)'));
     expect(source, contains('HugePdfPolicy.localizedIndexWindow'));
     expect(source, contains('startPage: startPage'));
     expect(source, contains('endPage: endPage'));
@@ -90,7 +90,9 @@ void main() {
 
     final inspectBody = source.substring(inspectStart, schedulerStart);
     expect(inspectBody, contains('localizedIndexPending = true'));
-    expect(inspectBody, contains('_scheduleIdleIndexContinuation(activeTab)'));
+    expect(inspectBody, contains('_scheduleIdleIndexContinuation(tab)'));
+    expect(inspectBody, isNot(contains('inspectTextAvailability(')));
+    expect(inspectBody, isNot(contains('PdfDocument.openFile(')));
     expect(inspectBody, isNot(contains('_startIdleIndexChunk(')));
     expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
 
@@ -98,6 +100,7 @@ void main() {
     expect(idleBody, contains('HugePdfPolicy.localizedIndexWindow'));
     expect(idleBody, contains('startPage: startPage'));
     expect(idleBody, contains('endPage: endPage'));
+    expect(idleBody, contains('openedDocument: viewerDocument'));
   });
 
   test('manual OCR screen exposes range, cancellation and resume-friendly processing', () async {
