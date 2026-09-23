@@ -40,6 +40,44 @@ void main() {
     expect(last.end, 5000);
   });
 
+
+  test('idle indexing expands outward in bounded chunks', () {
+    final localProcessed = <int>{
+      for (var page = 497; page <= 506; page++) page,
+    };
+    final lower = HugePdfPolicy.nextIdleIndexWindow(
+      pageNumber: 500,
+      pageCount: 5000,
+      processedPages: localProcessed,
+    );
+
+    expect(lower, isNotNull);
+    expect(lower!.start, 485);
+    expect(lower.end, 496);
+    expect(lower.end - lower.start + 1, HugePdfPolicy.idleIndexChunkPages);
+
+    final lowerAlsoProcessed = <int>{
+      for (var page = 485; page <= 506; page++) page,
+    };
+    final upper = HugePdfPolicy.nextIdleIndexWindow(
+      pageNumber: 500,
+      pageCount: 5000,
+      processedPages: lowerAlsoProcessed,
+    );
+
+    expect(upper, isNotNull);
+    expect(upper!.start, 507);
+    expect(upper.end, 518);
+    expect(
+      HugePdfPolicy.nextIdleIndexWindow(
+        pageNumber: 2,
+        pageCount: 3,
+        processedPages: {1, 2, 3},
+      ),
+      isNull,
+    );
+  });
+
   test('overlay window stays bounded in a 5000-page PDF', () {
     final middle = HugePdfPolicy.overlayWindow(
       pageNumber: 2500,
