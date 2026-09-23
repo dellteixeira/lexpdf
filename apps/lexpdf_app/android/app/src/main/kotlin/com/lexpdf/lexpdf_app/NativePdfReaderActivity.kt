@@ -349,7 +349,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun redoInk() {
-        val entry = redoEntries.removeLastOrNull() ?: return
+        if (redoEntries.isEmpty()) return
+        val entry = redoEntries.removeLast()
         currentEntries += entry
         dryInkView.setEntries(currentEntries)
         persistInkForPage(currentPageIndex)
