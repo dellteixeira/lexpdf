@@ -29,6 +29,8 @@ class HugePdfPolicy {
   static const int _mobileViewerCacheNormalMaxBytes = 32 * 1024 * 1024;
   static const int _mobileViewerCacheLargeMaxBytes = 24 * 1024 * 1024;
   static const int _mobileViewerCacheHugeMaxBytes = 16 * 1024 * 1024;
+  static const int _mobileRecoveryCacheMaxBytes = 12 * 1024 * 1024;
+  static const int _mobileEmergencyCacheMaxBytes = 8 * 1024 * 1024;
   static const int _windowsViewerCacheMinBytes = 64 * 1024 * 1024;
   static const int _windowsViewerCacheMaxBytes = 100 * 1024 * 1024;
   static const int _windowsViewerCacheLargeMaxBytes = 84 * 1024 * 1024;
@@ -49,6 +51,15 @@ class HugePdfPolicy {
       Duration(milliseconds: 180);
   static const Duration androidSecondaryWorkDelay =
       Duration(milliseconds: 1200);
+  static const Duration androidRecoverySecondaryWorkDelay =
+      Duration(seconds: 6);
+  static const Duration androidStableOpenWindow = Duration(seconds: 8);
+  static const double androidRecoveryOnePassRenderingSizeThreshold = 700;
+  static const double androidEmergencyOnePassRenderingSizeThreshold = 512;
+  static const double androidRecoveryMaxRenderLongEdge = 1600;
+  static const double androidEmergencyMaxRenderLongEdge = 1200;
+  static const double androidRecoveryCacheExtent = 0.04;
+  static const double androidEmergencyCacheExtent = 0.0;
 
   /// Returns a bounded render-cache budget using the visible viewport as the
   /// working-set estimate and the total page count as a memory-pressure hint.
@@ -63,6 +74,7 @@ class HugePdfPolicy {
     required double viewportWidth,
     required double viewportHeight,
     required double devicePixelRatio,
+    int androidRecoveryLevel = 0,
   }) {
     final safeWidth = math.max(1.0, viewportWidth);
     final safeHeight = math.max(1.0, viewportHeight);
@@ -75,6 +87,14 @@ class HugePdfPolicy {
         safeWidth * safeHeight * safeDpr * safeDpr * 4.0;
     final targetViewports = isWindows ? 4.0 : 2.0;
     final requested = (viewportBytes * targetViewports).round();
+
+    if (!isWindows && androidRecoveryLevel > 0) {
+      final cap = androidRecoveryLevel >= 2
+          ? _mobileEmergencyCacheMaxBytes
+          : _mobileRecoveryCacheMaxBytes;
+      final floor = math.min(8 * 1024 * 1024, cap);
+      return requested.clamp(floor, cap).toInt();
+    }
 
     final minBytes =
         isWindows ? _windowsViewerCacheMinBytes : _mobileViewerCacheMinBytes;
@@ -94,6 +114,28 @@ class HugePdfPolicy {
     };
 
     return requested.clamp(minBytes, maxBytes).toInt();
+  }
+
+  static double androidOnePassThresholdForRecovery(int recoveryLevel) {
+    if (recoveryLevel >= 2) {
+      return androidEmergencyOnePassRenderingSizeThreshold;
+    }
+    if (recoveryLevel == 1) {
+      return androidRecoveryOnePassRenderingSizeThreshold;
+    }
+    return androidOnePassRenderingSizeThreshold;
+  }
+
+  static double androidMaxRenderLongEdgeForRecovery(int recoveryLevel) {
+    if (recoveryLevel >= 2) return androidEmergencyMaxRenderLongEdge;
+    if (recoveryLevel == 1) return androidRecoveryMaxRenderLongEdge;
+    return androidMaxRenderLongEdge;
+  }
+
+  static double androidCacheExtentForRecovery(int recoveryLevel) {
+    if (recoveryLevel >= 2) return androidEmergencyCacheExtent;
+    if (recoveryLevel == 1) return androidRecoveryCacheExtent;
+    return androidCacheExtent;
   }
 
   /// Automatic indexing starts with only a small neighborhood around the

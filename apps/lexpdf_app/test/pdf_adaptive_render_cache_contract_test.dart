@@ -15,6 +15,7 @@ void main() {
     expect(workspace, contains('isWindows: _windows'));
     expect(workspace, contains('pageCount: _document?.pages.length ?? 0'));
     expect(workspace, contains('MediaQuery.devicePixelRatioOf(context)'));
+    expect(workspace, contains('androidRecoveryLevel:'));
     expect(
       workspace,
       contains('maxImageBytesCachedOnMemory:'),
@@ -31,5 +32,7 @@ void main() {
     expect(policy, contains('devicePixelRatio.clamp(1.0, 3.0)'));
     expect(policy, contains('>= 3000'));
     expect(policy, contains('>= 1000'));
+    expect(policy, contains('int androidRecoveryLevel = 0'));
+    expect(policy, contains('_mobileEmergencyCacheMaxBytes'));
   });
 }

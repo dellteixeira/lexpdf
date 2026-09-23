@@ -66,14 +66,14 @@ void main() {
     expect(workspace, contains('? 1000'));
     expect(
       normalizedWorkspace,
-      contains('HugePdfPolicy .androidOnePassRenderingSizeThreshold'),
+      contains('HugePdfPolicy .androidOnePassThresholdForRecovery('),
     );
     expect(normalizedWorkspace, contains('getPageRenderingScale:'));
     expect(normalizedWorkspace, contains('if (_windows10Tiles) return 1.0;'));
     expect(normalizedWorkspace, contains('? 6000.0'));
     expect(
       normalizedWorkspace,
-      contains('HugePdfPolicy.androidMaxRenderLongEdge'),
+      contains('HugePdfPolicy .androidMaxRenderLongEdgeForRecovery('),
     );
     expect(workspace, contains('maxRenderPixels / page.width'));
     expect(workspace, contains('maxRenderPixels / page.height'));
