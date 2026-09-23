@@ -47,9 +47,21 @@ void main() {
     expect(source, contains('limitRenderingCache: true'));
     expect(
       source,
-      contains('maxImageBytesCachedOnMemory: HugePdfPolicy.viewerImageCacheBytes'),
+      contains('maxImageBytesCachedOnMemory: _renderCacheBudget(context)'),
     );
-    expect(HugePdfPolicy.viewerImageCacheBytes, lessThanOrEqualTo(96 * 1024 * 1024));
+    expect(source, contains('HugePdfPolicy.viewerImageCacheBytesFor('));
+    final tabletBudget = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: pageCount,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+    expect(tabletBudget, lessThanOrEqualTo(48 * 1024 * 1024));
+    expect(
+      HugePdfPolicy.viewerImageCacheBytes,
+      lessThanOrEqualTo(64 * 1024 * 1024),
+    );
     expect(source, contains('useProgressiveLoading: true'));
     expect(source, isNot(contains('FutureBuilder<ReadingProgressState?>')));
   });
