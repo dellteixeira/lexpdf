@@ -26,7 +26,12 @@ void main() {
       contains('onePassRenderingSizeThreshold: _windows10Tiles'),
     );
     expect(source, contains('? 1000'));
-    expect(source, contains(': (_windows ? 6000 : 1400)'));
+    expect(
+      normalizedSource,
+      contains(
+        ': (_windows ? 6000 : HugePdfPolicy .androidOnePassRenderingSizeThreshold)',
+      ),
+    );
     expect(source, contains('if (_windows10Tiles) return 1.0;'));
     expect(source, contains('Windows10PdfTileOverlay('));
 
@@ -40,7 +45,10 @@ void main() {
       normalizedSource,
       isNot(contains('loadPageDimensionsOnDemand: !_windows && !_android')),
     );
-    expect(source, contains('enableLowResolutionPagePreview: !_windows'));
+    expect(
+      normalizedSource,
+      contains('enableLowResolutionPagePreview: !_windows && !_android'),
+    );
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
     expect(source, contains('HugePdfPolicy.viewerImageCacheBytesFor('));
     expect(source, contains('isWindows: _windows'));
@@ -78,8 +86,18 @@ void main() {
     expect(largeWindows, lessThan(normalWindows));
     expect(hugeWindows, lessThan(largeWindows));
 
-    expect(source, contains('horizontalCacheExtent: _windows ? 1.0 : 0.30'));
-    expect(source, contains('verticalCacheExtent: _windows ? 1.0 : 0.30'));
+    expect(
+      normalizedSource,
+      contains(
+        'horizontalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtent',
+      ),
+    );
+    expect(
+      normalizedSource,
+      contains(
+        'verticalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtent',
+      ),
+    );
     expect(
       source,
       isNot(contains('if (_windows) _controller.invalidate();')),
