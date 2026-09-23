@@ -13,10 +13,12 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
+        private const val ANDROIDX_PDF_CHANNEL = "lexpdf/androidx_pdf"
     }
 
     private var channel: MethodChannel? = null
     private var inputCapabilitiesChannel: MethodChannel? = null
+    private var androidxPdfChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
 
@@ -45,6 +47,35 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        androidxPdfChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ANDROIDX_PDF_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openDocument" -> {
+                        val path = call.argument<String>("path")
+                        val initialPage = call.argument<Int>("initialPage") ?: 1
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "PDF path is required.", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            openWithAndroidxPdf(path, initialPage)
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            result.error(
+                                "androidx_pdf_open_failed",
+                                error.message ?: error.javaClass.simpleName,
+                                null,
+                            )
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         processIntent(intent)
     }
 
@@ -52,6 +83,20 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    private fun openWithAndroidxPdf(path: String, initialPage: Int) {
+        val file = File(path)
+        require(file.isFile && file.length() > 0L) {
+            "PDF file is not available: $path"
+        }
+
+        startActivity(
+            Intent(this, AndroidxPdfActivity::class.java).apply {
+                putExtra(AndroidxPdfActivity.EXTRA_PATH, file.absolutePath)
+                putExtra(AndroidxPdfActivity.EXTRA_INITIAL_PAGE, initialPage.coerceAtLeast(1))
+            }
+        )
     }
 
     private fun hasStylusInputDevice(): Boolean {
