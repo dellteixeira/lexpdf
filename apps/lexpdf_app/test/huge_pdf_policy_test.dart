@@ -16,6 +16,30 @@ void main() {
     );
   });
 
+
+  test('localized index window stays small around the reading page', () {
+    final middle = HugePdfPolicy.localizedIndexWindow(
+      pageNumber: 2500,
+      pageCount: 5000,
+    );
+    final first = HugePdfPolicy.localizedIndexWindow(
+      pageNumber: 1,
+      pageCount: 5000,
+    );
+    final last = HugePdfPolicy.localizedIndexWindow(
+      pageNumber: 5000,
+      pageCount: 5000,
+    );
+
+    expect(middle.start, 2497);
+    expect(middle.end, 2506);
+    expect(middle.end - middle.start + 1, 10);
+    expect(first.start, 1);
+    expect(first.end, 7);
+    expect(last.start, 4997);
+    expect(last.end, 5000);
+  });
+
   test('overlay window stays bounded in a 5000-page PDF', () {
     final middle = HugePdfPolicy.overlayWindow(
       pageNumber: 2500,
