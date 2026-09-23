@@ -53,7 +53,7 @@ class PdfOpenCrashGuard {
       final age = now.difference(previous.startedAt);
       if (!age.isNegative && age <= interruptedOpenWindow) {
         interrupted = true;
-        recoveryLevel = (previous.recoveryLevel + 1).clamp(1, 2);
+        recoveryLevel = (previous.recoveryLevel + 1).clamp(1, 2).toInt();
       }
     }
 
@@ -111,7 +111,7 @@ class PdfOpenCrashGuard {
       return _PdfOpenMarker(
         documentKey: key,
         startedAt: parsed.toUtc(),
-        recoveryLevel: level.clamp(0, 2),
+        recoveryLevel: level.clamp(0, 2).toInt(),
       );
     } on Object {
       return null;
