@@ -61,13 +61,16 @@ void main() {
 
     expect(
       normalizedEditor,
-      contains('HugePdfPolicy .androidOnePassRenderingSizeThreshold'),
+      contains('HugePdfPolicy .androidOnePassThresholdForRecovery('),
     );
     expect(
       normalizedEditor,
-      contains('HugePdfPolicy.androidMaxRenderLongEdge'),
+      contains('HugePdfPolicy .androidMaxRenderLongEdgeForRecovery('),
     );
-    expect(normalizedEditor, contains('HugePdfPolicy.androidCacheExtent'));
+    expect(
+      normalizedEditor,
+      contains('HugePdfPolicy.androidCacheExtentForRecovery('),
+    );
     expect(
       normalizedEditor,
       contains('enableLowResolutionPagePreview: !_windows && !_android'),
