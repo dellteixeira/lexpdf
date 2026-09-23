@@ -35,7 +35,12 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    await pdfrxFlutterInitialize();
+    // Android reading uses pdfx/Android PdfRenderer and must not initialize
+    // pdfrx/PDFium during app bootstrap. Keep pdfrx initialization scoped to
+    // Windows, where the existing renderer remains the supported desktop path.
+    if (Platform.isWindows) {
+      await pdfrxFlutterInitialize();
+    }
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {
