@@ -52,6 +52,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
     this.showDocumentHeader = true,
     this.onToggleFullScreen,
     this.onPageChanged,
+    this.onReaderActivity,
     super.key,
   });
 
@@ -63,6 +64,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final bool showDocumentHeader;
   final VoidCallback? onToggleFullScreen;
   final ValueChanged<int>? onPageChanged;
+  final VoidCallback? onReaderActivity;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -354,9 +356,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         active: _android && !_textSelectionOwnsGesture,
                         controller: _controller,
                         onFocalPointChanged: (position) {
+                          widget.onReaderActivity?.call();
                           _zoomAnchorLocal = position;
                         },
-                        onNavigationEnd: _syncZoomFromController,
+                        onNavigationEnd: () {
+                          widget.onReaderActivity?.call();
+                          _syncZoomFromController();
+                        },
                         child: PdfViewer.file(
                           path,
                           controller: _controller,
@@ -436,12 +442,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                     (_stylusMode != _StylusMode.note &&
                                         !_inkMode)),
                             onInteractionStart: (details) {
+                              widget.onReaderActivity?.call();
                               _zoomAnchorLocal = details.localFocalPoint;
                             },
                             onInteractionUpdate: (details) {
+                              widget.onReaderActivity?.call();
                               _zoomAnchorLocal = details.localFocalPoint;
                             },
                             onInteractionEnd: (_) {
+                              widget.onReaderActivity?.call();
                               _syncZoomFromController();
                             },
                             buildContextMenu: _textSelectionEnabled
@@ -1536,6 +1545,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _onPageChanged(int? pageNumber) {
     if (pageNumber == null) return;
+    widget.onReaderActivity?.call();
 
     final transitionTarget = _chromeTransitionPage;
     if (transitionTarget != null && pageNumber != transitionTarget) {

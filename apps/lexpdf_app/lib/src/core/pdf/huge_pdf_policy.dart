@@ -27,6 +27,12 @@ class HugePdfPolicy {
   static const int localizedIndexPagesBefore = 3;
   static const int localizedIndexPagesAfter = 6;
 
+  /// Broader automatic indexing is allowed only after the reader has remained
+  /// idle for this long. Each idle pass is intentionally small so a pointer,
+  /// scroll, zoom or page-navigation event can stop the next pass quickly.
+  static const Duration backgroundIndexIdleDelay = Duration(milliseconds: 1200);
+  static const int idleIndexChunkPages = 12;
+
   /// OCR bitmap budget. Mobile/native bitmap OCR is capped at 8 MP, while
   /// desktop OCR is capped at 6 MP because the platform bridge also needs an
   /// encoded image buffer. This keeps the peak per-page working set bounded.
@@ -78,6 +84,52 @@ class HugePdfPolicy {
     return (
       start: math.max(1, current - localizedIndexPagesBefore),
       end: math.min(pageCount, current + localizedIndexPagesAfter),
+    );
+  }
+
+  static ({int start, int end})? nextIdleIndexWindow({
+    required int pageNumber,
+    required int pageCount,
+    required Set<int> processedPages,
+  }) {
+    if (pageCount <= 0 || processedPages.length >= pageCount) return null;
+    final current = pageNumber.clamp(1, pageCount);
+
+    int? lower;
+    int? upper;
+    for (var distance = 0; distance < pageCount; distance++) {
+      final candidateLower = current - distance;
+      if (lower == null &&
+          candidateLower >= 1 &&
+          !processedPages.contains(candidateLower)) {
+        lower = candidateLower;
+      }
+
+      final candidateUpper = current + distance;
+      if (upper == null &&
+          candidateUpper <= pageCount &&
+          !processedPages.contains(candidateUpper)) {
+        upper = candidateUpper;
+      }
+
+      if (lower != null || upper != null) break;
+    }
+
+    if (lower == null && upper == null) return null;
+    final lowerDistance = lower == null ? pageCount + 1 : current - lower;
+    final upperDistance = upper == null ? pageCount + 1 : upper - current;
+
+    if (lower != null && lowerDistance <= upperDistance) {
+      return (
+        start: math.max(1, lower - idleIndexChunkPages + 1),
+        end: lower,
+      );
+    }
+
+    final start = upper!;
+    return (
+      start: start,
+      end: math.min(pageCount, start + idleIndexChunkPages - 1),
     );
   }
 

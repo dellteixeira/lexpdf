@@ -44,7 +44,9 @@ void main() {
     expect(workspace, contains('PdfAndroidFingerNavigationRegion('));
     expect(workspace, contains('active: _android'));
     expect(workspace, contains('controller: _controller'));
-    expect(workspace, contains('onNavigationEnd: _syncZoomFromController'));
+    expect(workspace, contains('onNavigationEnd: ()'));
+    expect(workspace, contains('widget.onReaderActivity?.call();'));
+    expect(workspace, contains('_syncZoomFromController();'));
 
     // Android does not depend on pdfrx's internal gesture arena. The custom
     // router owns finger navigation, while compact phones can temporarily give
