@@ -33,6 +33,8 @@ jobs:
   android-signed:
     needs: preflight
     runs-on: ubuntu-24.04
+    env:
+      ORG_GRADLE_PROJECT_PDFTRON_LICENSE_KEY: ${{ secrets.PDFTRON_LICENSE_KEY }}
     defaults:
       run:
         working-directory: apps/lexpdf_app
