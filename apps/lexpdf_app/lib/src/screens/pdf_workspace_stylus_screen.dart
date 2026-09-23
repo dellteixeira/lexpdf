@@ -137,6 +137,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   int _inkLoadGeneration = 0;
   int _inkCount = 0;
   int _annotationRevision = 0;
+  int _internalLinkNavigationGeneration = 0;
   bool _hasTextSelection = false;
   int _inkColor = 0xFF246BFD;
   double _inkWidth = 3.0;
@@ -627,45 +628,90 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       return;
     }
 
-    // Android robust-link path: first establish the correct physical page on
-    // the fully measured layout. Only then apply the PDF destination matrix.
-    // This avoids a stale /Fit or /XYZ transform on large documents whose page
-    // dimensions were previously loaded on demand.
+    // A newer tap supersedes an older in-flight link resolution. This matters
+    // on large Android documents where lazy geometry may take a few frames to
+    // become available.
+    final generation = ++_internalLinkNavigationGeneration;
+
+    // Stage 1: navigate by physical page number. With lazy page dimensions this
+    // explicitly asks pdfrx to materialize the target page geometry before we
+    // apply /XYZ, /Fit, or other intra-page destination coordinates.
     await _controller.goToPage(
       pageNumber: targetPage,
       anchor: PdfPageAnchor.top,
       duration: Duration.zero,
     );
+    final pageReady = await _waitForInternalLinkPage(
+      targetPage: targetPage,
+      generation: generation,
+    );
+    if (!pageReady) return;
 
-    // Give the viewer one frame to publish the new layout/viewport before
-    // resolving the exact destination. This retains intra-page links while
-    // making page-only index links deterministic.
-    await Future<void>.delayed(const Duration(milliseconds: 32));
-    if (!mounted || !_controller.isReady) return;
-
+    // Stage 2: once the physical target page is active, apply the exact PDF
+    // destination so intra-page links keep their intended position/zoom.
     final moved = await _controller.goToDest(dest, duration: Duration.zero);
+    if (!_isCurrentInternalLinkNavigation(generation)) return;
     if (!moved) {
-      await _controller.goToPage(
-        pageNumber: targetPage,
-        anchor: PdfPageAnchor.top,
-        duration: Duration.zero,
-      );
+      await _restoreInternalLinkTargetPage(targetPage, generation);
       return;
     }
 
-    // A second-frame guard handles pdfrx/Android cases where a destination
-    // transform is accepted but resolves against the wrong page. Never apply
-    // numeric +1/-1 offsets: PdfDest.pageNumber is already the physical page.
-    await Future<void>.delayed(const Duration(milliseconds: 32));
-    if (!mounted || !_controller.isReady) return;
+    // Stage 3: verify after layout settles. Some Android/PDFium combinations
+    // accept a destination transform before the lazy target geometry is fully
+    // published. If it resolves to a different physical page, fall back to the
+    // correct page without ever applying +1/-1 page-number guesses.
+    await _waitForInternalLinkLayout(generation);
+    if (!_isCurrentInternalLinkNavigation(generation)) return;
     final currentPage = _controller.pageNumber;
     if (currentPage != null && currentPage != targetPage) {
-      await _controller.goToPage(
-        pageNumber: targetPage,
-        anchor: PdfPageAnchor.top,
-        duration: Duration.zero,
-      );
+      await _restoreInternalLinkTargetPage(targetPage, generation);
     }
+  }
+
+  bool _isCurrentInternalLinkNavigation(int generation) =>
+      mounted &&
+      _controller.isReady &&
+      generation == _internalLinkNavigationGeneration;
+
+  Future<bool> _waitForInternalLinkPage({
+    required int targetPage,
+    required int generation,
+  }) async {
+    const maxAttempts = 8;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (!_isCurrentInternalLinkNavigation(generation)) return false;
+      if (_controller.pageNumber == targetPage) return true;
+      await _waitForInternalLinkLayout(generation);
+    }
+
+    // One bounded retry handles devices that need an additional layout pass
+    // after the first lazy page-dimension request.
+    if (!_isCurrentInternalLinkNavigation(generation)) return false;
+    await _controller.goToPage(
+      pageNumber: targetPage,
+      anchor: PdfPageAnchor.top,
+      duration: Duration.zero,
+    );
+    await _waitForInternalLinkLayout(generation);
+    return _isCurrentInternalLinkNavigation(generation) &&
+        _controller.pageNumber == targetPage;
+  }
+
+  Future<void> _waitForInternalLinkLayout(int generation) async {
+    if (!_isCurrentInternalLinkNavigation(generation)) return;
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+  }
+
+  Future<void> _restoreInternalLinkTargetPage(
+    int targetPage,
+    int generation,
+  ) async {
+    if (!_isCurrentInternalLinkNavigation(generation)) return;
+    await _controller.goToPage(
+      pageNumber: targetPage,
+      anchor: PdfPageAnchor.top,
+      duration: Duration.zero,
+    );
   }
 
   Widget _buildCommandBar(String path) {
