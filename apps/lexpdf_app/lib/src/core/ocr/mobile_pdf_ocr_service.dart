@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
@@ -252,9 +251,7 @@ class MobilePdfOcrService {
                   'lexpdf-ocr-${DateTime.now().microsecondsSinceEpoch}.png',
                 );
                 try {
-                  final png = Uint8List.fromList(
-                    img.encodePng(rendered.createImageNF()),
-                  );
+                  final png = img.encodePng(rendered.createImageNF());
                   await temporaryFile.writeAsBytes(png, flush: true);
                   final recognized = await recognizer.processImage(
                     InputImage.fromFilePath(temporaryFile.path),
@@ -311,9 +308,7 @@ class MobilePdfOcrService {
                 cancelled = true;
                 break;
               }
-              final png = Uint8List.fromList(
-                img.encodePng(rendered.createImageNF()),
-              );
+              final png = img.encodePng(rendered.createImageNF());
               final result = await desktopOcr.recognizeText(OcrSource.memory(png));
               text = result.text.trim();
             } finally {
