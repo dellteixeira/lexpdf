@@ -29,7 +29,7 @@ void main() {
     expect(
       normalizedSource,
       contains(
-        ': (_windows ? 6000 : HugePdfPolicy .androidOnePassRenderingSizeThreshold)',
+        ': (_windows ? 6000 : HugePdfPolicy .androidOnePassThresholdForRecovery(',
       ),
     );
     expect(source, contains('if (_windows10Tiles) return 1.0;'));
@@ -89,13 +89,13 @@ void main() {
     expect(
       normalizedSource,
       contains(
-        'horizontalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtent',
+        'horizontalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtentForRecovery(',
       ),
     );
     expect(
       normalizedSource,
       contains(
-        'verticalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtent',
+        'verticalCacheExtent: _windows ? 1.0 : HugePdfPolicy.androidCacheExtentForRecovery(',
       ),
     );
     expect(
