@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -153,6 +154,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _readingMode = false;
   bool _fullScreenForcedReadingMode = false;
   bool _openGuardReady = false;
+  bool _androidReaderStable = false;
   int _androidRecoveryLevel = 0;
   Timer? _stableOpenTimer;
   int? _chromeTransitionPage;
@@ -165,6 +167,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
 
   bool get _android => defaultTargetPlatform == TargetPlatform.android;
+
+  int get _localFileSizeBytes {
+    final path = widget.document.localPath;
+    if (path == null || path.isEmpty) return 0;
+    try {
+      return File(path).lengthSync();
+    } on FileSystemException {
+      return 0;
+    }
+  }
+
+  bool get _androidSafeLocalOpen =>
+      _android &&
+      HugePdfPolicy.shouldUseAndroidSafeLocalOpen(
+        recoveryLevel: _androidRecoveryLevel,
+        fileSizeBytes: _localFileSizeBytes,
+      );
+
+  bool get _androidMinimalReader =>
+      _android && (!_androidReaderStable || _androidRecoveryLevel > 0);
+
+  bool _isLargeAndroidPdf(PdfDocument document) =>
+      _android &&
+      HugePdfPolicy.isLargeAndroidPdf(
+        pageCount: document.pages.length,
+        fileSizeBytes: _localFileSizeBytes,
+      );
 
   bool get _windows10Tiles => isWindows10ManualTileRenderingEnabled();
 
@@ -195,7 +224,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   /// - explicit Select mode keeps free text-selection behavior;
   /// - ink/note tools retain exclusive pointer ownership.
   bool get _textSelectionEnabled =>
-      _textSelectionMode || (_android && _stylusMode == _StylusMode.hand);
+      !_androidMinimalReader &&
+      (_textSelectionMode || (_android && _stylusMode == _StylusMode.hand));
 
   bool get _textSelectionOwnsGesture =>
       _textSelectionMode || _hasTextSelection;
@@ -243,8 +273,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       if (!mounted) return;
       setState(() => _openGuardReady = true);
     }
-    unawaited(_reloadBookmarks());
-    unawaited(_loadInkCount());
+    // Android starts with a render-only reader. Bookmarks, ink, outline,
+    // selection metadata, OCR and workspace indexing stay out of the opening
+    // critical path until PDFium has remained stable.
   }
 
   @override
@@ -424,7 +455,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           path,
                           controller: _controller,
                           initialPageNumber: _page,
-                          useProgressiveLoading: true,
+                          useProgressiveLoading: !_androidSafeLocalOpen,
                           params: PdfViewerParams(
                             limitRenderingCache: true,
                             maxImageBytesCachedOnMemory:
@@ -567,9 +598,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 }
                               },
                             ),
-                            pagePaintCallbacks: _windows10Tiles
+                            pagePaintCallbacks: _androidMinimalReader
                                 ? const []
-                                : [_selectionMenu.paint],
+                                : (_windows10Tiles
+                                      ? const []
+                                      : [_selectionMenu.paint]),
                             layoutPages: switch (_viewMode) {
                               _PdfViewMode.continuous => null,
                               _PdfViewMode.horizontal => _horizontalLayout,
@@ -588,7 +621,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 }
                               },
                             ),
-                            pageOverlaysBuilder: (context, pageRect, page) => [
+                            pageOverlaysBuilder: (context, pageRect, page) =>
+                                _androidMinimalReader
+                                ? const <Widget>[]
+                                : [
                               if (_windows10Tiles)
                                 Positioned.fill(
                                   child: Windows10PdfTileOverlay(
@@ -656,27 +692,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                               _syncZoomFromController();
                               if (mounted) setState(() {});
 
-                              if (!_android || _androidRecoveryLevel == 0) {
+                              if (!_android) {
                                 widget.onViewerDocumentChanged?.call(document);
                                 unawaited(
                                   _hydrateSecondaryPdfWork(
                                     document,
-                                    delay: _android
-                                        ? HugePdfPolicy.androidSecondaryWorkDelay
-                                        : Duration.zero,
+                                    delay: Duration.zero,
                                   ),
                                 );
+                                return;
                               }
 
-                              if (_android) {
-                                _stableOpenTimer?.cancel();
-                                _stableOpenTimer = Timer(
-                                  HugePdfPolicy.androidStableOpenWindow,
-                                  () => unawaited(
-                                    _completeStableAndroidOpen(document),
-                                  ),
-                                );
-                              }
+                              // Android deliberately does nothing except render
+                              // during the opening window. The workspace is not
+                              // told that the document is indexable yet.
+                              _stableOpenTimer?.cancel();
+                              _stableOpenTimer = Timer(
+                                HugePdfPolicy.androidStableOpenWindow,
+                                () => unawaited(
+                                  _completeStableAndroidOpen(document),
+                                ),
+                              );
                             },
                             onPageChanged: _onPageChanged,
                           ),
@@ -1556,7 +1592,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       case _WorkspaceMoreAction.readingMode:
         _requestFullScreen();
       case _WorkspaceMoreAction.outline:
-        if (_outline.isNotEmpty) unawaited(_showOutline());
+        unawaited(_openOutlineOnDemand());
       case _WorkspaceMoreAction.bookmarks:
         unawaited(_showBookmarks());
       case _WorkspaceMoreAction.forms:
@@ -1576,6 +1612,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       ),
     ),
   );
+
+  Future<void> _openOutlineOnDemand() async {
+    final document = _document;
+    if (document == null) return;
+    if (_outline.isEmpty) {
+      await _loadOutline(document);
+    }
+    if (!mounted || !identical(_document, document) || _outline.isEmpty) return;
+    await _showOutline();
+  }
 
   Future<void> _hydrateSecondaryPdfWork(
     PdfDocument document, {
@@ -1598,19 +1644,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   Future<void> _completeStableAndroidOpen(PdfDocument document) async {
     if (!mounted || !identical(_document, document)) return;
 
+    final largeDocument = _isLargeAndroidPdf(document);
+    setState(() => _androidReaderStable = true);
+
+    // Only after the render-only stability window may the surrounding
+    // workspace see the PdfDocument. Android automatic indexing is disabled by
+    // the shell; this callback exists for explicit user-requested search/OCR.
+    widget.onViewerDocumentChanged?.call(document);
+    await _openCrashGuard.markStable(widget.document.id);
+
+    unawaited(_reloadBookmarks());
+    unawaited(_loadInkCount());
+
     if (_androidRecoveryLevel > 0) {
-      // In recovery mode, optional text/annotation work stays behind the
-      // proven-stable viewer. If native code fails here the marker remains and
-      // the next launch escalates to the emergency profile.
-      await _hydrateSecondaryPdfWork(
-        document,
-        delay: HugePdfPolicy.androidRecoverySecondaryWorkDelay,
-      );
-      if (!mounted || !identical(_document, document)) return;
-      widget.onViewerDocumentChanged?.call(document);
+      // Recovery mode stays a minimal reader for the whole session. Optional
+      // PDF object traversal is user-triggered instead of automatic.
+      return;
     }
 
-    await _openCrashGuard.markStable(widget.document.id);
+    if (largeDocument) {
+      // Large PDFs avoid eager outline traversal. Keep only the light
+      // annotation state needed once reading is proven stable.
+      await _loadInkWindow(document, _page);
+      if (!mounted || !identical(_document, document)) return;
+      await _selectionMenu.load(document);
+      return;
+    }
+
+    await _hydrateSecondaryPdfWork(
+      document,
+      delay: HugePdfPolicy.androidSecondaryWorkDelay,
+    );
   }
 
   Future<void> _openExport() => Navigator.of(context).push(

@@ -30,8 +30,9 @@ import 'pdf_workspace_stylus_screen.dart' as editor;
 /// Persistent multi-document shell for the unified PDF editor.
 ///
 /// Every tab owns its own editor State through an IndexedStack, so switching
-/// documents does not destroy the active PDF viewer. OCR/indexing is performed
-/// incrementally in the background by this shell so navigation remains usable.
+/// documents does not destroy the active PDF viewer. Desktop may index while
+/// idle; Android indexing/OCR is strictly user-triggered so PDFium owns the
+/// reading critical path without competing native raster work.
 /// Phase 7 keeps productivity chrome outside the editor so stylus, touch,
 /// selection, rendering and annotation input contracts remain isolated.
 class PdfWorkspaceScreen extends StatefulWidget {
@@ -328,6 +329,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
 
     tab.pageCount = viewerDocument.pages.length;
+    if (Platform.isAndroid) {
+      // Reader-first Android contract: opening a PDF must never implicitly
+      // trigger text extraction, raster OCR or FTS work. Search/OCR can still
+      // invoke _startBackgroundIndexing after an explicit user action.
+      tab.localizedIndexPending = false;
+      _idleIndexTimer?.cancel();
+      for (final task in _ocrTasks.values) {
+        if (task.running && task.automatic) {
+          task.cancelRequested = true;
+        }
+      }
+      return;
+    }
+
     if (_tabs.isNotEmpty &&
         _activeIndex >= 0 &&
         _activeIndex < _tabs.length &&
@@ -338,6 +353,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Future<void> _inspectActiveDocumentForIndexing(_WorkspaceTab tab) async {
+    if (Platform.isAndroid) return;
     if (!mounted || _tabs.isEmpty) return;
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
     if (!identical(_tabs[_activeIndex], tab)) return;
@@ -387,11 +403,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         task.cancelRequested = true;
       }
     }
-    _scheduleIdleIndexContinuation(tab);
+    if (!Platform.isAndroid) {
+      _scheduleIdleIndexContinuation(tab);
+    }
   }
 
   void _scheduleIdleIndexContinuation(_WorkspaceTab tab) {
     _idleIndexTimer?.cancel();
+    if (Platform.isAndroid) return;
     if (tab.viewerDocument == null) return;
     final scheduledEpoch = _readerActivityEpoch;
     _idleIndexTimer = Timer(HugePdfPolicy.backgroundIndexIdleDelay, () {
@@ -416,6 +435,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _WorkspaceTab tab,
     int scheduledEpoch,
   ) async {
+    if (Platform.isAndroid) return;
     if (!mounted || _tabs.isEmpty) return;
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
     if (!identical(_tabs[_activeIndex], tab)) return;

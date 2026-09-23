@@ -31,6 +31,8 @@ class HugePdfPolicy {
   static const int _mobileViewerCacheHugeMaxBytes = 16 * 1024 * 1024;
   static const int _mobileRecoveryCacheMaxBytes = 12 * 1024 * 1024;
   static const int _mobileEmergencyCacheMaxBytes = 8 * 1024 * 1024;
+  static const int androidLargePdfPageThreshold = 1000;
+  static const int androidLargePdfFileBytes = 50 * 1024 * 1024;
   static const int _windowsViewerCacheMinBytes = 64 * 1024 * 1024;
   static const int _windowsViewerCacheMaxBytes = 100 * 1024 * 1024;
   static const int _windowsViewerCacheLargeMaxBytes = 84 * 1024 * 1024;
@@ -138,6 +140,22 @@ class HugePdfPolicy {
     return androidCacheExtent;
   }
 
+
+  static bool isLargeAndroidPdf({
+    required int pageCount,
+    required int fileSizeBytes,
+  }) {
+    return pageCount >= androidLargePdfPageThreshold ||
+        fileSizeBytes >= androidLargePdfFileBytes;
+  }
+
+  static bool shouldUseAndroidSafeLocalOpen({
+    required int recoveryLevel,
+    required int fileSizeBytes,
+  }) {
+    return recoveryLevel > 0 || fileSizeBytes >= androidLargePdfFileBytes;
+  }
+
   /// Automatic indexing starts with only a small neighborhood around the
   /// page the user is actually reading. This bounds duplicate PDF work while
   /// still making nearby search/navigation useful immediately.
@@ -153,9 +171,9 @@ class HugePdfPolicy {
   /// OCR bitmap budget. Mobile/native bitmap OCR is capped at 8 MP, while
   /// desktop OCR is capped at 6 MP because the platform bridge also needs an
   /// encoded image buffer. This keeps the peak per-page working set bounded.
-  static const int ocrMaxPixels = 4 * 1024 * 1024;
+  static const int ocrMaxPixels = 1500000;
   static const int ocrDesktopMaxPixels = 6 * 1024 * 1024;
-  static const int ocrMaxDimension = 2048;
+  static const int ocrMaxDimension = 1600;
   static const double ocrPreferredScale = 2.0;
 
   /// If a page already exposes enough embedded text, prefer it over raster OCR.

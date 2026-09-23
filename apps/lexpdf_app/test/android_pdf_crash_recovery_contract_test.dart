@@ -19,7 +19,7 @@ void main() {
     );
   });
 
-  test('recovery levels reduce render pressure and delay optional work', () {
+  test('recovery levels reduce render pressure and suppress optional work', () {
     final source = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
@@ -31,7 +31,11 @@ void main() {
     expect(source, contains('androidCacheExtentForRecovery'));
     expect(source, contains('androidStableOpenWindow'));
     expect(source, contains('_completeStableAndroidOpen'));
-    expect(source, contains('androidRecoverySecondaryWorkDelay'));
+    expect(source, contains('bool get _androidMinimalReader'));
+    expect(
+      source,
+      contains('Recovery mode stays a minimal reader for the whole session'),
+    );
 
     expect(policy, contains('_mobileRecoveryCacheMaxBytes = 12 * 1024 * 1024'));
     expect(policy, contains('_mobileEmergencyCacheMaxBytes = 8 * 1024 * 1024'));

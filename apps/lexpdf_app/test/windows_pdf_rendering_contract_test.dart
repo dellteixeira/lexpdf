@@ -16,7 +16,10 @@ void main() {
         'bool get _windows => defaultTargetPlatform == TargetPlatform.windows;',
       ),
     );
-    expect(source, contains('useProgressiveLoading: true'));
+    expect(
+      source,
+      contains('useProgressiveLoading: !_androidSafeLocalOpen'),
+    );
 
     // Windows 10 uses the manual tiled page renderer and keeps pdfrx at a
     // lightweight backing resolution. Windows 11 retains the established
