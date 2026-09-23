@@ -52,11 +52,11 @@ void main() {
     expect(backgroundStart, greaterThan(inspectStart));
     final inspectBody = source.substring(inspectStart, backgroundStart);
     expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
-    expect(source, contains('_startLocalizedIndexing'));
+    expect(source, contains('localizedIndexPending = true'));
+    expect(source, contains('_scheduleIdleIndexContinuation(activeTab)'));
     expect(source, contains('HugePdfPolicy.localizedIndexWindow'));
-    expect(source, contains('startPage: window.start'));
-    expect(source, contains('endPage: window.end'));
-    expect(source, contains('currentPage = _tabs[_activeIndex].initialPage'));
+    expect(source, contains('startPage: startPage'));
+    expect(source, contains('endPage: endPage'));
     expect(source, isNot(contains("label: 'Indexar'")));
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));
@@ -72,30 +72,32 @@ void main() {
   });
 
 
-  test('automatic open-time indexing is localized around the reading page', () async {
+  test('automatic open-time indexing is localized and waits for reader idle', () async {
     final source = await File(
       'lib/src/screens/pdf_workspace_screen.dart',
     ).readAsString();
 
     final inspectStart =
         source.indexOf('Future<void> _inspectActiveDocumentForIndexing');
-    final localizedStart =
-        source.indexOf('Future<void> _startLocalizedIndexing', inspectStart);
-    final backgroundStart =
-        source.indexOf('Future<void> _startBackgroundIndexing', localizedStart);
+    final schedulerStart =
+        source.indexOf('void _scheduleIdleIndexContinuation', inspectStart);
+    final fullStart =
+        source.indexOf('Future<void> _startBackgroundIndexing', schedulerStart);
 
     expect(inspectStart, greaterThanOrEqualTo(0));
-    expect(localizedStart, greaterThan(inspectStart));
-    expect(backgroundStart, greaterThan(localizedStart));
+    expect(schedulerStart, greaterThan(inspectStart));
+    expect(fullStart, greaterThan(schedulerStart));
 
-    final inspectBody = source.substring(inspectStart, localizedStart);
-    expect(inspectBody, contains('_startLocalizedIndexing('));
+    final inspectBody = source.substring(inspectStart, schedulerStart);
+    expect(inspectBody, contains('localizedIndexPending = true'));
+    expect(inspectBody, contains('_scheduleIdleIndexContinuation(activeTab)'));
+    expect(inspectBody, isNot(contains('_startIdleIndexChunk(')));
     expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
 
-    final localizedBody = source.substring(localizedStart, backgroundStart);
-    expect(localizedBody, contains('startPage: window.start'));
-    expect(localizedBody, contains('endPage: window.end'));
-    expect(localizedBody, isNot(contains('endPage: pageCount')));
+    final idleBody = source.substring(schedulerStart, fullStart);
+    expect(idleBody, contains('HugePdfPolicy.localizedIndexWindow'));
+    expect(idleBody, contains('startPage: startPage'));
+    expect(idleBody, contains('endPage: endPage'));
   });
 
   test('manual OCR screen exposes range, cancellation and resume-friendly processing', () async {

@@ -87,6 +87,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _visionAnalyzing = false;
   bool _fullScreen = false;
   Timer? _idleIndexTimer;
+  int _readerActivityEpoch = 0;
+  DateTime? _lastReaderActivityAt;
 
   @override
   void initState() {
@@ -337,85 +339,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return;
       }
 
-      // Opening a PDF must never start a full-document pass. Index only the
-      // small neighborhood around the page the reader is currently displaying.
-      // This gives nearby search/navigation data without making a second
-      // PdfDocument walk all 1,000–5,000+ pages.
-      final currentPage = _tabs[_activeIndex].initialPage;
-      unawaited(
-        _startLocalizedIndexing(
-          document,
-          centerPage: currentPage,
-          pageCount: availability.pageCount,
-        ),
-      );
+      // The first localized indexing pass is deliberately gated behind the
+      // same reader-idle lease as every later chunk. This gives PDF rendering,
+      // zoom, scrolling and page navigation exclusive priority while the reader
+      // is active instead of opening a competing PdfDocument immediately.
+      final activeTab = _tabs[_activeIndex];
+      activeTab.localizedIndexPending = true;
+      _scheduleIdleIndexContinuation(activeTab);
       return;
     } catch (_) {
       // Inspection/index scheduling is advisory; reading must never depend on it.
     }
-  }
-
-  Future<void> _startLocalizedIndexing(
-    DocumentRef document, {
-    required int centerPage,
-    required int pageCount,
-  }) async {
-    final path = document.localPath;
-    if (path == null || path.isEmpty) return;
-    final existing = _ocrTasks[document.id];
-    if (existing?.running == true) return;
-
-    final window = HugePdfPolicy.localizedIndexWindow(
-      pageNumber: centerPage,
-      pageCount: pageCount,
-    );
-    if (window.end < window.start) return;
-
-    final task = existing ?? _WorkspaceOcrTask();
-    task
-      ..running = true
-      ..automatic = true
-      ..cancelRequested = false
-      ..error = null
-      ..summary = null
-      ..progress = null;
-    _ocrTasks[document.id] = task;
-
-    try {
-      final summary = await _ocrService.process(
-        documentId: document.id,
-        filePath: path,
-        startPage: window.start,
-        endPage: window.end,
-        resume: true,
-        isCancelled: () => task.cancelRequested,
-        onProgress: (progress) {
-          task.progress = progress;
-        },
-      );
-      task.summary = summary;
-    } catch (error) {
-      task.error = error;
-    } finally {
-      final interrupted = task.cancelRequested;
-      task
-        ..running = false
-        ..automatic = false;
-      if (!interrupted && mounted) {
-        final activeTab = _activeTabForDocument(document.id);
-        if (activeTab != null) {
-          _scheduleIdleIndexContinuation(activeTab);
-        }
-      }
-    }
-  }
-
-  _WorkspaceTab? _activeTabForDocument(String documentId) {
-    if (_tabs.isEmpty || _activeIndex < 0 || _activeIndex >= _tabs.length) {
-      return null;
-    }
-    final tab = _tabs[_activeIndex];
-    return tab.document.id == documentId ? tab : null;
   }
 
   void _markReaderActivity(_WorkspaceTab tab) {
@@ -423,6 +357,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
     if (!identical(_tabs[_activeIndex], tab)) return;
 
+    _readerActivityEpoch++;
+    _lastReaderActivityAt = DateTime.now();
     _idleIndexTimer?.cancel();
     for (final task in _ocrTasks.values) {
       if (task.running && task.automatic) {
@@ -434,18 +370,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _scheduleIdleIndexContinuation(_WorkspaceTab tab) {
     _idleIndexTimer?.cancel();
+    final scheduledEpoch = _readerActivityEpoch;
     _idleIndexTimer = Timer(HugePdfPolicy.backgroundIndexIdleDelay, () {
       if (!mounted || _tabs.isEmpty) return;
       if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
       if (!identical(_tabs[_activeIndex], tab)) return;
-      unawaited(_continueIndexingWhenIdle(tab));
+      if (scheduledEpoch != _readerActivityEpoch) return;
+
+      final lastActivity = _lastReaderActivityAt;
+      if (lastActivity != null) {
+        final quietFor = DateTime.now().difference(lastActivity);
+        if (quietFor < HugePdfPolicy.backgroundIndexIdleDelay) {
+          _scheduleIdleIndexContinuation(tab);
+          return;
+        }
+      }
+      unawaited(_continueIndexingWhenIdle(tab, scheduledEpoch));
     });
   }
 
-  Future<void> _continueIndexingWhenIdle(_WorkspaceTab tab) async {
+  Future<void> _continueIndexingWhenIdle(
+    _WorkspaceTab tab,
+    int scheduledEpoch,
+  ) async {
     if (!mounted || _tabs.isEmpty) return;
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
     if (!identical(_tabs[_activeIndex], tab)) return;
+    if (scheduledEpoch != _readerActivityEpoch) return;
 
     final pageCount = tab.pageCount;
     if (pageCount == null || pageCount <= 0) return;
@@ -463,22 +414,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (!mounted || _tabs.isEmpty) return;
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
     if (!identical(_tabs[_activeIndex], tab)) return;
+    if (scheduledEpoch != _readerActivityEpoch) return;
 
-    final window = HugePdfPolicy.nextIdleIndexWindow(
-      pageNumber: tab.initialPage,
-      pageCount: pageCount,
-      processedPages: processedState.keys.toSet(),
-    );
-    if (window == null) return;
+    final processedPages = processedState.keys.toSet();
+    final window = tab.localizedIndexPending
+        ? HugePdfPolicy.localizedIndexWindow(
+            pageNumber: tab.initialPage,
+            pageCount: pageCount,
+          )
+        : HugePdfPolicy.nextIdleIndexWindow(
+            pageNumber: tab.initialPage,
+            pageCount: pageCount,
+            processedPages: processedPages,
+          );
+    if (window == null || window.end < window.start) {
+      tab.localizedIndexPending = false;
+      return;
+    }
 
     final completed = await _startIdleIndexChunk(
       tab.document,
       startPage: window.start,
       endPage: window.end,
     );
-    if (completed && mounted && _tabs.isNotEmpty &&
-        _activeIndex >= 0 && _activeIndex < _tabs.length &&
-        identical(_tabs[_activeIndex], tab)) {
+    if (completed &&
+        mounted &&
+        _tabs.isNotEmpty &&
+        _activeIndex >= 0 &&
+        _activeIndex < _tabs.length &&
+        identical(_tabs[_activeIndex], tab) &&
+        scheduledEpoch == _readerActivityEpoch) {
+      tab.localizedIndexPending = false;
       _scheduleIdleIndexContinuation(tab);
     }
   }
@@ -1813,6 +1779,7 @@ class _WorkspaceTab {
   int initialPage;
   int generation = 0;
   int? pageCount;
+  bool localizedIndexPending = false;
 }
 
 class _WorkspaceOcrTask {
