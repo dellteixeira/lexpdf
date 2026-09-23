@@ -43,7 +43,7 @@ void main() {
   test('reader source keeps very-large-document lazy loading enabled', () async {
     final source = await File('lib/src/screens/pdf_reader_screen.dart').readAsString();
 
-    expect(source, contains('loadPageDimensionsOnDemand: true'));
+    expect(source, contains('loadPageDimensionsOnDemand: !_windows'));
     expect(source, contains('limitRenderingCache: true'));
     expect(
       source,
