@@ -161,6 +161,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   bool get _windows10Tiles => isWindows10ManualTileRenderingEnabled();
 
+  int _renderCacheBudget(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: _windows,
+      pageCount: _document?.pages.length ?? 0,
+      viewportWidth: size.width,
+      viewportHeight: size.height,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
+  }
+
   bool get _inkMode => switch (_stylusMode) {
     _StylusMode.pen || _StylusMode.highlighter || _StylusMode.eraser => true,
     _ => false,
@@ -370,9 +381,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                           useProgressiveLoading: true,
                           params: PdfViewerParams(
                             limitRenderingCache: true,
-                            maxImageBytesCachedOnMemory: _windows
-                                ? 100 * 1024 * 1024
-                                : HugePdfPolicy.viewerImageCacheBytes,
+                            maxImageBytesCachedOnMemory:
+                                _renderCacheBudget(context),
                             horizontalCacheExtent: _windows ? 1.0 : 0.30,
                             verticalCacheExtent: _windows ? 1.0 : 0.30,
                             onePassRenderingSizeThreshold: _windows10Tiles
