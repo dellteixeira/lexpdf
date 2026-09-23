@@ -86,6 +86,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _denseToolbar = false;
   bool _visionAnalyzing = false;
   bool _fullScreen = false;
+  Timer? _idleIndexTimer;
 
   @override
   void initState() {
@@ -126,6 +127,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _idleIndexTimer?.cancel();
     for (final task in _ocrTasks.values) {
       task.cancelRequested = true;
     }
@@ -320,6 +322,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final availability = await _ocrService.inspectTextAvailability(
         filePath: path,
       );
+      final tab = _tabs[_activeIndex];
+      tab.pageCount = availability.pageCount;
       final complete = await _ocrStore.hasCompleteDocumentIndex(
         document.id,
         pageCount: availability.pageCount,
@@ -370,6 +374,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     final task = existing ?? _WorkspaceOcrTask();
     task
       ..running = true
+      ..automatic = true
       ..cancelRequested = false
       ..error = null
       ..summary = null
@@ -392,7 +397,133 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     } catch (error) {
       task.error = error;
     } finally {
-      task.running = false;
+      final interrupted = task.cancelRequested;
+      task
+        ..running = false
+        ..automatic = false;
+      if (!interrupted && mounted) {
+        final activeTab = _activeTabForDocument(document.id);
+        if (activeTab != null) {
+          _scheduleIdleIndexContinuation(activeTab);
+        }
+      }
+    }
+  }
+
+  _WorkspaceTab? _activeTabForDocument(String documentId) {
+    if (_tabs.isEmpty || _activeIndex < 0 || _activeIndex >= _tabs.length) {
+      return null;
+    }
+    final tab = _tabs[_activeIndex];
+    return tab.document.id == documentId ? tab : null;
+  }
+
+  void _markReaderActivity(_WorkspaceTab tab) {
+    if (!mounted || _tabs.isEmpty) return;
+    if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
+    if (!identical(_tabs[_activeIndex], tab)) return;
+
+    _idleIndexTimer?.cancel();
+    for (final task in _ocrTasks.values) {
+      if (task.running && task.automatic) {
+        task.cancelRequested = true;
+      }
+    }
+    _scheduleIdleIndexContinuation(tab);
+  }
+
+  void _scheduleIdleIndexContinuation(_WorkspaceTab tab) {
+    _idleIndexTimer?.cancel();
+    _idleIndexTimer = Timer(HugePdfPolicy.backgroundIndexIdleDelay, () {
+      if (!mounted || _tabs.isEmpty) return;
+      if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
+      if (!identical(_tabs[_activeIndex], tab)) return;
+      unawaited(_continueIndexingWhenIdle(tab));
+    });
+  }
+
+  Future<void> _continueIndexingWhenIdle(_WorkspaceTab tab) async {
+    if (!mounted || _tabs.isEmpty) return;
+    if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
+    if (!identical(_tabs[_activeIndex], tab)) return;
+
+    final pageCount = tab.pageCount;
+    if (pageCount == null || pageCount <= 0) return;
+
+    final existing = _ocrTasks[tab.document.id];
+    if (existing?.running == true) {
+      _scheduleIdleIndexContinuation(tab);
+      return;
+    }
+
+    final processedState = await _ocrStore.processedPageState(
+      tab.document.id,
+      acceptedEngines: _ocrService.resumeEngines,
+    );
+    if (!mounted || _tabs.isEmpty) return;
+    if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
+    if (!identical(_tabs[_activeIndex], tab)) return;
+
+    final window = HugePdfPolicy.nextIdleIndexWindow(
+      pageNumber: tab.initialPage,
+      pageCount: pageCount,
+      processedPages: processedState.keys.toSet(),
+    );
+    if (window == null) return;
+
+    final completed = await _startIdleIndexChunk(
+      tab.document,
+      startPage: window.start,
+      endPage: window.end,
+    );
+    if (completed && mounted && _tabs.isNotEmpty &&
+        _activeIndex >= 0 && _activeIndex < _tabs.length &&
+        identical(_tabs[_activeIndex], tab)) {
+      _scheduleIdleIndexContinuation(tab);
+    }
+  }
+
+  Future<bool> _startIdleIndexChunk(
+    DocumentRef document, {
+    required int startPage,
+    required int endPage,
+  }) async {
+    final path = document.localPath;
+    if (path == null || path.isEmpty) return false;
+
+    final existing = _ocrTasks[document.id];
+    if (existing?.running == true) return false;
+    final task = existing ?? _WorkspaceOcrTask();
+    task
+      ..running = true
+      ..automatic = true
+      ..cancelRequested = false
+      ..error = null
+      ..summary = null
+      ..progress = null;
+    _ocrTasks[document.id] = task;
+
+    try {
+      final summary = await _ocrService.process(
+        documentId: document.id,
+        filePath: path,
+        startPage: startPage,
+        endPage: endPage,
+        resume: true,
+        isCancelled: () => task.cancelRequested,
+        onProgress: (progress) {
+          task.progress = progress;
+        },
+      );
+      task.summary = summary;
+      return !summary.cancelled && !task.cancelRequested;
+    } catch (error) {
+      task.error = error;
+      return false;
+    } finally {
+      task
+        ..running = false
+        ..automatic = false;
     }
   }
 
@@ -404,6 +535,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     final task = existing ?? _WorkspaceOcrTask();
     task
       ..running = true
+      ..automatic = false
       ..cancelRequested = false
       ..error = null
       ..summary = null
@@ -562,6 +694,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   void _recordVisiblePage(_WorkspaceTab tab, int pageNumber) {
+    _markReaderActivity(tab);
     if (pageNumber < 1 || tab.initialPage == pageNumber) return;
     tab.initialPage = pageNumber;
     unawaited(_saveSession());
@@ -1096,6 +1229,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                         onToggleFullScreen: _toggleFullScreen,
                                         onPageChanged: (pageNumber) =>
                                             _recordVisiblePage(tab, pageNumber),
+                                        onReaderActivity: () =>
+                                            _markReaderActivity(tab),
                                       ),
                                   ],
                                 ),
@@ -1677,10 +1812,12 @@ class _WorkspaceTab {
   final DocumentRef document;
   int initialPage;
   int generation = 0;
+  int? pageCount;
 }
 
 class _WorkspaceOcrTask {
   bool running = false;
+  bool automatic = false;
   bool cancelRequested = false;
   PdfOcrProgress? progress;
   PdfOcrSummary? summary;
