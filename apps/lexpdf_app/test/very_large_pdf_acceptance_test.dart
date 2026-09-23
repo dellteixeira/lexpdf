@@ -57,11 +57,13 @@ void main() {
       viewportHeight: 1400,
       devicePixelRatio: 2,
     );
-    expect(tabletBudget, lessThanOrEqualTo(48 * 1024 * 1024));
+    expect(tabletBudget, lessThanOrEqualTo(24 * 1024 * 1024));
     expect(
       HugePdfPolicy.viewerImageCacheBytes,
       lessThanOrEqualTo(64 * 1024 * 1024),
     );
+    expect(source, contains('HugePdfPolicy.androidOnePassRenderingSizeThreshold'));
+    expect(source, contains('HugePdfPolicy.androidCacheExtent'));
     expect(source, contains('useProgressiveLoading: true'));
     expect(source, isNot(contains('FutureBuilder<ReadingProgressState?>')));
   });
