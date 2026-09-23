@@ -45,6 +45,17 @@ void main() {
     expect(mainActivity, contains('DocumentActivity.IntentBuilder'));
     expect(mainActivity, contains('.withUri(Uri.fromFile(file))'));
     expect(mainActivity, contains('.documentEditingEnabled(true)'));
+    expect(mainActivity, contains('.setStylusAsPen(true)'));
+    expect(
+      mainActivity,
+      contains('.setAlwaysDrawWithFingerAndStylus(false)'),
+    );
+    expect(mainActivity, contains('.setEditInk(true)'));
+    expect(mainActivity, contains('.setOpenToolbar(true)'));
+    expect(mainActivity, contains('.showAnnotationToolbarOption(true)'));
+    expect(mainActivity, contains('.showAnnotationsList(true)'));
+    expect(mainActivity, contains('.movableToolbarEnabled(true)'));
+    expect(mainActivity, contains('.fullscreenModeEnabled(false)'));
     expect(mainActivity, contains('.showSearchView(true)'));
     expect(mainActivity, contains('.showThumbnailView(true)'));
     expect(mainActivity, contains('.showOutlineList(true)'));
