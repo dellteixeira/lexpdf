@@ -15,12 +15,22 @@ void main() {
       normalizedSource,
       contains('loadPageDimensionsOnDemand: !_windows'),
     );
-    expect(source, isNot(contains('loadPageDimensionsOnDemand: !_windows && !_android')));
+    expect(
+      source,
+      isNot(
+        contains('loadPageDimensionsOnDemand: !_windows && !_android'),
+      ),
+    );
     expect(source, contains('_goToInternalPdfDestination(dest)'));
     expect(source, contains('final targetPage = dest.pageNumber;'));
     expect(source, contains('pageNumber: targetPage'));
     expect(source, contains('anchor: PdfPageAnchor.top'));
     expect(source, contains('await _controller.goToDest(dest, duration: Duration.zero)'));
+    expect(source, contains('++_internalLinkNavigationGeneration'));
+    expect(source, contains('_waitForInternalLinkPage'));
+    expect(source, contains('const maxAttempts = 8;'));
+    expect(source, contains('_isCurrentInternalLinkNavigation'));
+    expect(source, contains('_restoreInternalLinkTargetPage'));
     expect(source, contains('currentPage != targetPage'));
     expect(source, isNot(contains('targetPage + 1')));
     expect(source, isNot(contains('targetPage - 1')));
