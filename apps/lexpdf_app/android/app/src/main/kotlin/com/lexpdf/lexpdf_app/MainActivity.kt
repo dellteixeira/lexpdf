@@ -13,10 +13,12 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
+        private const val NATIVE_READER_CHANNEL = "lexpdf/native_pdf_reader"
     }
 
     private var channel: MethodChannel? = null
     private var inputCapabilitiesChannel: MethodChannel? = null
+    private var nativeReaderChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
 
@@ -41,6 +43,41 @@ class MainActivity : FlutterActivity() {
             methodChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "hasStylus" -> result.success(hasStylusInputDevice())
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
+        nativeReaderChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NATIVE_READER_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openDocument" -> {
+                        val path = call.argument<String>("path")
+                        val initialPage = call.argument<Int>("initialPage") ?: 1
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "PDF path is required.", null)
+                            return@setMethodCallHandler
+                        }
+                        val file = File(path)
+                        if (!file.isFile || file.length() <= 0L) {
+                            result.error("missing_pdf", "PDF file is unavailable.", null)
+                            return@setMethodCallHandler
+                        }
+
+                        startActivity(
+                            Intent(this, NativePdfReaderActivity::class.java).apply {
+                                putExtra(NativePdfReaderActivity.EXTRA_PATH, file.absolutePath)
+                                putExtra(
+                                    NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
+                                    initialPage.coerceAtLeast(1),
+                                )
+                            },
+                        )
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
