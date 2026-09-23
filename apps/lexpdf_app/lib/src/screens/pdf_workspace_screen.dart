@@ -11,6 +11,7 @@ import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
 import '../core/platform/workspace_full_screen_service.dart';
+import '../core/pdf/huge_pdf_policy.dart';
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_knowledge_rag_store.dart';
@@ -332,14 +333,66 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return;
       }
 
-      // Opening a PDF must never start a full-document pass. On large Android
-      // and Windows files, a second PdfDocument walking every page competes with
-      // the visible reader for CPU, storage bandwidth and memory. Automatic
-      // localized indexing is scheduled separately; full indexing remains an
-      // explicit user/search action.
+      // Opening a PDF must never start a full-document pass. Index only the
+      // small neighborhood around the page the reader is currently displaying.
+      // This gives nearby search/navigation data without making a second
+      // PdfDocument walk all 1,000–5,000+ pages.
+      final currentPage = _tabs[_activeIndex].initialPage;
+      unawaited(
+        _startLocalizedIndexing(
+          document,
+          centerPage: currentPage,
+          pageCount: availability.pageCount,
+        ),
+      );
       return;
     } catch (_) {
       // Inspection/index scheduling is advisory; reading must never depend on it.
+    }
+  }
+
+  Future<void> _startLocalizedIndexing(
+    DocumentRef document, {
+    required int centerPage,
+    required int pageCount,
+  }) async {
+    final path = document.localPath;
+    if (path == null || path.isEmpty) return;
+    final existing = _ocrTasks[document.id];
+    if (existing?.running == true) return;
+
+    final window = HugePdfPolicy.localizedIndexWindow(
+      pageNumber: centerPage,
+      pageCount: pageCount,
+    );
+    if (window.end < window.start) return;
+
+    final task = existing ?? _WorkspaceOcrTask();
+    task
+      ..running = true
+      ..cancelRequested = false
+      ..error = null
+      ..summary = null
+      ..progress = null;
+    _ocrTasks[document.id] = task;
+
+    try {
+      final summary = await _ocrService.process(
+        documentId: document.id,
+        filePath: path,
+        startPage: window.start,
+        endPage: window.end,
+        resume: true,
+        isCancelled: () => task.cancelRequested,
+        onProgress: (progress) {
+          task.progress = progress;
+        },
+      );
+      task.summary = summary;
+    } catch (error) {
+      task.error = error;
+    } finally {
+      task.running = false;
     }
   }
 
