@@ -24,6 +24,7 @@ dependencies:
   pdf_cos: 4.0.0
   pdf_document: 4.0.0
   pdfrx: ^2.6.1
+  pdfx: 2.11.0
   platform_ocr: ^1.0.0
   printing: 5.14.3
   sqlcipher_flutter_libs: 0.6.8
