@@ -18,6 +18,10 @@ android {
     // with a Flutter SDK default. CI also validates the targetSdk embedded in
     // the final APK, not just this Gradle configuration.
     compileSdk = 36
+    // AndroidX PDF 1.0.0-beta01 publishes APIs against SDK Extension 19.
+    // This changes the compile surface only; runtime capability is still
+    // checked explicitly through SdkExtensions before opening the viewer.
+    compileSdkExtension = 19
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -27,7 +31,9 @@ android {
 
     defaultConfig {
         applicationId = "com.lexpdf.lexpdf_app"
-        minSdk = flutter.minSdkVersion
+        // AndroidX PDF beta currently requires Android 12 / API 31+.
+        // The Galaxy Tab S6 Lite test device satisfies this requirement.
+        minSdk = 31
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -66,6 +72,22 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+dependencies {
+    // Google AndroidX PDF: Apache-2.0, no commercial SDK watermark.
+    implementation("androidx.appcompat:appcompat:1.8.0")
+    implementation("androidx.pdf:pdf-viewer-fragment:1.0.0-beta01")
+    implementation("androidx.pdf:pdf-ink:1.0.0-beta01")
+
+    // pdf-ink is built on AndroidX Ink 1.0.0. Keep these direct pins explicit
+    // so stylus authoring remains deterministic across dependency resolution.
+    implementation("androidx.ink:ink-authoring:1.0.0")
+    implementation("androidx.ink:ink-brush:1.0.0")
+    implementation("androidx.ink:ink-geometry:1.0.0")
+    implementation("androidx.ink:ink-strokes:1.0.0")
+
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
 }
 
 flutter {

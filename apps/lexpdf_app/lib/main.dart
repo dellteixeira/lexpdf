@@ -35,7 +35,11 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    await pdfrxFlutterInitialize();
+    // Android PDF rendering is delegated to a native AndroidX PDF Activity.
+    // Do not initialize pdfrx/PDFium in the Android process.
+    if (Platform.isWindows) {
+      await pdfrxFlutterInitialize();
+    }
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {

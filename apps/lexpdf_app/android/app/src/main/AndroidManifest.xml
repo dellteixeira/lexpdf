@@ -45,6 +45,20 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+        <!--
+          Native Google AndroidX PDF viewer. It runs in a dedicated process so
+          PDF rendering and AndroidX Ink do not compete with Flutter/Skia.
+          No commercial SDK is used on this path, so there is no evaluation
+          watermark.
+        -->
+        <activity
+            android:name=".AndroidxPdfActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:process=":androidxpdf"
+            android:theme="@style/AndroidxPdfTheme"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
             android:exported="true"
