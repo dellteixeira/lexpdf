@@ -18,6 +18,10 @@ android {
     // with a Flutter SDK default. CI also validates the targetSdk embedded in
     // the final APK, not just this Gradle configuration.
     compileSdk = 36
+    // AndroidX PDF 1.0.0-beta01 publishes APIs against SDK Extension 19.
+    // This changes the compile surface only; runtime capability is still
+    // checked explicitly through SdkExtensions before opening the viewer.
+    compileSdkExtension = 19
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
