@@ -41,8 +41,9 @@ void main() {
     // Normal renderer keeps the pdfrx page paint callback. Windows 10 tiled
     // rendering paints the same persisted markup above the manual page tiles,
     // avoiding duplicate painting into the low-DPI backing page.
-    expect(source, contains('pagePaintCallbacks: _windows10Tiles'));
+    expect(source, contains('pagePaintCallbacks: _androidMinimalReader'));
     expect(source, contains('? const []'));
+    expect(source, contains(': (_windows10Tiles'));
     expect(source, contains(': [_selectionMenu.paint]'));
     expect(source, contains('_SelectionMarkupOverlayPainter('));
     expect(source, contains('menu: _selectionMenu'));
