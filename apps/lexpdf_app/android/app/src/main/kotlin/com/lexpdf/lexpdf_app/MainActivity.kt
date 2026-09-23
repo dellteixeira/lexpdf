@@ -7,16 +7,21 @@ import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.pdftron.pdf.config.ToolManagerBuilder
+import com.pdftron.pdf.config.ViewerConfig
+import com.pdftron.pdf.controls.DocumentActivity
 import java.io.File
 
 class MainActivity : FlutterActivity() {
     companion object {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
+        private const val APRYSE_VIEWER_CHANNEL = "lexpdf/apryse_viewer"
     }
 
     private var channel: MethodChannel? = null
     private var inputCapabilitiesChannel: MethodChannel? = null
+    private var apryseViewerChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
 
@@ -45,6 +50,34 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        apryseViewerChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            APRYSE_VIEWER_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openDocument" -> {
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "PDF path is required.", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            openWithApryse(path)
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            result.error(
+                                "apryse_open_failed",
+                                error.message ?: error.javaClass.simpleName,
+                                null,
+                            )
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         processIntent(intent)
     }
 
@@ -52,6 +85,51 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    private fun openWithApryse(path: String) {
+        val file = File(path)
+        require(file.isFile && file.length() > 0L) {
+            "PDF file is not available: $path"
+        }
+
+        val toolManagerBuilder = ToolManagerBuilder.from()
+            // Galaxy Tab S6 Lite / Samsung S Pen: stylus draws ink directly
+            // while the finger remains available for pan/scroll/zoom.
+            .setStylusAsPen(true)
+            .setAlwaysDrawWithFingerAndStylus(false)
+            .setEditInk(true)
+            .setOpenToolbar(true)
+
+        val config = ViewerConfig.Builder()
+            .openUrlCachePath(cacheDir.absolutePath)
+            .fullscreenModeEnabled(false)
+            .multiTabEnabled(false)
+            .maximumTabCount(1)
+            .documentEditingEnabled(true)
+            .longPressQuickMenuEnabled(true)
+            .toolManagerBuilder(toolManagerBuilder)
+            .showAnnotationToolbarOption(true)
+            .showAnnotationsList(true)
+            .showBottomNavBar(true)
+            .movableToolbarEnabled(true)
+            .toolbarTitle("LexPDF")
+            .showSearchView(true)
+            .showThumbnailView(true)
+            .showOutlineList(true)
+            .showUserBookmarksList(true)
+            .showQuickNavigationButton(true)
+            .showPageNumberIndicator(true)
+            .tabletLayoutEnabled(true)
+            .build()
+
+        val viewerIntent = DocumentActivity.IntentBuilder
+            .fromActivityClass(this, DocumentActivity::class.java)
+            .withUri(Uri.fromFile(file))
+            .usingConfig(config)
+            .build()
+
+        startActivity(viewerIntent)
     }
 
     private fun hasStylusInputDevice(): Boolean {

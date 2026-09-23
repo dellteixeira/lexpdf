@@ -35,7 +35,11 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    await pdfrxFlutterInitialize();
+    // PDFium/pdfrx remains a Windows-only renderer. Android PDFs are opened
+    // by Apryse DocumentActivity in a separate native process.
+    if (Platform.isWindows) {
+      await pdfrxFlutterInitialize();
+    }
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {
