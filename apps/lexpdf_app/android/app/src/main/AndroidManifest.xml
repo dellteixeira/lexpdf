@@ -4,7 +4,9 @@
     <application
         android:label="LexPDF"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:largeHeap="true"
+        android:usesCleartextTraffic="false">
         <!--
           Flutter 3.47 enables Impeller by default on Android. Some physical
           Android devices, including Xiaomi/HyperOS variants, can launch to a
@@ -16,6 +18,22 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+        <meta-data
+            android:name="pdftron_license_key"
+            android:value="${pdftronLicenseKey}" />
+
+        <!--
+          Apryse/Xodo-family native viewer. It runs in a dedicated process so
+          PDF rendering, page caches, annotation UI and document parsing have
+          their own Android heap and cannot contend with Flutter/Skia memory.
+        -->
+        <activity
+            android:name="com.pdftron.pdf.controls.DocumentActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:windowSoftInputMode="adjustPan"
+            android:theme="@style/PDFTronAppTheme"
+            android:process=":apryse"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
