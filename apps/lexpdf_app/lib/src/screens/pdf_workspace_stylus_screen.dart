@@ -12,6 +12,7 @@ import '../core/ink/ink_models.dart';
 import '../core/ink/pdf_ink_eraser.dart';
 import '../core/ink/pdf_ink_models.dart';
 import '../core/pdf/huge_pdf_policy.dart';
+import '../core/pdf/pdf_open_crash_guard.dart';
 import '../core/storage/local_pdf_form_store.dart';
 import '../core/storage/local_pdf_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
@@ -90,6 +91,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   final List<int> _backHistory = <int>[];
   final List<int> _forwardHistory = <int>[];
   final Map<int, List<PdfInkStroke>> _inkByPage = <int, List<PdfInkStroke>>{};
+  final PdfOpenCrashGuard _openCrashGuard = const PdfOpenCrashGuard();
 
   late final LocalPdfInkStore _inkStore = LocalPdfInkStore(widget.store.db);
   late final PdfSelectionActionMenu _selectionMenu = PdfSelectionActionMenu(
@@ -150,6 +152,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   bool _loadingInk = false;
   bool _readingMode = false;
   bool _fullScreenForcedReadingMode = false;
+  bool _openGuardReady = false;
+  int _androidRecoveryLevel = 0;
+  Timer? _stableOpenTimer;
   int? _chromeTransitionPage;
   _PdfViewMode _viewMode = _PdfViewMode.continuous;
   Offset? _zoomAnchorLocal;
@@ -171,6 +176,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       viewportWidth: size.width,
       viewportHeight: size.height,
       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      androidRecoveryLevel: _android ? _androidRecoveryLevel : 0,
     );
   }
 
@@ -213,6 +219,30 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     // touch/drag gestures immediately move through pages on mobile and desktop.
     _stylusMode = _StylusMode.hand;
     _controller.addListener(_syncZoomFromController);
+    if (_android) {
+      unawaited(_armAndroidOpenCrashGuard());
+    } else {
+      _openGuardReady = true;
+      unawaited(_reloadBookmarks());
+      unawaited(_loadInkCount());
+    }
+  }
+
+  Future<void> _armAndroidOpenCrashGuard() async {
+    try {
+      final state = await _openCrashGuard.begin(widget.document.id);
+      if (!mounted) {
+        await _openCrashGuard.markStable(widget.document.id);
+        return;
+      }
+      setState(() {
+        _androidRecoveryLevel = state.recoveryLevel;
+        _openGuardReady = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _openGuardReady = true);
+    }
     unawaited(_reloadBookmarks());
     unawaited(_loadInkCount());
   }
@@ -279,6 +309,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   @override
   void dispose() {
     _inkLoadGeneration++;
+    _stableOpenTimer?.cancel();
+    if (_android && _openGuardReady) {
+      unawaited(_openCrashGuard.markStable(widget.document.id));
+    }
     widget.onViewerDocumentChanged?.call(null);
     _controller.removeListener(_syncZoomFromController);
     _keyboardFocusNode.dispose();
@@ -296,6 +330,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
         appBar: AppBar(title: const Text('PDF')),
         body: const Center(
           child: Text('O PDF precisa estar disponível offline.'),
+        ),
+      );
+    }
+
+    if (_android && !_openGuardReady) {
+      return const Center(
+        child: SizedBox.square(
+          dimension: 32,
+          child: CircularProgressIndicator(strokeWidth: 3),
         ),
       );
     }
@@ -388,16 +431,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 _renderCacheBudget(context),
                             horizontalCacheExtent: _windows
                                 ? 1.0
-                                : HugePdfPolicy.androidCacheExtent,
+                                : HugePdfPolicy.androidCacheExtentForRecovery(
+                                    _androidRecoveryLevel,
+                                  ),
                             verticalCacheExtent: _windows
                                 ? 1.0
-                                : HugePdfPolicy.androidCacheExtent,
+                                : HugePdfPolicy.androidCacheExtentForRecovery(
+                                    _androidRecoveryLevel,
+                                  ),
                             onePassRenderingSizeThreshold: _windows10Tiles
                                 ? 1000
                                 : (_windows
                                       ? 6000
                                       : HugePdfPolicy
-                                          .androidOnePassRenderingSizeThreshold),
+                                          .androidOnePassThresholdForRecovery(
+                                            _androidRecoveryLevel,
+                                          )),
                             getPageRenderingScale:
                                 (context, page, controller, estimatedScale) {
                                   // The Win10 manual tile layer supplies the visible
@@ -408,7 +457,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
                                   final maxRenderPixels = _windows
                                       ? 6000.0
-                                      : HugePdfPolicy.androidMaxRenderLongEdge;
+                                      : HugePdfPolicy
+                                          .androidMaxRenderLongEdgeForRecovery(
+                                            _androidRecoveryLevel,
+                                          );
                                   final width = page.width * estimatedScale;
                                   final height = page.height * estimatedScale;
                                   if (width <= maxRenderPixels &&
@@ -601,31 +653,30 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             ],
                             onViewerReady: (document, controller) {
                               _document = document;
-                              widget.onViewerDocumentChanged?.call(document);
                               _syncZoomFromController();
                               if (mounted) setState(() {});
 
-                              // Reader-first startup: make the first page usable
-                              // before optional outline/annotation hydration.
-                              // On Android this avoids stacking text/object work
-                              // on top of PDFium's initial page render.
-                              final secondaryDelay = _android
-                                  ? HugePdfPolicy.androidSecondaryWorkDelay
-                                  : Duration.zero;
-                              Future<void>.delayed(secondaryDelay, () async {
-                                if (!mounted || !identical(_document, document)) {
-                                  return;
-                                }
-                                await _loadOutline(document);
-                                if (!mounted || !identical(_document, document)) {
-                                  return;
-                                }
-                                await _loadInkWindow(document, _page);
-                                if (!mounted || !identical(_document, document)) {
-                                  return;
-                                }
-                                await _selectionMenu.load(document);
-                              });
+                              if (!_android || _androidRecoveryLevel == 0) {
+                                widget.onViewerDocumentChanged?.call(document);
+                                unawaited(
+                                  _hydrateSecondaryPdfWork(
+                                    document,
+                                    delay: _android
+                                        ? HugePdfPolicy.androidSecondaryWorkDelay
+                                        : Duration.zero,
+                                  ),
+                                );
+                              }
+
+                              if (_android) {
+                                _stableOpenTimer?.cancel();
+                                _stableOpenTimer = Timer(
+                                  HugePdfPolicy.androidStableOpenWindow,
+                                  () => unawaited(
+                                    _completeStableAndroidOpen(document),
+                                  ),
+                                );
+                              }
                             },
                             onPageChanged: _onPageChanged,
                           ),
@@ -1525,6 +1576,42 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
       ),
     ),
   );
+
+  Future<void> _hydrateSecondaryPdfWork(
+    PdfDocument document, {
+    required Duration delay,
+  }) async {
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
+    if (!mounted || !identical(_document, document)) return;
+
+    await _loadOutline(document);
+    if (!mounted || !identical(_document, document)) return;
+
+    await _loadInkWindow(document, _page);
+    if (!mounted || !identical(_document, document)) return;
+
+    await _selectionMenu.load(document);
+  }
+
+  Future<void> _completeStableAndroidOpen(PdfDocument document) async {
+    if (!mounted || !identical(_document, document)) return;
+
+    if (_androidRecoveryLevel > 0) {
+      // In recovery mode, optional text/annotation work stays behind the
+      // proven-stable viewer. If native code fails here the marker remains and
+      // the next launch escalates to the emergency profile.
+      await _hydrateSecondaryPdfWork(
+        document,
+        delay: HugePdfPolicy.androidRecoverySecondaryWorkDelay,
+      );
+      if (!mounted || !identical(_document, document)) return;
+      widget.onViewerDocumentChanged?.call(document);
+    }
+
+    await _openCrashGuard.markStable(widget.document.id);
+  }
 
   Future<void> _openExport() => Navigator.of(context).push(
     MaterialPageRoute<void>(
