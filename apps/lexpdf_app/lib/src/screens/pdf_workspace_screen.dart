@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdfrx/pdfrx.dart';
 import '../core/ai/ai_access_session.dart';
 import '../core/ai/pdf_page_vision_rasterizer.dart';
 import '../core/ai/remote_vision_service.dart';
@@ -186,9 +187,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _restoring = false;
       });
       await _saveSession();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_inspectActiveDocumentForIndexing());
-      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _restoring = false);
@@ -223,7 +221,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       if (existing >= 0) {
         setState(() => _activeIndex = existing);
         await _saveSession();
-        unawaited(_inspectActiveDocumentForIndexing());
         return;
       }
       if (_tabs.length >= _maxTabs) {
@@ -239,7 +236,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _activeIndex = _tabs.length - 1;
       });
       await _saveSession();
-      unawaited(_inspectActiveDocumentForIndexing());
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -274,7 +270,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (index < 0 || index >= _tabs.length || index == _activeIndex) return;
     setState(() => _activeIndex = index);
     await _saveSession();
-    unawaited(_inspectActiveDocumentForIndexing());
+    final tab = _tabs[index];
+    if (tab.viewerDocument != null) {
+      unawaited(_inspectActiveDocumentForIndexing(tab));
+    }
   }
 
   Future<void> _undo() async {
@@ -313,42 +312,65 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     await _saveSession();
   }
 
-  Future<void> _inspectActiveDocumentForIndexing() async {
+  void _onViewerDocumentChanged(
+    _WorkspaceTab tab,
+    PdfDocument? viewerDocument,
+  ) {
+    tab.viewerDocument = viewerDocument;
+    if (viewerDocument == null) {
+      tab.pageCount = null;
+      tab.localizedIndexPending = false;
+      final task = _ocrTasks[tab.document.id];
+      if (task?.automatic == true) {
+        task!.cancelRequested = true;
+      }
+      return;
+    }
+
+    tab.pageCount = viewerDocument.pages.length;
+    if (_tabs.isNotEmpty &&
+        _activeIndex >= 0 &&
+        _activeIndex < _tabs.length &&
+        identical(_tabs[_activeIndex], tab)) {
+      _lastReaderActivityAt = DateTime.now();
+      unawaited(_inspectActiveDocumentForIndexing(tab));
+    }
+  }
+
+  Future<void> _inspectActiveDocumentForIndexing(_WorkspaceTab tab) async {
     if (!mounted || _tabs.isEmpty) return;
-    final document = _tabs[_activeIndex].document;
-    if (_ocrTasks[document.id]?.running == true) return;
-    final path = document.localPath;
-    if (path == null || path.isEmpty || !File(path).existsSync()) return;
+    if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
+    if (!identical(_tabs[_activeIndex], tab)) return;
+
+    final viewerDocument = tab.viewerDocument;
+    final pageCount = tab.pageCount;
+    if (viewerDocument == null || pageCount == null || pageCount <= 0) return;
+    if (_ocrTasks[tab.document.id]?.running == true) return;
 
     try {
-      final availability = await _ocrService.inspectTextAvailability(
-        filePath: path,
-      );
-      final tab = _tabs[_activeIndex];
-      tab.pageCount = availability.pageCount;
       final complete = await _ocrStore.hasCompleteDocumentIndex(
-        document.id,
-        pageCount: availability.pageCount,
+        tab.document.id,
+        pageCount: pageCount,
         acceptedEngines: _ocrService.resumeEngines,
       );
       if (complete) return;
-      if (!_autoIndexInspected.add(document.id)) return;
+      if (!_autoIndexInspected.add(tab.document.id)) return;
       if (!mounted ||
           _tabs.isEmpty ||
-          _tabs[_activeIndex].document.id != document.id) {
+          _activeIndex < 0 ||
+          _activeIndex >= _tabs.length ||
+          !identical(_tabs[_activeIndex], tab) ||
+          !identical(tab.viewerDocument, viewerDocument)) {
         return;
       }
 
-      // The first localized indexing pass is deliberately gated behind the
-      // same reader-idle lease as every later chunk. This gives PDF rendering,
-      // zoom, scrolling and page navigation exclusive priority while the reader
-      // is active instead of opening a competing PdfDocument immediately.
-      final activeTab = _tabs[_activeIndex];
-      activeTab.localizedIndexPending = true;
-      _scheduleIdleIndexContinuation(activeTab);
-      return;
+      // Reader-first: no second PdfDocument is opened merely to inspect/index
+      // the file. Automatic indexing reuses the exact document already owned
+      // by the visible viewer and waits until rendering has been idle.
+      tab.localizedIndexPending = true;
+      _scheduleIdleIndexContinuation(tab);
     } catch (_) {
-      // Inspection/index scheduling is advisory; reading must never depend on it.
+      // Index scheduling is advisory; reading must never depend on it.
     }
   }
 
@@ -370,6 +392,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _scheduleIdleIndexContinuation(_WorkspaceTab tab) {
     _idleIndexTimer?.cancel();
+    if (tab.viewerDocument == null) return;
     final scheduledEpoch = _readerActivityEpoch;
     _idleIndexTimer = Timer(HugePdfPolicy.backgroundIndexIdleDelay, () {
       if (!mounted || _tabs.isEmpty) return;
@@ -433,7 +456,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
 
     final completed = await _startIdleIndexChunk(
-      tab.document,
+      tab,
       startPage: window.start,
       endPage: window.end,
     );
@@ -450,12 +473,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Future<bool> _startIdleIndexChunk(
-    DocumentRef document, {
+    _WorkspaceTab tab, {
     required int startPage,
     required int endPage,
   }) async {
-    final path = document.localPath;
-    if (path == null || path.isEmpty) return false;
+    final document = tab.document;
+    final viewerDocument = tab.viewerDocument;
+    if (viewerDocument == null) return false;
 
     final existing = _ocrTasks[document.id];
     if (existing?.running == true) return false;
@@ -472,7 +496,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final summary = await _ocrService.process(
         documentId: document.id,
-        filePath: path,
+        openedDocument: viewerDocument,
         startPage: startPage,
         endPage: endPage,
         resume: true,
@@ -493,9 +517,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
-  Future<void> _startBackgroundIndexing(DocumentRef document) async {
-    final path = document.localPath;
-    if (path == null || path.isEmpty) return;
+  Future<void> _startBackgroundIndexing(_WorkspaceTab tab) async {
+    final document = tab.document;
+    final viewerDocument = tab.viewerDocument;
+    if (viewerDocument == null) return;
     final existing = _ocrTasks[document.id];
     if (existing?.running == true) return;
     final task = existing ?? _WorkspaceOcrTask();
@@ -510,7 +535,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final summary = await _ocrService.process(
         documentId: document.id,
-        filePath: path,
+        openedDocument: viewerDocument,
         resume: true,
         isCancelled: () => task.cancelRequested,
         onProgress: (progress) {
@@ -531,7 +556,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _startActiveIndexing() {
     if (_tabs.isEmpty) return;
-    unawaited(_startBackgroundIndexing(_tabs[_activeIndex].document));
+    unawaited(_startBackgroundIndexing(_tabs[_activeIndex]));
   }
 
   void _cancelActiveIndexing() {
@@ -588,7 +613,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
       ''', [tab.document.id]).isNotEmpty;
       if (!hasIndex) {
-        unawaited(_startBackgroundIndexing(tab.document));
+        unawaited(_startBackgroundIndexing(tab));
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -664,6 +689,42 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (pageNumber < 1 || tab.initialPage == pageNumber) return;
     tab.initialPage = pageNumber;
     unawaited(_saveSession());
+  }
+
+  Widget _buildEditorForTab(_WorkspaceTab tab) {
+    return editor.PdfWorkspaceScreen(
+      key: ValueKey(
+        'pdf-tab-${tab.document.id}-${tab.generation}',
+      ),
+      document: tab.document,
+      store: widget.store,
+      annotations: widget.annotations,
+      initialPage: tab.initialPage,
+      fullScreen: _fullScreen,
+      showDocumentHeader: false,
+      onToggleFullScreen: _toggleFullScreen,
+      onPageChanged: (pageNumber) => _recordVisiblePage(tab, pageNumber),
+      onReaderActivity: () => _markReaderActivity(tab),
+      onViewerDocumentChanged: (document) =>
+          _onViewerDocumentChanged(tab, document),
+    );
+  }
+
+  Widget _buildPdfEditorSurface() {
+    if (Platform.isAndroid) {
+      // Mobile keeps exactly one native PDFium-backed viewer alive. Restored
+      // tabs keep only lightweight session metadata and are reconstructed at
+      // their saved page when activated. This prevents background tabs from
+      // retaining native page/image caches.
+      return _buildEditorForTab(_tabs[_activeIndex]);
+    }
+
+    return IndexedStack(
+      index: _activeIndex,
+      children: [
+        for (final tab in _tabs) _buildEditorForTab(tab),
+      ],
+    );
   }
 
   void _toggleWorkspacePanel() {
@@ -1178,28 +1239,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                           child: Stack(
                             children: [
                               Positioned.fill(
-                                child: IndexedStack(
-                                  index: _activeIndex,
-                                  children: [
-                                    for (final tab in _tabs)
-                                      editor.PdfWorkspaceScreen(
-                                        key: ValueKey(
-                                          'pdf-tab-${tab.document.id}-${tab.generation}',
-                                        ),
-                                        document: tab.document,
-                                        store: widget.store,
-                                        annotations: widget.annotations,
-                                        initialPage: tab.initialPage,
-                                        fullScreen: _fullScreen,
-                                        showDocumentHeader: false,
-                                        onToggleFullScreen: _toggleFullScreen,
-                                        onPageChanged: (pageNumber) =>
-                                            _recordVisiblePage(tab, pageNumber),
-                                        onReaderActivity: () =>
-                                            _markReaderActivity(tab),
-                                      ),
-                                  ],
-                                ),
+                                child: _buildPdfEditorSurface(),
                               ),
                             ],
                           ),
@@ -1779,6 +1819,7 @@ class _WorkspaceTab {
   int initialPage;
   int generation = 0;
   int? pageCount;
+  PdfDocument? viewerDocument;
   bool localizedIndexPending = false;
 }
 

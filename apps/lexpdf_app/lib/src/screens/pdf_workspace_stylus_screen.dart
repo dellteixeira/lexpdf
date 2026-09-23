@@ -53,6 +53,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
     this.onToggleFullScreen,
     this.onPageChanged,
     this.onReaderActivity,
+    this.onViewerDocumentChanged,
     super.key,
   });
 
@@ -65,6 +66,7 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final VoidCallback? onToggleFullScreen;
   final ValueChanged<int>? onPageChanged;
   final VoidCallback? onReaderActivity;
+  final ValueChanged<PdfDocument?>? onViewerDocumentChanged;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -277,6 +279,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   @override
   void dispose() {
     _inkLoadGeneration++;
+    widget.onViewerDocumentChanged?.call(null);
     _controller.removeListener(_syncZoomFromController);
     _keyboardFocusNode.dispose();
     if (_android && _readingMode) {
@@ -383,31 +386,40 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             limitRenderingCache: true,
                             maxImageBytesCachedOnMemory:
                                 _renderCacheBudget(context),
-                            horizontalCacheExtent: _windows ? 1.0 : 0.30,
-                            verticalCacheExtent: _windows ? 1.0 : 0.30,
+                            horizontalCacheExtent: _windows
+                                ? 1.0
+                                : HugePdfPolicy.androidCacheExtent,
+                            verticalCacheExtent: _windows
+                                ? 1.0
+                                : HugePdfPolicy.androidCacheExtent,
                             onePassRenderingSizeThreshold: _windows10Tiles
                                 ? 1000
-                                : (_windows ? 6000 : 1400),
-                            getPageRenderingScale: _windows
-                                ? (context, page, controller, estimatedScale) {
-                                    // The Win10 manual tile layer supplies the visible
-                                    // page pixels. Keep pdfrx's hidden backing page at
-                                    // 72 dpi so it never allocates the giant bitmap
-                                    // path that corrupts on affected Windows 10 PCs.
-                                    if (_windows10Tiles) return 1.0;
-                                    const maxRenderPixels = 6000.0;
-                                    final width = page.width * estimatedScale;
-                                    final height = page.height * estimatedScale;
-                                    if (width <= maxRenderPixels &&
-                                        height <= maxRenderPixels) {
-                                      return estimatedScale;
-                                    }
-                                    return math.min(
-                                      maxRenderPixels / page.width,
-                                      maxRenderPixels / page.height,
-                                    );
+                                : (_windows
+                                      ? 6000
+                                      : HugePdfPolicy
+                                          .androidOnePassRenderingSizeThreshold),
+                            getPageRenderingScale:
+                                (context, page, controller, estimatedScale) {
+                                  // The Win10 manual tile layer supplies the visible
+                                  // page pixels. Keep pdfrx's hidden backing page at
+                                  // 72 dpi so it never allocates the giant bitmap
+                                  // path that corrupts on affected Windows 10 PCs.
+                                  if (_windows10Tiles) return 1.0;
+
+                                  final maxRenderPixels = _windows
+                                      ? 6000.0
+                                      : HugePdfPolicy.androidMaxRenderLongEdge;
+                                  final width = page.width * estimatedScale;
+                                  final height = page.height * estimatedScale;
+                                  if (width <= maxRenderPixels &&
+                                      height <= maxRenderPixels) {
+                                    return estimatedScale;
                                   }
-                                : null,
+                                  return math.min(
+                                    maxRenderPixels / page.width,
+                                    maxRenderPixels / page.height,
+                                  );
+                                },
                             behaviorControlParams:
                                 PdfViewerBehaviorControlParams(
                                   // Keep page geometry lazy on Android so opening 1,000–5,000+
@@ -416,16 +428,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                   // has separate rendering constraints. Internal PDF destinations
                                   // are resolved by the guarded navigation routine below.
                                   loadPageDimensionsOnDemand: !_windows,
-                                  enableLowResolutionPagePreview: !_windows,
+                                  enableLowResolutionPagePreview:
+                                      !_windows && !_android,
                                   trailingPageLoadingDelay: _windows
                                       ? const Duration(milliseconds: 100)
-                                      : const Duration(milliseconds: 250),
+                                      : HugePdfPolicy
+                                          .androidTrailingPageLoadingDelay,
                                   pageImageCachingDelay: _windows
                                       ? const Duration(milliseconds: 20)
-                                      : const Duration(milliseconds: 40),
+                                      : HugePdfPolicy
+                                          .androidPageImageCachingDelay,
                                   partialImageLoadingDelay: _windows
                                       ? Duration.zero
-                                      : const Duration(milliseconds: 60),
+                                      : HugePdfPolicy
+                                          .androidPartialImageLoadingDelay,
                                 ),
                             // Android touch is routed explicitly by
                             // PdfAndroidFingerNavigationRegion. Disabling the
@@ -585,11 +601,31 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             ],
                             onViewerReady: (document, controller) {
                               _document = document;
+                              widget.onViewerDocumentChanged?.call(document);
                               _syncZoomFromController();
                               if (mounted) setState(() {});
-                              unawaited(_loadOutline(document));
-                              unawaited(_loadInkWindow(document, _page));
-                              unawaited(_selectionMenu.load(document));
+
+                              // Reader-first startup: make the first page usable
+                              // before optional outline/annotation hydration.
+                              // On Android this avoids stacking text/object work
+                              // on top of PDFium's initial page render.
+                              final secondaryDelay = _android
+                                  ? HugePdfPolicy.androidSecondaryWorkDelay
+                                  : Duration.zero;
+                              Future<void>.delayed(secondaryDelay, () async {
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _loadOutline(document);
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _loadInkWindow(document, _page);
+                                if (!mounted || !identical(_document, document)) {
+                                  return;
+                                }
+                                await _selectionMenu.load(document);
+                              });
                             },
                             onPageChanged: _onPageChanged,
                           ),

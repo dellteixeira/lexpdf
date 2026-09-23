@@ -18,15 +18,17 @@ void main() {
     );
     expect(reader, contains('HugePdfPolicy.viewerImageCacheBytesFor('));
     expect(reader, contains('pageCount: _activeDocument?.pages.length ?? 0'));
-    expect(reader, contains('loadPageDimensionsOnDemand: true'));
-    expect(reader, contains('enableLowResolutionPagePreview: true'));
-    expect(reader, contains('onePassRenderingSizeThreshold: 1400'));
-    expect(reader, contains('horizontalCacheExtent: 0.30'));
-    expect(reader, contains('verticalCacheExtent: 0.30'));
+    expect(reader, contains('loadPageDimensionsOnDemand: !_windows'));
+    expect(reader, contains('enableLowResolutionPagePreview: false'));
+    expect(reader, contains('HugePdfPolicy.androidOnePassRenderingSizeThreshold'));
+    expect(reader, contains('HugePdfPolicy.androidCacheExtent'));
+    expect(reader, contains('HugePdfPolicy.androidCacheExtent'));
     expect(policy, contains('viewerImageCacheBytes = 64 * 1024 * 1024'));
-    expect(policy, contains('_mobileViewerCacheLargeMaxBytes = 48 * 1024 * 1024'));
-    expect(policy, contains('_mobileViewerCacheHugeMaxBytes = 40 * 1024 * 1024'));
+    expect(policy, contains('_mobileViewerCacheLargeMaxBytes = 24 * 1024 * 1024'));
+    expect(policy, contains('_mobileViewerCacheHugeMaxBytes = 16 * 1024 * 1024'));
     expect(policy, contains('_windowsViewerCacheMaxBytes = 100 * 1024 * 1024'));
+    expect(policy, contains('androidMaxRenderLongEdge = 2200'));
+    expect(policy, contains('androidCacheExtent = 0.12'));
     expect(policy, contains('viewerImageCacheBytesFor'));
   });
 

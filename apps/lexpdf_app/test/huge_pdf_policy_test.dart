@@ -40,9 +40,9 @@ void main() {
       devicePixelRatio: 2,
     );
 
-    expect(normalMobile, lessThanOrEqualTo(64 * 1024 * 1024));
-    expect(largeMobile, lessThanOrEqualTo(48 * 1024 * 1024));
-    expect(hugeMobile, lessThanOrEqualTo(40 * 1024 * 1024));
+    expect(normalMobile, lessThanOrEqualTo(32 * 1024 * 1024));
+    expect(largeMobile, lessThanOrEqualTo(24 * 1024 * 1024));
+    expect(hugeMobile, lessThanOrEqualTo(16 * 1024 * 1024));
     expect(normalMobile, greaterThan(largeMobile));
     expect(largeMobile, greaterThan(hugeMobile));
 
@@ -110,7 +110,7 @@ void main() {
     );
 
     expect(lower, isNotNull);
-    expect(lower!.start, 485);
+    expect(lower!.start, 491);
     expect(lower.end, 496);
     expect(lower.end - lower.start + 1, HugePdfPolicy.idleIndexChunkPages);
 
@@ -125,7 +125,7 @@ void main() {
 
     expect(upper, isNotNull);
     expect(upper!.start, 507);
-    expect(upper.end, 518);
+    expect(upper.end, 512);
     expect(
       HugePdfPolicy.nextIdleIndexWindow(
         pageNumber: 2,

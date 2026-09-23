@@ -43,7 +43,7 @@ void main() {
   test('reader source keeps very-large-document lazy loading enabled', () async {
     final source = await File('lib/src/screens/pdf_reader_screen.dart').readAsString();
 
-    expect(source, contains('loadPageDimensionsOnDemand: true'));
+    expect(source, contains('loadPageDimensionsOnDemand: !_windows'));
     expect(source, contains('limitRenderingCache: true'));
     expect(
       source,
@@ -57,11 +57,13 @@ void main() {
       viewportHeight: 1400,
       devicePixelRatio: 2,
     );
-    expect(tabletBudget, lessThanOrEqualTo(48 * 1024 * 1024));
+    expect(tabletBudget, lessThanOrEqualTo(24 * 1024 * 1024));
     expect(
       HugePdfPolicy.viewerImageCacheBytes,
       lessThanOrEqualTo(64 * 1024 * 1024),
     );
+    expect(source, contains('HugePdfPolicy.androidOnePassRenderingSizeThreshold'));
+    expect(source, contains('HugePdfPolicy.androidCacheExtent'));
     expect(source, contains('useProgressiveLoading: true'));
     expect(source, isNot(contains('FutureBuilder<ReadingProgressState?>')));
   });

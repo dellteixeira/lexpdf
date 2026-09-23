@@ -36,7 +36,7 @@ void main() {
     expect(workspace, contains('endPage: endPage'));
     expect(workspace, contains('onReaderActivity: () =>'));
     expect(policy, contains('backgroundIndexIdleDelay'));
-    expect(policy, contains('idleIndexChunkPages = 12'));
+    expect(policy, contains('idleIndexChunkPages = 6'));
   });
 
   test('rendering wins the resource lease before automatic indexing starts', () {
@@ -49,7 +49,7 @@ void main() {
     expect(workspace, contains('scheduledEpoch != _readerActivityEpoch'));
     expect(workspace, contains('quietFor < HugePdfPolicy.backgroundIndexIdleDelay'));
     expect(workspace, contains('localizedIndexPending = true'));
-    expect(workspace, contains('_scheduleIdleIndexContinuation(activeTab)'));
+    expect(workspace, contains('_scheduleIdleIndexContinuation(tab)'));
 
     final inspectStart =
         workspace.indexOf('Future<void> _inspectActiveDocumentForIndexing');
@@ -73,9 +73,12 @@ void main() {
     expect(idleBody, contains('..automatic = true'));
     expect(idleBody, contains('startPage: startPage'));
     expect(idleBody, contains('endPage: endPage'));
+    expect(idleBody, contains('openedDocument: viewerDocument'));
+    expect(idleBody, isNot(contains('filePath: path')));
 
     final fullBody = workspace.substring(fullStart);
     expect(fullBody, contains('..automatic = false'));
     expect(fullBody, contains('resume: true'));
+    expect(fullBody, contains('openedDocument: viewerDocument'));
   });
 }

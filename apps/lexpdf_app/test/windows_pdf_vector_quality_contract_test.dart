@@ -7,8 +7,12 @@ void main() {
     final source = File(
       'lib/src/screens/pdf_workspace_stylus_screen.dart',
     ).readAsStringSync();
+    final normalizedSource = source.replaceAll(RegExp(r'\s+'), ' ');
 
-    expect(source, contains('enableLowResolutionPagePreview: !_windows'));
+    expect(
+      normalizedSource,
+      contains('enableLowResolutionPagePreview: !_windows && !_android'),
+    );
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
   });
 }

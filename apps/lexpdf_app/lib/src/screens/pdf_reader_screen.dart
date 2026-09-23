@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -282,15 +283,43 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               params: PdfViewerParams(
                 limitRenderingCache: true,
                 maxImageBytesCachedOnMemory: _renderCacheBudget(context),
-                horizontalCacheExtent: 0.30,
-                verticalCacheExtent: 0.30,
-                onePassRenderingSizeThreshold: 1400,
-                behaviorControlParams: const PdfViewerBehaviorControlParams(
-                  loadPageDimensionsOnDemand: true,
-                  enableLowResolutionPagePreview: true,
-                  trailingPageLoadingDelay: Duration(milliseconds: 250),
-                  pageImageCachingDelay: Duration(milliseconds: 40),
-                  partialImageLoadingDelay: Duration(milliseconds: 60),
+                horizontalCacheExtent: _windows
+                    ? 1.0
+                    : HugePdfPolicy.androidCacheExtent,
+                verticalCacheExtent: _windows
+                    ? 1.0
+                    : HugePdfPolicy.androidCacheExtent,
+                onePassRenderingSizeThreshold: _windows
+                    ? 6000
+                    : HugePdfPolicy.androidOnePassRenderingSizeThreshold,
+                getPageRenderingScale:
+                    (context, page, controller, estimatedScale) {
+                  final maxRenderPixels = _windows
+                      ? 6000.0
+                      : HugePdfPolicy.androidMaxRenderLongEdge;
+                  final width = page.width * estimatedScale;
+                  final height = page.height * estimatedScale;
+                  if (width <= maxRenderPixels &&
+                      height <= maxRenderPixels) {
+                    return estimatedScale;
+                  }
+                  return math.min(
+                    maxRenderPixels / page.width,
+                    maxRenderPixels / page.height,
+                  );
+                },
+                behaviorControlParams: PdfViewerBehaviorControlParams(
+                  loadPageDimensionsOnDemand: !_windows,
+                  enableLowResolutionPagePreview: false,
+                  trailingPageLoadingDelay: _windows
+                      ? const Duration(milliseconds: 100)
+                      : HugePdfPolicy.androidTrailingPageLoadingDelay,
+                  pageImageCachingDelay: _windows
+                      ? const Duration(milliseconds: 20)
+                      : HugePdfPolicy.androidPageImageCachingDelay,
+                  partialImageLoadingDelay: _windows
+                      ? Duration.zero
+                      : HugePdfPolicy.androidPartialImageLoadingDelay,
                 ),
                 // On phones/tablets, touch remains dedicated to navigation even
                 // while the ink overlay is active. The overlay accepts stylus,

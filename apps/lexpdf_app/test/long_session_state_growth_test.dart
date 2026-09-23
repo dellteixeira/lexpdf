@@ -83,8 +83,8 @@ void main() {
       devicePixelRatio: 2,
     );
 
-    expect(normal, lessThanOrEqualTo(64 * 1024 * 1024));
-    expect(huge, lessThanOrEqualTo(40 * 1024 * 1024));
+    expect(normal, lessThanOrEqualTo(32 * 1024 * 1024));
+    expect(huge, lessThanOrEqualTo(16 * 1024 * 1024));
     expect(huge, lessThan(normal));
   });
 }
