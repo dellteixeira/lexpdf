@@ -11,6 +11,11 @@ class HugePdfPolicy {
   static const int overlayPagesBefore = 2;
   static const int overlayPagesAfter = 3;
 
+  /// Initial automatic text/OCR indexing stays near the reading position.
+  /// Favor a few pages ahead because normal reading progresses forward.
+  static const int initialIndexPagesBefore = 2;
+  static const int initialIndexPagesAfter = 6;
+
   /// Delay the initial overlay hydration until the first viewer frame settles.
   static const Duration initialOverlayLoadDelay = Duration(milliseconds: 160);
 
@@ -60,6 +65,18 @@ class HugePdfPolicy {
     return (
       width: math.max(1, (pageWidth * scale).round()),
       height: math.max(1, (pageHeight * scale).round()),
+    );
+  }
+
+  static ({int start, int end}) initialIndexWindow({
+    required int pageNumber,
+    required int pageCount,
+  }) {
+    if (pageCount <= 0) return (start: 1, end: 0);
+    final current = pageNumber.clamp(1, pageCount);
+    return (
+      start: math.max(1, current - initialIndexPagesBefore),
+      end: math.min(pageCount, current + initialIndexPagesAfter),
     );
   }
 

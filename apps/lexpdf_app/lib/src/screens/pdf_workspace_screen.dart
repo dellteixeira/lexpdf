@@ -10,6 +10,7 @@ import '../core/backend/backend_config.dart';
 import '../core/documents/document_picker_service.dart';
 import '../core/documents/document_provider.dart';
 import '../core/ocr/mobile_pdf_ocr_service.dart';
+import '../core/pdf/huge_pdf_policy.dart';
 import '../core/platform/workspace_full_screen_service.dart';
 import '../core/storage/local_advanced_study_store.dart';
 import '../core/storage/local_document_catalog.dart';
@@ -60,6 +61,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final FocusNode _shortcutFocus = FocusNode(debugLabel: 'pdf-tab-shell');
   final List<_WorkspaceTab> _tabs = <_WorkspaceTab>[];
   final Map<String, _WorkspaceOcrTask> _ocrTasks = <String, _WorkspaceOcrTask>{};
+  final Map<String, int> _knownPageCounts = <String, int>{};
   final Set<String> _autoIndexInspected = <String>{};
   final WorkspaceFullScreenService _fullScreenService =
       const WorkspaceFullScreenService();
@@ -319,6 +321,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final availability = await _ocrService.inspectTextAvailability(
         filePath: path,
       );
+      _knownPageCounts[document.id] = availability.pageCount;
       final complete = await _ocrStore.hasCompleteDocumentIndex(
         document.id,
         pageCount: availability.pageCount,
@@ -332,18 +335,32 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return;
       }
 
-      // Opening a PDF must never start a full-document pass. On large Android
-      // and Windows files, a second PdfDocument walking every page competes with
-      // the visible reader for CPU, storage bandwidth and memory. Automatic
-      // localized indexing is scheduled separately; full indexing remains an
-      // explicit user/search action.
-      return;
+      // Opening a PDF never starts a full-document pass. Prime only a bounded
+      // window around the active reading page so selection/search metadata near
+      // the reader becomes useful without making a second PdfDocument walk all
+      // 1,000–5,000+ pages.
+      final activePage = _tabs[_activeIndex].initialPage;
+      final window = HugePdfPolicy.initialIndexWindow(
+        pageNumber: activePage,
+        pageCount: availability.pageCount,
+      );
+      unawaited(
+        _startBackgroundIndexing(
+          document,
+          startPage: window.start,
+          endPage: window.end,
+        ),
+      );
     } catch (_) {
       // Inspection/index scheduling is advisory; reading must never depend on it.
     }
   }
 
-  Future<void> _startBackgroundIndexing(DocumentRef document) async {
+  Future<void> _startBackgroundIndexing(
+    DocumentRef document, {
+    int startPage = 1,
+    int? endPage,
+  }) async {
     final path = document.localPath;
     if (path == null || path.isEmpty) return;
     final existing = _ocrTasks[document.id];
@@ -361,6 +378,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         documentId: document.id,
         filePath: path,
         resume: true,
+        startPage: startPage,
+        endPage: endPage,
         isCancelled: () => task.cancelRequested,
         onProgress: (progress) {
           // Silent by design: background indexing must never repaint or cover
@@ -380,7 +399,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _startActiveIndexing() {
     if (_tabs.isEmpty) return;
-    unawaited(_startBackgroundIndexing(_tabs[_activeIndex].document));
+    unawaited(_startFullIndexAfterCurrentTask(_tabs[_activeIndex].document));
+  }
+
+  Future<void> _startFullIndexAfterCurrentTask(DocumentRef document) async {
+    final task = _ocrTasks[document.id];
+    if (task?.running == true) {
+      task!.cancelRequested = true;
+      const maxWaitAttempts = 30;
+      for (var attempt = 0; attempt < maxWaitAttempts; attempt++) {
+        if (!task.running) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      if (task.running) return;
+    }
+    await _startBackgroundIndexing(document);
   }
 
   void _cancelActiveIndexing() {
@@ -423,6 +456,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     controller.dispose();
     if (!mounted || query == null || query.isEmpty) return;
 
+    final completeIndex = await _hasCompleteIndex(tab.document);
+    if (!mounted) return;
+    if (!completeIndex) {
+      unawaited(_startFullIndexAfterCurrentTask(tab.document));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'O índice completo está sendo preparado para garantir uma busca '
+            'em todas as páginas. Tente novamente em alguns instantes.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final rows = widget.store.db.database.select('''
       SELECT page_number, content
       FROM pdf_page_text_index
@@ -433,20 +481,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
     if (!mounted) return;
     if (rows.isEmpty) {
-      final hasIndex = widget.store.db.database.select('''
-        SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
-      ''', [tab.document.id]).isNotEmpty;
-      if (!hasIndex) {
-        unawaited(_startBackgroundIndexing(tab.document));
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            hasIndex
-                ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'A indexação deste PDF foi iniciada para atender à busca. '
-                    'Tente novamente em alguns instantes.',
-          ),
+          content: Text('Nenhuma ocorrência de “$query” foi localizada.'),
         ),
       );
       return;
@@ -484,6 +521,26 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Future<bool> _hasCompleteIndex(DocumentRef document) async {
+    var pageCount = _knownPageCounts[document.id];
+    if (pageCount == null) {
+      final path = document.localPath;
+      if (path == null || path.isEmpty || !File(path).existsSync()) {
+        return false;
+      }
+      final availability = await _ocrService.inspectTextAvailability(
+        filePath: path,
+      );
+      pageCount = availability.pageCount;
+      _knownPageCounts[document.id] = pageCount;
+    }
+    return _ocrStore.hasCompleteDocumentIndex(
+      document.id,
+      pageCount: pageCount,
+      acceptedEngines: _ocrService.resumeEngines,
     );
   }
 

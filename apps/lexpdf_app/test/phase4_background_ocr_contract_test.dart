@@ -41,7 +41,7 @@ void main() {
 
     expect(source, contains('_inspectActiveDocumentForIndexing'));
     expect(source, contains('_startBackgroundIndexing'));
-    expect(source, contains('unawaited(_startBackgroundIndexing'));
+    expect(source, contains('_startFullIndexAfterCurrentTask'));
     expect(source, contains('hasCompleteDocumentIndex'));
     expect(source, contains('_autoIndexInspected'));
     final inspectStart =
@@ -51,13 +51,27 @@ void main() {
     expect(inspectStart, greaterThanOrEqualTo(0));
     expect(backgroundStart, greaterThan(inspectStart));
     final inspectBody = source.substring(inspectStart, backgroundStart);
-    expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
-    expect(source, contains('full indexing remains an'));
-    expect(source, contains('explicit user/search action'));
+    expect(inspectBody, contains('HugePdfPolicy.initialIndexWindow'));
+    expect(inspectBody, contains('startPage: window.start'));
+    expect(inspectBody, contains('endPage: window.end'));
+    expect(
+      inspectBody,
+      isNot(contains('_startBackgroundIndexing(document);')),
+    );
+    expect(source, contains('HugePdfPolicy.initialIndexWindow'));
+    expect(source, contains('startPage: window.start'));
+    expect(source, contains('endPage: window.end'));
+    expect(source, contains('int startPage = 1'));
+    expect(source, contains('int? endPage'));
     expect(source, isNot(contains("label: 'Indexar'")));
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));
     expect(source, contains('pdf_page_text_index'));
+    expect(source, contains('_hasCompleteIndex'));
+    expect(
+      source,
+      contains('O índice completo está sendo preparado para garantir uma busca'),
+    );
     expect(source, isNot(contains('_OcrProgressCard')));
     expect(source, isNot(contains('OCR preparando…')));
     expect(source, isNot(contains('OCR/indexação em segundo plano')));
