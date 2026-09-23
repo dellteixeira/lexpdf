@@ -140,14 +140,21 @@ class MobilePdfOcrService {
   /// durable, and [resume] skips pages already processed by a compatible engine.
   Future<PdfOcrSummary> process({
     required String documentId,
-    required String filePath,
+    String? filePath,
+    PdfDocument? openedDocument,
     void Function(PdfOcrProgress progress)? onProgress,
     bool resume = true,
     bool Function()? isCancelled,
     int startPage = 1,
     int? endPage,
   }) async {
-    final document = await PdfDocument.openFile(filePath);
+    if (openedDocument == null && (filePath == null || filePath.isEmpty)) {
+      throw ArgumentError(
+        'Either filePath or openedDocument must be provided.',
+      );
+    }
+    final ownsDocument = openedDocument == null;
+    final document = openedDocument ?? await PdfDocument.openFile(filePath!);
     TextRecognizer? recognizer;
     PlatformOcr? desktopOcr;
     var recognizedPages = 0;
@@ -367,7 +374,9 @@ class MobilePdfOcrService {
       );
     } finally {
       await recognizer?.close();
-      await document.dispose();
+      if (ownsDocument) {
+        await document.dispose();
+      }
     }
   }
 
