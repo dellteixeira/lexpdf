@@ -18,8 +18,60 @@ class HugePdfPolicy {
   /// not trigger storage/text work for every intermediate page.
   static const Duration overlayPageChangeDebounce = Duration(milliseconds: 90);
 
-  /// Keep the rendered image cache bounded even for 2,000–5,000+ page files.
+  /// Absolute compatibility ceiling for mobile render cache.
+  ///
+  /// The active reader uses [viewerImageCacheBytesFor] so the actual budget is
+  /// normally lower on large PDFs and/or smaller viewports.
   static const int viewerImageCacheBytes = 64 * 1024 * 1024;
+
+  static const int _mobileViewerCacheMinBytes = 32 * 1024 * 1024;
+  static const int _mobileViewerCacheLargeMaxBytes = 48 * 1024 * 1024;
+  static const int _mobileViewerCacheHugeMaxBytes = 40 * 1024 * 1024;
+  static const int _windowsViewerCacheMinBytes = 64 * 1024 * 1024;
+  static const int _windowsViewerCacheMaxBytes = 100 * 1024 * 1024;
+  static const int _windowsViewerCacheLargeMaxBytes = 84 * 1024 * 1024;
+  static const int _windowsViewerCacheHugeMaxBytes = 72 * 1024 * 1024;
+
+  /// Returns a bounded render-cache budget using the visible viewport as the
+  /// working-set estimate and the total page count as a memory-pressure hint.
+  ///
+  /// This deliberately avoids scaling cache memory with document length. A
+  /// 5,000-page document should keep only a few visible/nearby rasters alive,
+  /// while a 100-page document may use a slightly larger cache for smoother
+  /// back-and-forth navigation.
+  static int viewerImageCacheBytesFor({
+    required bool isWindows,
+    required int pageCount,
+    required double viewportWidth,
+    required double viewportHeight,
+    required double devicePixelRatio,
+  }) {
+    final safeWidth = math.max(1.0, viewportWidth);
+    final safeHeight = math.max(1.0, viewportHeight);
+    final safeDpr = devicePixelRatio.clamp(1.0, 3.0).toDouble();
+
+    // RGBA estimate for one full viewport. pdfrx does not necessarily allocate
+    // this exact shape for every page, but it is a stable upper-bound proxy for
+    // how much visible raster data the device is likely to keep hot.
+    final viewportBytes =
+        safeWidth * safeHeight * safeDpr * safeDpr * 4.0;
+    final targetViewports = isWindows ? 4.0 : 3.0;
+    final requested = (viewportBytes * targetViewports).round();
+
+    final minBytes =
+        isWindows ? _windowsViewerCacheMinBytes : _mobileViewerCacheMinBytes;
+    final maxBytes = switch (pageCount) {
+      >= 3000 => isWindows
+          ? _windowsViewerCacheHugeMaxBytes
+          : _mobileViewerCacheHugeMaxBytes,
+      >= 1000 => isWindows
+          ? _windowsViewerCacheLargeMaxBytes
+          : _mobileViewerCacheLargeMaxBytes,
+      _ => isWindows ? _windowsViewerCacheMaxBytes : viewerImageCacheBytes,
+    };
+
+    return requested.clamp(minBytes, maxBytes).toInt();
+  }
 
   /// Automatic indexing starts with only a small neighborhood around the
   /// page the user is actually reading. This bounds duplicate PDF work while

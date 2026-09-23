@@ -17,6 +17,64 @@ void main() {
   });
 
 
+  test('render cache budget shrinks safely as PDFs become very large', () {
+    final normalMobile = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: 200,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+    final largeMobile = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: 1267,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+    final hugeMobile = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: 5000,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+
+    expect(normalMobile, lessThanOrEqualTo(64 * 1024 * 1024));
+    expect(largeMobile, lessThanOrEqualTo(48 * 1024 * 1024));
+    expect(hugeMobile, lessThanOrEqualTo(40 * 1024 * 1024));
+    expect(normalMobile, greaterThan(largeMobile));
+    expect(largeMobile, greaterThan(hugeMobile));
+
+    final normalWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 200,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+    final largeWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 1267,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+    final hugeWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 5000,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+
+    expect(normalWindows, lessThanOrEqualTo(100 * 1024 * 1024));
+    expect(largeWindows, lessThanOrEqualTo(84 * 1024 * 1024));
+    expect(hugeWindows, lessThanOrEqualTo(72 * 1024 * 1024));
+    expect(normalWindows, greaterThan(largeWindows));
+    expect(largeWindows, greaterThan(hugeWindows));
+  });
+
   test('localized index window stays small around the reading page', () {
     final middle = HugePdfPolicy.localizedIndexWindow(
       pageNumber: 2500,

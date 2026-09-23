@@ -64,8 +64,27 @@ void main() {
     expect(source, contains('limitRenderingCache: true'));
     expect(
       source,
-      contains('maxImageBytesCachedOnMemory: HugePdfPolicy.viewerImageCacheBytes'),
+      contains('maxImageBytesCachedOnMemory: _renderCacheBudget(context)'),
     );
-    expect(HugePdfPolicy.viewerImageCacheBytes, lessThanOrEqualTo(64 * 1024 * 1024));
+    expect(source, contains('HugePdfPolicy.viewerImageCacheBytesFor('));
+
+    final normal = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: 200,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+    final huge = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: false,
+      pageCount: 5000,
+      viewportWidth: 900,
+      viewportHeight: 1400,
+      devicePixelRatio: 2,
+    );
+
+    expect(normal, lessThanOrEqualTo(64 * 1024 * 1024));
+    expect(huge, lessThanOrEqualTo(40 * 1024 * 1024));
+    expect(huge, lessThan(normal));
   });
 }

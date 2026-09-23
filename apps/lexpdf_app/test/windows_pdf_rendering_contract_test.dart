@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lexpdf_app/src/core/pdf/huge_pdf_policy.dart';
 
 void main() {
   test('Windows PDF viewer preserves full-resolution page rendering', () {
@@ -41,7 +42,42 @@ void main() {
     );
     expect(source, contains('enableLowResolutionPagePreview: !_windows'));
     expect(source, isNot(contains('enableLowResolutionPagePreview: true')));
-    expect(source, contains('? 100 * 1024 * 1024'));
+    expect(source, contains('HugePdfPolicy.viewerImageCacheBytesFor('));
+    expect(source, contains('isWindows: _windows'));
+    expect(
+      source,
+      contains('maxImageBytesCachedOnMemory:'),
+    );
+    expect(source, contains('_renderCacheBudget(context)'));
+
+    final normalWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 200,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+    final largeWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 1600,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+    final hugeWindows = HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: true,
+      pageCount: 5000,
+      viewportWidth: 2560,
+      viewportHeight: 1440,
+      devicePixelRatio: 1.5,
+    );
+
+    expect(normalWindows, lessThanOrEqualTo(100 * 1024 * 1024));
+    expect(largeWindows, lessThanOrEqualTo(84 * 1024 * 1024));
+    expect(hugeWindows, lessThanOrEqualTo(72 * 1024 * 1024));
+    expect(largeWindows, lessThan(normalWindows));
+    expect(hugeWindows, lessThan(largeWindows));
+
     expect(source, contains('horizontalCacheExtent: _windows ? 1.0 : 0.30'));
     expect(source, contains('verticalCacheExtent: _windows ? 1.0 : 0.30'));
     expect(
