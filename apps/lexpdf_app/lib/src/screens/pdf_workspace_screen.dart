@@ -352,14 +352,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
-  _WorkspaceTab? _activeTabForDocument(String documentId) {
-    if (_tabs.isEmpty || _activeIndex < 0 || _activeIndex >= _tabs.length) {
-      return null;
-    }
-    final tab = _tabs[_activeIndex];
-    return tab.document.id == documentId ? tab : null;
-  }
-
   void _markReaderActivity(_WorkspaceTab tab) {
     if (!mounted || _tabs.isEmpty) return;
     if (_activeIndex < 0 || _activeIndex >= _tabs.length) return;
