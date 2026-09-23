@@ -85,6 +85,19 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool get _mobileTouchNavigationEnabled =>
       defaultTargetPlatform == TargetPlatform.android;
 
+  bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
+
+  int _renderCacheBudget(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return HugePdfPolicy.viewerImageCacheBytesFor(
+      isWindows: _windows,
+      pageCount: _activeDocument?.pages.length ?? 0,
+      viewportWidth: size.width,
+      viewportHeight: size.height,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -268,7 +281,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
               useProgressiveLoading: true,
               params: PdfViewerParams(
                 limitRenderingCache: true,
-                maxImageBytesCachedOnMemory: HugePdfPolicy.viewerImageCacheBytes,
+                maxImageBytesCachedOnMemory: _renderCacheBudget(context),
                 horizontalCacheExtent: 0.30,
                 verticalCacheExtent: 0.30,
                 onePassRenderingSizeThreshold: 1400,
