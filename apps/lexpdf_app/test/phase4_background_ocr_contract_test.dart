@@ -41,7 +41,7 @@ void main() {
 
     expect(source, contains('_inspectActiveDocumentForIndexing'));
     expect(source, contains('_startBackgroundIndexing'));
-    expect(source, contains('unawaited(_startBackgroundIndexing'));
+    expect(source, contains('_startFullIndexAfterCurrentTask'));
     expect(source, contains('hasCompleteDocumentIndex'));
     expect(source, contains('_autoIndexInspected'));
     final inspectStart =
@@ -51,7 +51,13 @@ void main() {
     expect(inspectStart, greaterThanOrEqualTo(0));
     expect(backgroundStart, greaterThan(inspectStart));
     final inspectBody = source.substring(inspectStart, backgroundStart);
-    expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
+    expect(inspectBody, contains('HugePdfPolicy.initialIndexWindow'));
+    expect(inspectBody, contains('startPage: window.start'));
+    expect(inspectBody, contains('endPage: window.end'));
+    expect(
+      inspectBody,
+      isNot(contains('_startBackgroundIndexing(document);')),
+    );
     expect(source, contains('HugePdfPolicy.initialIndexWindow'));
     expect(source, contains('startPage: window.start'));
     expect(source, contains('endPage: window.end'));
