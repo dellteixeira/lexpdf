@@ -39,6 +39,26 @@ void main() {
     expect(policy, contains('idleIndexChunkPages = 12'));
   });
 
+  test('rendering wins the resource lease before automatic indexing starts', () {
+    final workspace =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+
+    expect(workspace, contains('int _readerActivityEpoch = 0;'));
+    expect(workspace, contains('DateTime? _lastReaderActivityAt;'));
+    expect(workspace, contains('_readerActivityEpoch++;'));
+    expect(workspace, contains('scheduledEpoch != _readerActivityEpoch'));
+    expect(workspace, contains('quietFor < HugePdfPolicy.backgroundIndexIdleDelay'));
+    expect(workspace, contains('localizedIndexPending = true'));
+    expect(workspace, contains('_scheduleIdleIndexContinuation(activeTab)'));
+
+    final inspectStart =
+        workspace.indexOf('Future<void> _inspectActiveDocumentForIndexing');
+    final schedulerStart =
+        workspace.indexOf('void _scheduleIdleIndexContinuation', inspectStart);
+    final inspectBody = workspace.substring(inspectStart, schedulerStart);
+    expect(inspectBody, isNot(contains('_startIdleIndexChunk(')));
+  });
+
   test('explicit full indexing remains distinct from automatic idle chunks', () {
     final workspace =
         File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
