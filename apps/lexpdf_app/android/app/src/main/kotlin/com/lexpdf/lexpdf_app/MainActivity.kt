@@ -7,6 +7,7 @@ import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.pdftron.pdf.config.ToolManagerBuilder
 import com.pdftron.pdf.config.ViewerConfig
 import com.pdftron.pdf.controls.DocumentActivity
 import java.io.File
@@ -92,13 +93,26 @@ class MainActivity : FlutterActivity() {
             "PDF file is not available: $path"
         }
 
+        val toolManagerBuilder = ToolManagerBuilder.from()
+            // Galaxy Tab S6 Lite / Samsung S Pen: stylus draws ink directly
+            // while the finger remains available for pan/scroll/zoom.
+            .setStylusAsPen(true)
+            .setAlwaysDrawWithFingerAndStylus(false)
+            .setEditInk(true)
+            .setOpenToolbar(true)
+
         val config = ViewerConfig.Builder()
             .openUrlCachePath(cacheDir.absolutePath)
-            .fullscreenModeEnabled(true)
+            .fullscreenModeEnabled(false)
             .multiTabEnabled(false)
             .maximumTabCount(1)
             .documentEditingEnabled(true)
             .longPressQuickMenuEnabled(true)
+            .toolManagerBuilder(toolManagerBuilder)
+            .showAnnotationToolbarOption(true)
+            .showAnnotationsList(true)
+            .showBottomNavBar(true)
+            .movableToolbarEnabled(true)
             .toolbarTitle("LexPDF")
             .showSearchView(true)
             .showThumbnailView(true)
