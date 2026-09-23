@@ -24,6 +24,7 @@ import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../core/storage/local_workspace_ui_preferences.dart';
 import 'ai_context_chat_screen.dart';
+import 'android_native_pdf_reader_screen.dart';
 import 'flashcard_center_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
@@ -576,6 +577,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _startActiveIndexing() {
     if (_tabs.isEmpty) return;
+    if (Platform.isAndroid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Indexação/OCR está desativada no novo leitor nativo Android '
+            'durante a fase de validação de estabilidade.',
+          ),
+        ),
+      );
+      return;
+    }
     unawaited(_startBackgroundIndexing(_tabs[_activeIndex]));
   }
 
@@ -632,7 +644,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final hasIndex = widget.store.db.database.select('''
         SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
       ''', [tab.document.id]).isNotEmpty;
-      if (!hasIndex) {
+      if (!hasIndex && !Platform.isAndroid) {
         unawaited(_startBackgroundIndexing(tab));
       }
       ScaffoldMessenger.of(context).showSnackBar(
@@ -640,8 +652,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           content: Text(
             hasIndex
                 ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'A indexação deste PDF foi iniciada para atender à busca. '
-                    'Tente novamente em alguns instantes.',
+                : Platform.isAndroid
+                    ? 'Este PDF ainda não possui índice local. A indexação '
+                        'automática está desativada no leitor nativo Android '
+                        'durante a validação de estabilidade.'
+                    : 'A indexação deste PDF foi iniciada para atender à busca. '
+                        'Tente novamente em alguns instantes.',
           ),
         ),
       );
@@ -712,10 +728,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Widget _buildEditorForTab(_WorkspaceTab tab) {
+    final key = ValueKey(
+      'pdf-tab-${tab.document.id}-${tab.generation}',
+    );
+
+    if (Platform.isAndroid) {
+      return AndroidNativePdfReaderScreen(
+        key: key,
+        document: tab.document,
+        initialPage: tab.initialPage,
+        fullScreen: _fullScreen,
+        onToggleFullScreen: _toggleFullScreen,
+        onPageChanged: (pageNumber) => _recordVisiblePage(tab, pageNumber),
+      );
+    }
+
     return editor.PdfWorkspaceScreen(
-      key: ValueKey(
-        'pdf-tab-${tab.document.id}-${tab.generation}',
-      ),
+      key: key,
       document: tab.document,
       store: widget.store,
       annotations: widget.annotations,
@@ -732,10 +761,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildPdfEditorSurface() {
     if (Platform.isAndroid) {
-      // Mobile keeps exactly one native PDFium-backed viewer alive. Restored
-      // tabs keep only lightweight session metadata and are reconstructed at
-      // their saved page when activated. This prevents background tabs from
-      // retaining native page/image caches.
+      // Android keeps exactly one pdfx/Android PdfRenderer viewer alive.
+      // No pdfrx/PDFium viewer is mounted on this platform.
       return _buildEditorForTab(_tabs[_activeIndex]);
     }
 
