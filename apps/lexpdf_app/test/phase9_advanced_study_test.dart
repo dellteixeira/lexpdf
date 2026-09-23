@@ -141,7 +141,7 @@ void main() {
     );
 
     final store = LocalAdvancedStudyStore(db);
-    final item = (await store.listDue()).single;
+    final item = (await store.listItems(kind: StudyItemKind.flashcard)).single;
     final session = await store.startSession();
     final state = await store.recordReview(
       itemId: item.id,
