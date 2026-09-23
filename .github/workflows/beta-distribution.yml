@@ -6,6 +6,11 @@ on:
     branches:
       - develop
     paths:
+      - .github/RC2_DISTRIBUTION_TRIGGER
+  push:
+    branches:
+      - develop
+    paths:
       - '.github/rc-distribution-trigger'
 
 jobs:
