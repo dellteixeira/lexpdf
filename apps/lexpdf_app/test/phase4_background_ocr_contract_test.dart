@@ -52,8 +52,11 @@ void main() {
     expect(backgroundStart, greaterThan(inspectStart));
     final inspectBody = source.substring(inspectStart, backgroundStart);
     expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
-    expect(source, contains('full indexing remains an'));
-    expect(source, contains('explicit user/search action'));
+    expect(source, contains('_startLocalizedIndexing'));
+    expect(source, contains('HugePdfPolicy.localizedIndexWindow'));
+    expect(source, contains('startPage: window.start'));
+    expect(source, contains('endPage: window.end'));
+    expect(source, contains('currentPage = _tabs[_activeIndex].initialPage'));
     expect(source, isNot(contains("label: 'Indexar'")));
     expect(source, contains('cancelRequested'));
     expect(source, contains('LogicalKeyboardKey.keyF'));
@@ -66,6 +69,33 @@ void main() {
       source,
       isNot(contains('task.progress = progress;\n          if (mounted) setState')),
     );
+  });
+
+
+  test('automatic open-time indexing is localized around the reading page', () async {
+    final source = await File(
+      'lib/src/screens/pdf_workspace_screen.dart',
+    ).readAsString();
+
+    final inspectStart =
+        source.indexOf('Future<void> _inspectActiveDocumentForIndexing');
+    final localizedStart =
+        source.indexOf('Future<void> _startLocalizedIndexing', inspectStart);
+    final backgroundStart =
+        source.indexOf('Future<void> _startBackgroundIndexing', localizedStart);
+
+    expect(inspectStart, greaterThanOrEqualTo(0));
+    expect(localizedStart, greaterThan(inspectStart));
+    expect(backgroundStart, greaterThan(localizedStart));
+
+    final inspectBody = source.substring(inspectStart, localizedStart);
+    expect(inspectBody, contains('_startLocalizedIndexing('));
+    expect(inspectBody, isNot(contains('_startBackgroundIndexing(')));
+
+    final localizedBody = source.substring(localizedStart, backgroundStart);
+    expect(localizedBody, contains('startPage: window.start'));
+    expect(localizedBody, contains('endPage: window.end'));
+    expect(localizedBody, isNot(contains('endPage: pageCount')));
   });
 
   test('manual OCR screen exposes range, cancellation and resume-friendly processing', () async {
