@@ -24,13 +24,31 @@ class HugePdfPolicy {
   /// normally lower on large PDFs and/or smaller viewports.
   static const int viewerImageCacheBytes = 64 * 1024 * 1024;
 
-  static const int _mobileViewerCacheMinBytes = 32 * 1024 * 1024;
-  static const int _mobileViewerCacheLargeMaxBytes = 48 * 1024 * 1024;
-  static const int _mobileViewerCacheHugeMaxBytes = 40 * 1024 * 1024;
+  static const int _mobileViewerCacheMinBytes = 12 * 1024 * 1024;
+  static const int _mobileViewerCacheUnknownMaxBytes = 20 * 1024 * 1024;
+  static const int _mobileViewerCacheNormalMaxBytes = 32 * 1024 * 1024;
+  static const int _mobileViewerCacheLargeMaxBytes = 24 * 1024 * 1024;
+  static const int _mobileViewerCacheHugeMaxBytes = 16 * 1024 * 1024;
   static const int _windowsViewerCacheMinBytes = 64 * 1024 * 1024;
   static const int _windowsViewerCacheMaxBytes = 100 * 1024 * 1024;
   static const int _windowsViewerCacheLargeMaxBytes = 84 * 1024 * 1024;
   static const int _windowsViewerCacheHugeMaxBytes = 72 * 1024 * 1024;
+
+
+  /// Android reader profile modeled after mature tile-based readers: keep the
+  /// initial full-page raster small, render only a narrow neighborhood and
+  /// delay expensive secondary work until the first page has settled.
+  static const double androidOnePassRenderingSizeThreshold = 900;
+  static const double androidMaxRenderLongEdge = 2200;
+  static const double androidCacheExtent = 0.12;
+  static const Duration androidTrailingPageLoadingDelay =
+      Duration(milliseconds: 450);
+  static const Duration androidPageImageCachingDelay =
+      Duration(milliseconds: 90);
+  static const Duration androidPartialImageLoadingDelay =
+      Duration(milliseconds: 180);
+  static const Duration androidSecondaryWorkDelay =
+      Duration(milliseconds: 1200);
 
   /// Returns a bounded render-cache budget using the visible viewport as the
   /// working-set estimate and the total page count as a memory-pressure hint.
@@ -55,19 +73,24 @@ class HugePdfPolicy {
     // how much visible raster data the device is likely to keep hot.
     final viewportBytes =
         safeWidth * safeHeight * safeDpr * safeDpr * 4.0;
-    final targetViewports = isWindows ? 4.0 : 3.0;
+    final targetViewports = isWindows ? 4.0 : 2.0;
     final requested = (viewportBytes * targetViewports).round();
 
     final minBytes =
         isWindows ? _windowsViewerCacheMinBytes : _mobileViewerCacheMinBytes;
     final maxBytes = switch (pageCount) {
+      <= 0 => isWindows
+          ? _windowsViewerCacheLargeMaxBytes
+          : _mobileViewerCacheUnknownMaxBytes,
       >= 3000 => isWindows
           ? _windowsViewerCacheHugeMaxBytes
           : _mobileViewerCacheHugeMaxBytes,
       >= 1000 => isWindows
           ? _windowsViewerCacheLargeMaxBytes
           : _mobileViewerCacheLargeMaxBytes,
-      _ => isWindows ? _windowsViewerCacheMaxBytes : viewerImageCacheBytes,
+      _ => isWindows
+          ? _windowsViewerCacheMaxBytes
+          : _mobileViewerCacheNormalMaxBytes,
     };
 
     return requested.clamp(minBytes, maxBytes).toInt();
@@ -82,15 +105,15 @@ class HugePdfPolicy {
   /// Broader automatic indexing is allowed only after the reader has remained
   /// idle for this long. Each idle pass is intentionally small so a pointer,
   /// scroll, zoom or page-navigation event can stop the next pass quickly.
-  static const Duration backgroundIndexIdleDelay = Duration(milliseconds: 1200);
-  static const int idleIndexChunkPages = 12;
+  static const Duration backgroundIndexIdleDelay = Duration(seconds: 5);
+  static const int idleIndexChunkPages = 6;
 
   /// OCR bitmap budget. Mobile/native bitmap OCR is capped at 8 MP, while
   /// desktop OCR is capped at 6 MP because the platform bridge also needs an
   /// encoded image buffer. This keeps the peak per-page working set bounded.
-  static const int ocrMaxPixels = 8 * 1024 * 1024;
+  static const int ocrMaxPixels = 4 * 1024 * 1024;
   static const int ocrDesktopMaxPixels = 6 * 1024 * 1024;
-  static const int ocrMaxDimension = 3072;
+  static const int ocrMaxDimension = 2048;
   static const double ocrPreferredScale = 2.0;
 
   /// If a page already exposes enough embedded text, prefer it over raster OCR.
@@ -99,7 +122,7 @@ class HugePdfPolicy {
   static const int ocrEmbeddedTextMinChars = 24;
 
   /// Work in small batches so the event loop/UI gets opportunities to run.
-  static const int ocrYieldEveryPages = 2;
+  static const int ocrYieldEveryPages = 1;
 
   static ({int width, int height}) boundedRenderSize({
     required double pageWidth,
