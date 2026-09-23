@@ -83,7 +83,9 @@ void main() {
     ).readAsStringSync();
 
     expect(editor, contains('HugePdfPolicy.androidSecondaryWorkDelay'));
-    expect(editor, contains('Future<void>.delayed(secondaryDelay'));
+    expect(editor, contains('_hydrateSecondaryPdfWork('));
+    expect(editor, contains('required Duration delay'));
+    expect(editor, contains('await Future<void>.delayed(delay)'));
     expect(editor, contains('await _loadOutline(document)'));
     expect(editor, contains('await _loadInkWindow(document, _page)'));
     expect(editor, contains('await _selectionMenu.load(document)'));
