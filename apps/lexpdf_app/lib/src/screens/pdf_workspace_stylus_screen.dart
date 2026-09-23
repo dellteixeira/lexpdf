@@ -393,11 +393,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 : null,
                             behaviorControlParams:
                                 PdfViewerBehaviorControlParams(
-                                  // Android internal PDF destinations are resolved against the full
-                                  // page layout. For very large indexed PDFs, lazy dimensions can
-                                  // make a destination matrix point at a stale/partial layout.
-                                  loadPageDimensionsOnDemand:
-                                      !_windows && !_android,
+                                  // Keep page geometry lazy on Android so opening 1,000–5,000+
+                                  // page documents does not eagerly measure the whole file. Windows
+                                  // retains eager dimensions because its desktop/manual-tile path
+                                  // has separate rendering constraints. Internal PDF destinations
+                                  // are resolved by the guarded navigation routine below.
+                                  loadPageDimensionsOnDemand: !_windows,
                                   enableLowResolutionPagePreview: !_windows,
                                   trailingPageLoadingDelay: _windows
                                       ? const Duration(milliseconds: 100)
