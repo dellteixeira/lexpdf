@@ -21,6 +21,12 @@ class HugePdfPolicy {
   /// Keep the rendered image cache bounded even for 2,000–5,000+ page files.
   static const int viewerImageCacheBytes = 64 * 1024 * 1024;
 
+  /// Automatic indexing starts with only a small neighborhood around the
+  /// page the user is actually reading. This bounds duplicate PDF work while
+  /// still making nearby search/navigation useful immediately.
+  static const int localizedIndexPagesBefore = 3;
+  static const int localizedIndexPagesAfter = 6;
+
   /// OCR bitmap budget. Mobile/native bitmap OCR is capped at 8 MP, while
   /// desktop OCR is capped at 6 MP because the platform bridge also needs an
   /// encoded image buffer. This keeps the peak per-page working set bounded.
@@ -60,6 +66,18 @@ class HugePdfPolicy {
     return (
       width: math.max(1, (pageWidth * scale).round()),
       height: math.max(1, (pageHeight * scale).round()),
+    );
+  }
+
+  static ({int start, int end}) localizedIndexWindow({
+    required int pageNumber,
+    required int pageCount,
+  }) {
+    if (pageCount <= 0) return (start: 1, end: 0);
+    final current = pageNumber.clamp(1, pageCount);
+    return (
+      start: math.max(1, current - localizedIndexPagesBefore),
+      end: math.min(pageCount, current + localizedIndexPagesAfter),
     );
   }
 
