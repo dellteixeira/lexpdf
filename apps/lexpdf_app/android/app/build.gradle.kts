@@ -31,6 +31,15 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Apryse trial builds intentionally use an empty key. Production
+        // builds inject PDFTRON_LICENSE_KEY through CI/local Gradle properties;
+        // never commit a commercial key to this public repository.
+        manifestPlaceholders["pdftronLicenseKey"] =
+            providers.gradleProperty("PDFTRON_LICENSE_KEY").orElse("").get()
+
+        multiDexEnabled = true
+        vectorDrawables.useSupportLibrary = true
     }
 
     signingConfigs {
@@ -66,6 +75,15 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+dependencies {
+    // Apryse Android 12.1.0: the same native document SDK family that powers
+    // Xodo. The viewer runs in a dedicated Android Activity/process so Flutter
+    // and its PDFium stack do not compete for the renderer heap.
+    implementation("com.pdftron:pdftron:12.1.0")
+    implementation("com.pdftron:tools:12.1.0")
+    implementation("androidx.multidex:multidex:2.0.1")
 }
 
 flutter {
