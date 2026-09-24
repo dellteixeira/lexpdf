@@ -14,15 +14,17 @@ import java.util.Date
 import java.util.Locale
 
 object PdfCrashDiagnostics {
-    private const val PREFIX = "LPDFDIAG2"
+    private const val PREFIX = "LPDFDIAG3"
     private const val BREADCRUMB_FILE = "pdfreader_breadcrumb.txt"
-    private const val LAUNCH_FILE = "pdfreader_launch.txt"
+    private const val READER_LAUNCH_FILE = "pdfreader_launch.txt"
+    private const val MAIN_LAUNCH_FILE = "main_startup_attempt.txt"
     private const val MAIN_CRASH_FILE = "uncaught_main.txt"
     private const val READER_CRASH_FILE = "uncaught_pdfreader.txt"
     private const val PREFS = "pdf_crash_diagnostics"
     private const val LAST_SHOWN_EXIT = "last_shown_exit_timestamp"
     private const val LAST_SHOWN_CAPTURE = "last_shown_capture_timestamp"
-    private const val LAUNCH_CORRELATION_WINDOW_MS = 60_000L
+    private const val MAIN_EXIT_FRESHNESS_MS = 30 * 60 * 1000L
+    private const val READER_CORRELATION_WINDOW_MS = 60_000L
 
     fun installUncaughtExceptionCapture(context: Context) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -36,10 +38,21 @@ object PdfCrashDiagnostics {
         )
     }
 
+    fun markMainLaunchAttempt(context: Context) {
+        val payload = "${System.currentTimeMillis()}|process=${context.packageName}"
+        writeDiagnosticFile(context, MAIN_LAUNCH_FILE, payload)
+        mark(context, "MAIN_START_ATTEMPT")
+    }
+
+    fun markMainUiReady(context: Context) {
+        mark(context, "MAIN_UI_READY")
+        deleteDiagnosticFile(context, MAIN_LAUNCH_FILE)
+    }
+
     fun markReaderLaunchAttempt(context: Context, path: String) {
         val payload =
             "${System.currentTimeMillis()}|pathHash=${path.hashCode()}|size=${File(path).length()}"
-        writeDiagnosticFile(context, LAUNCH_FILE, payload)
+        writeDiagnosticFile(context, READER_LAUNCH_FILE, payload)
     }
 
     fun mark(context: Context, stage: String, detail: String = "") {
@@ -76,54 +89,81 @@ object PdfCrashDiagnostics {
     fun recentExitReport(context: Context): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return recentCapturedCrashReport(context)
+                ?: incompleteStartupReport(context)
         }
 
         return try {
             val packageName = context.packageName
             val readerProcessName = "$packageName:pdfreader"
             val am = context.getSystemService(ActivityManager::class.java)
-            val exits = am.getHistoricalProcessExitReasons(packageName, 0, 24)
+            val exits =
+                am.getHistoricalProcessExitReasons(packageName, 0, 32)
+                    .sortedByDescending { it.timestamp }
+            val now = System.currentTimeMillis()
+            val startupAttempt = readMainLaunchTimestamp(context)
 
-            // First preference: an abnormal death of the dedicated PDF reader.
+            // Startup/main-process crashes must be visible even when no PDF was
+            // ever opened. The previous implementation filtered these out and
+            // therefore allowed an invisible Android crash loop.
+            val mainExit =
+                exits.firstOrNull { info ->
+                    info.processName == packageName &&
+                        isAbnormal(info.reason) &&
+                        (
+                            (startupAttempt != null && info.timestamp >= startupAttempt) ||
+                                now - info.timestamp in 0..MAIN_EXIT_FRESHNESS_MS
+                        )
+                }
+            if (mainExit != null && !wasAlreadyShown(context, mainExit.timestamp)) {
+                val report =
+                    formatExit(
+                        context = context,
+                        exit = mainExit,
+                        captured = readDiagnosticFile(context, MAIN_CRASH_FILE),
+                        scope = "processo principal / inicialização",
+                    )
+                rememberShown(context, mainExit.timestamp)
+                return report
+            }
+
+            // A PDF-reader crash is isolated in :pdfreader and must never make
+            // the main app disappear silently.
             val readerExit =
                 exits.firstOrNull { info ->
                     info.processName == readerProcessName && isAbnormal(info.reason)
                 }
             if (readerExit != null && !wasAlreadyShown(context, readerExit.timestamp)) {
-                rememberShown(context, readerExit.timestamp)
-                return formatExit(
-                    context = context,
-                    exit = readerExit,
-                    captured = readDiagnosticFile(context, READER_CRASH_FILE),
-                )
-            }
-
-            // Second preference: the main process only when its death happened
-            // immediately after an explicit reader launch attempt. This avoids
-            // blaming PDF opening for unrelated historical app crashes.
-            val launchTimestamp = readLaunchTimestamp(context)
-            if (launchTimestamp != null) {
-                val mainExit =
-                    exits.firstOrNull { info ->
-                        info.processName == packageName &&
-                            isAbnormal(info.reason) &&
-                            info.timestamp >= launchTimestamp &&
-                            info.timestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
-                    }
-                if (mainExit != null && !wasAlreadyShown(context, mainExit.timestamp)) {
-                    rememberShown(context, mainExit.timestamp)
-                    return formatExit(
+                val report =
+                    formatExit(
                         context = context,
-                        exit = mainExit,
-                        captured = readDiagnosticFile(context, MAIN_CRASH_FILE),
+                        exit = readerExit,
+                        captured = readDiagnosticFile(context, READER_CRASH_FILE),
+                        scope = "leitor PDF isolado",
                     )
-                }
+                rememberShown(context, readerExit.timestamp)
+                return report
             }
 
             recentCapturedCrashReport(context)
+                ?: incompleteStartupReport(context)
         } catch (error: Throwable) {
-            "Falha ao ler ApplicationExitInfo: ${error.javaClass.simpleName}: ${error.message}\n" +
-                "captura local: ${recentCapturedCrashReport(context) ?: "(nenhuma)"}"
+            buildString {
+                appendLine(
+                    "Falha ao ler ApplicationExitInfo: " +
+                        "${error.javaClass.simpleName}: ${error.message}",
+                )
+                val captured = recentCapturedCrashReport(context)
+                if (!captured.isNullOrBlank()) {
+                    appendLine()
+                    append(captured)
+                } else {
+                    val incomplete = incompleteStartupReport(context)
+                    if (!incomplete.isNullOrBlank()) {
+                        appendLine()
+                        append(incomplete)
+                    }
+                }
+            }.trim()
         }
     }
 
@@ -131,6 +171,7 @@ object PdfCrashDiagnostics {
         context: Context,
         exit: ApplicationExitInfo,
         captured: String?,
+        scope: String,
     ): String {
         val summary =
             exit.processStateSummary?.toString(Charsets.UTF_8)
@@ -144,6 +185,7 @@ object PdfCrashDiagnostics {
 
         return buildString {
             appendLine("LexPDF diagnóstico de encerramento")
+            appendLine("escopo: $scope")
             appendLine("processo: ${exit.processName}")
             appendLine("quando: $timestamp")
             appendLine("motivo: ${reasonName(exit.reason)} (${exit.reason})")
@@ -156,13 +198,16 @@ object PdfCrashDiagnostics {
             if (!captured.isNullOrBlank()) {
                 appendLine()
                 appendLine("exceção capturada pelo LexPDF:")
-                append(captured.take(7000))
+                append(captured.take(10_000))
             }
         }.trim()
     }
 
     private fun recentCapturedCrashReport(context: Context): String? {
-        val launchTimestamp = readLaunchTimestamp(context)
+        val now = System.currentTimeMillis()
+        val mainAttempt = readMainLaunchTimestamp(context)
+        val readerAttempt = readReaderLaunchTimestamp(context)
+        val packageName = context.packageName
         val candidates =
             listOfNotNull(
                 readDiagnosticFile(context, READER_CRASH_FILE),
@@ -179,12 +224,12 @@ object PdfCrashDiagnostics {
             candidates.firstOrNull { (timestamp, payload) ->
                 if (wasCapturedAlreadyShown(context, timestamp)) {
                     false
-                } else if (payload.contains("processo=${context.packageName}:pdfreader")) {
-                    true
+                } else if (payload.contains("processo=$packageName:pdfreader")) {
+                    readerAttempt == null ||
+                        timestamp >= readerAttempt - READER_CORRELATION_WINDOW_MS
                 } else {
-                    launchTimestamp != null &&
-                        timestamp >= launchTimestamp &&
-                        timestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
+                    (mainAttempt != null && timestamp >= mainAttempt) ||
+                        now - timestamp in 0..MAIN_EXIT_FRESHNESS_MS
                 }
             } ?: return null
 
@@ -195,8 +240,36 @@ object PdfCrashDiagnostics {
         }
     }
 
-    private fun readLaunchTimestamp(context: Context): Long? =
-        readDiagnosticFile(context, LAUNCH_FILE)
+    private fun incompleteStartupReport(context: Context): String? {
+        val attempt = readMainLaunchTimestamp(context) ?: return null
+        val timestamp =
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                .format(Date(attempt))
+        val captured = readDiagnosticFile(context, MAIN_CRASH_FILE)
+
+        return buildString {
+            appendLine("LexPDF detectou uma inicialização incompleta")
+            appendLine("tentativa iniciada em: $timestamp")
+            appendLine(
+                "A execução anterior não confirmou a primeira tela do Flutter. " +
+                    "O LexPDF interrompeu o relançamento automático para evitar " +
+                    "um ciclo de falhas contínuas.",
+            )
+            if (!captured.isNullOrBlank()) {
+                appendLine()
+                appendLine("última exceção do processo principal:")
+                append(captured.take(10_000))
+            }
+        }.trim()
+    }
+
+    private fun readMainLaunchTimestamp(context: Context): Long? =
+        readDiagnosticFile(context, MAIN_LAUNCH_FILE)
+            ?.substringBefore('|')
+            ?.toLongOrNull()
+
+    private fun readReaderLaunchTimestamp(context: Context): Long? =
+        readDiagnosticFile(context, READER_LAUNCH_FILE)
             ?.substringBefore('|')
             ?.toLongOrNull()
 
@@ -265,7 +338,7 @@ object PdfCrashDiagnostics {
                     appendLine(
                         "${error.javaClass.name}: ${error.message ?: "(sem mensagem)"}",
                     )
-                    append(stack.take(12_000))
+                    append(stack.take(16_000))
                 }
             writeDiagnosticFile(context, fileName, payload)
         } catch (_: Throwable) {
@@ -286,10 +359,17 @@ object PdfCrashDiagnostics {
         }
     }
 
+    private fun deleteDiagnosticFile(context: Context, name: String) {
+        try {
+            File(File(context.filesDir, "diagnostics"), name).delete()
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun readDiagnosticFile(context: Context, name: String): String? =
         try {
             val file = File(File(context.filesDir, "diagnostics"), name)
-            file.takeIf { it.isFile }?.readText()?.take(14_000)
+            file.takeIf { it.isFile }?.readText()?.take(18_000)
         } catch (_: Throwable) {
             null
         }
