@@ -146,6 +146,8 @@ void main() {
 
     expect(activity, contains('setSingleLine(true)'));
     expect(activity, contains('maxLines = 1'));
+    expect(activity, contains('setHorizontallyScrolling(true)'));
+    expect(activity, contains('ellipsize = TextUtils.TruncateAt.END'));
     expect(
       activity,
       contains('TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration'),
@@ -162,7 +164,12 @@ void main() {
     expect(activity, contains('Prefer the table of contents printed inside the PDF'));
     expect(activity, contains('buildVisualIndex()'));
     expect(activity, contains('buildPrintedPaginationModel(tocEnd + 1)'));
-    expect(activity, contains('physicalPageForPrintedLabel(candidate.printedLabel)'));
+    expect(activity, contains('resolveTocCandidatePage(candidate)'));
+    expect(activity, contains('findTitleNearPhysicalPage'));
+    expect(activity, contains('numericPaginationSegments'));
+    expect(activity, contains('buildNumericPaginationSegments'));
+    expect(activity, contains('Exact visual-page detections always win'));
+    expect(activity, contains('Never assume printed page N == physical PDF page N'));
     expect(activity, contains('pageLabel: candidate.printedLabel'));
     expect(activity, contains('source: \'toc\''));
   });
