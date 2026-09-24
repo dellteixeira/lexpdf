@@ -40,7 +40,8 @@ object PdfCrashDiagnostics {
     }
 
     fun markMainLaunchAttempt(context: Context) {
-        val payload = "${System.currentTimeMillis()}|process=${context.packageName}"
+        val payload =
+            "${System.currentTimeMillis()}|process=${context.packageName}|pid=${Process.myPid()}"
         writeDiagnosticFile(context, MAIN_LAUNCH_FILE, payload)
         mark(context, "MAIN_START_ATTEMPT")
     }
@@ -244,7 +245,26 @@ object PdfCrashDiagnostics {
     }
 
     private fun incompleteStartupReport(context: Context): String? {
-        val attempt = readMainLaunchTimestamp(context) ?: return null
+        val launchPayload =
+            readDiagnosticFile(context, MAIN_LAUNCH_FILE)
+                ?: return null
+        val attempt =
+            launchPayload.substringBefore('|').toLongOrNull()
+                ?: return null
+        val launchPid =
+            launchPayload
+                .split('|')
+                .firstOrNull { it.startsWith("pid=") }
+                ?.substringAfter("pid=")
+                ?.toIntOrNull()
+
+        // MainActivity can query diagnostics before onFlutterUiDisplayed() runs.
+        // A marker belonging to this same live process is the CURRENT startup,
+        // not evidence that the previous startup failed.
+        if (launchPid != null && launchPid == Process.myPid()) {
+            return null
+        }
+
         val timestamp =
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
                 .format(Date(attempt))
