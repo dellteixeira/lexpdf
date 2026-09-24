@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
@@ -25,6 +26,18 @@ class MainActivity : FlutterActivity() {
     private var pendingPdfPath: String? = null
     private var flutterReady = false
     private var diagnosticDialogVisible = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // CrashGate installs this in the normal flow, but install again here so
+        // direct/system restoration paths remain diagnosable too.
+        PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onFlutterUiDisplayed() {
+        super.onFlutterUiDisplayed()
+        PdfCrashDiagnostics.markMainUiReady(this)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
