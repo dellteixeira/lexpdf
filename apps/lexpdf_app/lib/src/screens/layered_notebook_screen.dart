@@ -16,6 +16,7 @@ import '../core/ink/ink_models.dart';
 import '../core/notebook/ink_shape_recognizer.dart';
 import '../core/notebook/legacy_notebook_text_migrator.dart';
 import '../core/notebook/notebook_document_file_service.dart';
+import '../core/documents/native_android_file_picker_service.dart';
 import '../core/notebook/notebook_history.dart';
 import '../core/notebook/notebook_object_models.dart';
 import '../core/storage/local_ink_store.dart';
@@ -869,18 +870,33 @@ class _NotebookScreenState extends State<NotebookScreen> {
         if (_legacyDocAvailable) 'doc',
       ],
     );
-    final selected = await openFile(acceptedTypeGroups: [group]);
-    if (selected == null) return;
+    late final String selectedPath;
+    late final String selectedName;
+    if (Platform.isAndroid) {
+      final picked = await const NativeAndroidFilePickerService().pickFile(
+        extensions: group.extensions,
+      );
+      if (picked == null) return;
+      selectedPath = picked.path;
+      selectedName = picked.name;
+    } else {
+      final selected = await openFile(acceptedTypeGroups: [group]);
+      if (selected == null) return;
+      selectedPath = selected.path;
+      selectedName = selected.name;
+    }
+
     try {
-      final length = await selected.length();
+      final source = File(selectedPath);
+      final length = await source.length();
       if (length > _maximumOfficeFileBytes) {
         throw StateError('Arquivo excede o limite seguro de 32 MB.');
       }
-      final extension = selected.name.contains('.')
-          ? selected.name.split('.').last.toLowerCase()
+      final extension = selectedName.contains('.')
+          ? selectedName.split('.').last.toLowerCase()
           : '';
       final root = await _documentFileService.importBytes(
-        await selected.readAsBytes(),
+        await source.readAsBytes(),
         extension,
       );
       final document = _richDocument;
@@ -1613,20 +1629,34 @@ class _NotebookScreenState extends State<NotebookScreen> {
       label: 'Imagens',
       extensions: ['png', 'jpg', 'jpeg', 'webp'],
     );
-    final selected = await openFile(acceptedTypeGroups: const [group]);
-    if (selected == null) return;
-    final bytes = await selected.readAsBytes();
+    late final String selectedPath;
+    late final String selectedName;
+    if (Platform.isAndroid) {
+      final picked = await const NativeAndroidFilePickerService().pickFile(
+        extensions: const ['png', 'jpg', 'jpeg', 'webp'],
+        mimeType: 'image/*',
+      );
+      if (picked == null) return;
+      selectedPath = picked.path;
+      selectedName = picked.name;
+    } else {
+      final selected = await openFile(acceptedTypeGroups: const [group]);
+      if (selected == null) return;
+      selectedPath = selected.path;
+      selectedName = selected.name;
+    }
     final documents = await getApplicationDocumentsDirectory();
     final assets = Directory(
       '${documents.path}${Platform.pathSeparator}notebook_assets',
     );
     await assets.create(recursive: true);
     final now = DateTime.now().toUtc();
-    final safeName = selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final safeName =
+        selectedName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     final destination = File(
       '${assets.path}${Platform.pathSeparator}${now.microsecondsSinceEpoch}-$safeName',
     );
-    await destination.writeAsBytes(bytes, flush: true);
+    await File(selectedPath).copy(destination.path);
     _recordHistory();
     await _persistNewObject(
       NotebookObject(
