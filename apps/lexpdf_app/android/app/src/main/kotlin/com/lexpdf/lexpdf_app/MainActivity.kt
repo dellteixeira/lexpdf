@@ -19,7 +19,8 @@ class MainActivity : FlutterActivity() {
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
         private const val NATIVE_READER_CHANNEL = "lexpdf/native_pdf_reader"
         private const val NATIVE_PICKER_CHANNEL = "lexpdf/native_pdf_picker"
-        private const val PICK_PDF_REQUEST_CODE = 0x4C50
+        private const val PICK_FILE_REQUEST_CODE = 0x4C50
+        private const val PICK_FILES_REQUEST_CODE = 0x4C51
     }
 
     private var channel: MethodChannel? = null
@@ -27,13 +28,13 @@ class MainActivity : FlutterActivity() {
     private var nativeReaderChannel: MethodChannel? = null
     private var nativePickerChannel: MethodChannel? = null
     private var pendingPickerResult: MethodChannel.Result? = null
+    private var pendingPickerExtensions: Set<String> = emptySet()
+    private var pendingPickerMultiple = false
     private var pendingPdfPath: String? = null
     private var flutterReady = false
     private var diagnosticDialogVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // CrashGate installs this in the normal flow, but install again here so
-        // direct/system restoration paths remain diagnosable too.
         PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
         super.onCreate(savedInstanceState)
     }
@@ -45,119 +46,179 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PDF_CHANNEL).also { methodChannel ->
-            methodChannel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "getInitialPdfPath" -> {
-                        flutterReady = true
-                        result.success(pendingPdfPath)
-                        pendingPdfPath = null
+
+        channel =
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                PDF_CHANNEL,
+            ).also { methodChannel ->
+                methodChannel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "getInitialPdfPath" -> {
+                            flutterReady = true
+                            result.success(pendingPdfPath)
+                            pendingPdfPath = null
+                        }
+                        else -> result.notImplemented()
                     }
-                    else -> result.notImplemented()
                 }
             }
-        }
-        inputCapabilitiesChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            INPUT_CAPABILITIES_CHANNEL,
-        ).also { methodChannel ->
-            methodChannel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "hasStylus" -> result.success(hasStylusInputDevice())
-                    else -> result.notImplemented()
-                }
-            }
-        }
 
-        nativePickerChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            NATIVE_PICKER_CHANNEL,
-        ).also { methodChannel ->
-            methodChannel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "pickPdf" -> launchNativePdfPicker(result)
-                    else -> result.notImplemented()
-                }
-            }
-        }
-
-        nativeReaderChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            NATIVE_READER_CHANNEL,
-        ).also { methodChannel ->
-            methodChannel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "openDocument" -> {
-                        val path = call.argument<String>("path")
-                        val initialPage = call.argument<Int>("initialPage") ?: 1
-                        if (path.isNullOrBlank()) {
-                            result.error("invalid_path", "PDF path is required.", null)
-                            return@setMethodCallHandler
-                        }
-                        val file = File(path)
-                        if (!file.isFile || file.length() <= 0L) {
-                            result.error("missing_pdf", "PDF file is unavailable.", null)
-                            return@setMethodCallHandler
-                        }
-
-                        try {
-                            PdfCrashDiagnostics.markReaderLaunchAttempt(
-                                this,
-                                file.absolutePath,
-                            )
-                            val readerIntent =
-                                Intent(this, NativePdfReaderActivity::class.java).apply {
-                                    putExtra(
-                                        NativePdfReaderActivity.EXTRA_PATH,
-                                        file.absolutePath,
-                                    )
-                                    putExtra(
-                                        NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
-                                        initialPage.coerceAtLeast(1),
-                                    )
-                                }
-                            startActivity(readerIntent)
-                            result.success(true)
-                        } catch (error: Throwable) {
-                            PdfCrashDiagnostics.recordControlledLaunchFailure(
-                                this,
-                                error,
-                            )
-                            result.error(
-                                "native_reader_launch_failed",
-                                "${error.javaClass.simpleName}: ${error.message}",
-                                null,
-                            )
-                        }
+        inputCapabilitiesChannel =
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                INPUT_CAPABILITIES_CHANNEL,
+            ).also { methodChannel ->
+                methodChannel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "hasStylus" -> result.success(hasStylusInputDevice())
+                        else -> result.notImplemented()
                     }
-                    else -> result.notImplemented()
                 }
             }
-        }
+
+        nativePickerChannel =
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                NATIVE_PICKER_CHANNEL,
+            ).also { methodChannel ->
+                methodChannel.setMethodCallHandler { call, result ->
+                    val extensions =
+                        call.argument<List<*>>("extensions")
+                            ?.mapNotNull { it as? String }
+                            ?: emptyList()
+                    val mimeType = call.argument<String>("mimeType") ?: "*/*"
+
+                    when (call.method) {
+                        "pickPdf" ->
+                            launchNativeFilePicker(
+                                result = result,
+                                mimeType = "application/pdf",
+                                extensions = listOf("pdf"),
+                                multiple = false,
+                            )
+                        "pickFile" ->
+                            launchNativeFilePicker(
+                                result = result,
+                                mimeType = mimeType,
+                                extensions = extensions,
+                                multiple = false,
+                            )
+                        "pickFiles" ->
+                            launchNativeFilePicker(
+                                result = result,
+                                mimeType = mimeType,
+                                extensions = extensions,
+                                multiple = true,
+                            )
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+
+        nativeReaderChannel =
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                NATIVE_READER_CHANNEL,
+            ).also { methodChannel ->
+                methodChannel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "openDocument" -> {
+                            val path = call.argument<String>("path")
+                            val initialPage = call.argument<Int>("initialPage") ?: 1
+                            if (path.isNullOrBlank()) {
+                                result.error("invalid_path", "PDF path is required.", null)
+                                return@setMethodCallHandler
+                            }
+                            val file = File(path)
+                            if (!file.isFile || file.length() <= 0L) {
+                                result.error("missing_pdf", "PDF file is unavailable.", null)
+                                return@setMethodCallHandler
+                            }
+
+                            try {
+                                PdfCrashDiagnostics.markReaderLaunchAttempt(
+                                    this,
+                                    file.absolutePath,
+                                )
+                                val readerIntent =
+                                    Intent(this, NativePdfReaderActivity::class.java).apply {
+                                        putExtra(
+                                            NativePdfReaderActivity.EXTRA_PATH,
+                                            file.absolutePath,
+                                        )
+                                        putExtra(
+                                            NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
+                                            initialPage.coerceAtLeast(1),
+                                        )
+                                    }
+                                startActivity(readerIntent)
+                                result.success(true)
+                            } catch (error: Throwable) {
+                                PdfCrashDiagnostics.recordControlledLaunchFailure(
+                                    this,
+                                    error,
+                                )
+                                result.error(
+                                    "native_reader_launch_failed",
+                                    "${error.javaClass.simpleName}: ${error.message}",
+                                    null,
+                                )
+                            }
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+
         processIntent(intent)
     }
 
-    private fun launchNativePdfPicker(result: MethodChannel.Result) {
+    private fun launchNativeFilePicker(
+        result: MethodChannel.Result,
+        mimeType: String,
+        extensions: List<String>,
+        multiple: Boolean,
+    ) {
         if (pendingPickerResult != null) {
-            result.error("picker_busy", "A PDF selection is already in progress.", null)
+            result.error("picker_busy", "A file selection is already in progress.", null)
             return
         }
 
         pendingPickerResult = result
+        pendingPickerExtensions =
+            extensions
+                .map { it.trim().trimStart('.').lowercase() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        pendingPickerMultiple = multiple
+
         try {
-            PdfCrashDiagnostics.mark(this, "PICKER_OPEN")
+            PdfCrashDiagnostics.mark(
+                this,
+                "PICKER_OPEN",
+                "multiple=$multiple ext=${pendingPickerExtensions.joinToString(",")}",
+            )
+
             val pickerIntent =
                 Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/pdf"
+                    type = mimeType.ifBlank { "*/*" }
+                    if (multiple) {
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
                     addFlags(
                         Intent.FLAG_GRANT_READ_URI_PERMISSION or
                             Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
                     )
                 }
-            startActivityForResult(pickerIntent, PICK_PDF_REQUEST_CODE)
+
+            startActivityForResult(
+                pickerIntent,
+                if (multiple) PICK_FILES_REQUEST_CODE else PICK_FILE_REQUEST_CODE,
+            )
         } catch (error: Throwable) {
-            pendingPickerResult = null
+            clearPendingPicker()
             PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
             result.error(
                 "picker_launch_failed",
@@ -169,76 +230,114 @@ class MainActivity : FlutterActivity() {
 
     @Deprecated("Deprecated in Android framework; retained for FlutterActivity compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != PICK_PDF_REQUEST_CODE) {
+        val isNativePicker =
+            requestCode == PICK_FILE_REQUEST_CODE ||
+                requestCode == PICK_FILES_REQUEST_CODE
+        if (!isNativePicker) {
             super.onActivityResult(requestCode, resultCode, data)
             return
         }
 
-        val result = pendingPickerResult
-        if (result == null) return
+        val result = pendingPickerResult ?: return
+        val multiple = pendingPickerMultiple
+        val allowedExtensions = pendingPickerExtensions
 
         if (resultCode != RESULT_OK) {
-            pendingPickerResult = null
-            result.success(null)
+            clearPendingPicker()
+            if (multiple) {
+                result.success(emptyList<Map<String, String>>())
+            } else {
+                result.success(null)
+            }
             return
         }
 
-        val uri = data?.data
-        if (uri == null) {
-            pendingPickerResult = null
-            result.error("picker_missing_uri", "Android returned no PDF URI.", null)
+        val uris = mutableListOf<Uri>()
+        data?.data?.let { uris.add(it) }
+        data?.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) {
+                val uri = clip.getItemAt(index).uri
+                if (uri != null && !uris.contains(uri)) uris.add(uri)
+            }
+        }
+
+        if (uris.isEmpty()) {
+            clearPendingPicker()
+            result.error("picker_missing_uri", "Android returned no file URI.", null)
             return
         }
 
-        try {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        } catch (_: SecurityException) {
-            // Immediate streaming copy below does not depend on persistence.
+        uris.forEach { uri ->
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+                // The immediate streaming copy below does not depend on persistence.
+            }
         }
 
-        val displayName = queryDisplayName(uri)
         PdfCrashDiagnostics.mark(
             this,
             "PICKER_COPY_START",
-            "nameHash=${displayName.hashCode()}",
+            "count=${uris.size}",
         )
 
         Thread(
             {
                 try {
-                    val path = materializePdf(uri)
-                    if (path.isNullOrBlank()) {
+                    val files =
+                        uris.mapNotNull { uri ->
+                            val displayName = queryDisplayName(uri)
+                            val path =
+                                materializeFile(
+                                    uri = uri,
+                                    allowedExtensions = allowedExtensions,
+                                    fallbackName = displayName,
+                                )
+                            if (path == null) {
+                                null
+                            } else {
+                                mapOf(
+                                    "path" to path,
+                                    "name" to displayName,
+                                )
+                            }
+                        }
+
+                    if (files.size != uris.size) {
                         runOnUiThread {
-                            pendingPickerResult = null
+                            clearPendingPicker()
                             result.error(
                                 "picker_copy_failed",
-                                "Could not stream the selected PDF.",
+                                "Could not stream one or more selected files.",
                                 null,
                             )
                         }
                     } else {
+                        val totalBytes =
+                            files.sumOf { item ->
+                                File(item.getValue("path")).length()
+                            }
                         PdfCrashDiagnostics.mark(
                             this,
                             "PICKER_COPY_DONE",
-                            "size=${File(path).length()}",
+                            "count=${files.size} bytes=$totalBytes",
                         )
                         runOnUiThread {
-                            pendingPickerResult = null
-                            result.success(
-                                mapOf(
-                                    "path" to path,
-                                    "name" to displayName,
-                                ),
-                            )
+                            clearPendingPicker()
+                            if (multiple) {
+                                result.success(files)
+                            } else {
+                                result.success(files.firstOrNull())
+                            }
                         }
                     }
                 } catch (error: Throwable) {
                     PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
                     runOnUiThread {
-                        pendingPickerResult = null
+                        clearPendingPicker()
                         result.error(
                             "picker_copy_failed",
                             "${error.javaClass.simpleName}: ${error.message}",
@@ -249,6 +348,12 @@ class MainActivity : FlutterActivity() {
             },
             "LexPdfPickerCopy",
         ).start()
+    }
+
+    private fun clearPendingPicker() {
+        pendingPickerResult = null
+        pendingPickerExtensions = emptySet()
+        pendingPickerMultiple = false
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -298,11 +403,13 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun processIntent(sourceIntent: Intent?) {
-        val uri = when (sourceIntent?.action) {
-            Intent.ACTION_VIEW -> sourceIntent.data
-            Intent.ACTION_SEND -> sourceIntent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-            else -> null
-        } ?: return
+        val uri =
+            when (sourceIntent?.action) {
+                Intent.ACTION_VIEW -> sourceIntent.data
+                Intent.ACTION_SEND ->
+                    sourceIntent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+                else -> null
+            } ?: return
 
         Thread(
             {
@@ -319,29 +426,54 @@ class MainActivity : FlutterActivity() {
         ).start()
     }
 
-    private fun materializePdf(uri: Uri): String? {
+    private fun materializePdf(uri: Uri): String? =
+        materializeFile(
+            uri = uri,
+            allowedExtensions = setOf("pdf"),
+            fallbackName = "document.pdf",
+        )
+
+    private fun materializeFile(
+        uri: Uri,
+        allowedExtensions: Set<String>,
+        fallbackName: String,
+    ): String? {
         if (uri.scheme == "file") {
             val path = uri.path ?: return null
-            return path.takeIf { it.lowercase().endsWith(".pdf") }
+            return path.takeIf {
+                allowedExtensions.isEmpty() ||
+                    allowedExtensions.contains(
+                        File(it).extensionLowercase(),
+                    )
+            }
         }
         if (uri.scheme != "content") return null
 
-        val displayName = queryDisplayName(uri)
-        if (!displayName.lowercase().endsWith(".pdf")) return null
+        var displayName = queryDisplayName(uri)
+        if (displayName.isBlank()) displayName = fallbackName
 
-        val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val uriKey = uri.toString().hashCode().toUInt().toString(16)
-        val targetDir = File(filesDir, "native_open").apply {
-            mkdirs()
-            val staleBefore = System.currentTimeMillis() - 30L * 60L * 1000L
-            listFiles()
-                ?.filter {
-                    it.isFile &&
-                        it.name.endsWith(".part") &&
-                        it.lastModified() < staleBefore
-                }
-                ?.forEach { it.delete() }
+        val extension = File(displayName).extensionLowercase()
+        if (allowedExtensions.isNotEmpty() && !allowedExtensions.contains(extension)) {
+            return null
         }
+
+        val safeName =
+            displayName
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                .ifBlank { fallbackName }
+        val uriKey = uri.toString().hashCode().toUInt().toString(16)
+        val targetDir =
+            File(filesDir, "native_open").apply {
+                mkdirs()
+                val staleBefore = System.currentTimeMillis() - 30L * 60L * 1000L
+                listFiles()
+                    ?.filter {
+                        it.isFile &&
+                            it.name.endsWith(".part") &&
+                            it.lastModified() < staleBefore
+                    }
+                    ?.forEach { it.delete() }
+            }
         val target = File(targetDir, "${uriKey}_$safeName")
 
         if (target.isFile && target.length() > 0L) return target.absolutePath
@@ -350,8 +482,7 @@ class MainActivity : FlutterActivity() {
         return try {
             contentResolver.openInputStream(uri)?.use { input ->
                 temporary.outputStream().use { output ->
-                    // Fixed-size streaming buffer: memory stays O(1) even for
-                    // multi-gigabyte PDFs and never mirrors the whole file in RAM.
+                    // Bounded copy: memory remains O(1) regardless of source size.
                     input.copyTo(output, bufferSize = 64 * 1024)
                     output.flush()
                 }
@@ -377,12 +508,27 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun queryDisplayName(uri: Uri): String {
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) return cursor.getString(index) ?: "document.pdf"
+        contentResolver
+            .query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) {
+                        return cursor.getString(index) ?: "document.bin"
+                    }
+                }
             }
-        }
-        return uri.lastPathSegment?.substringAfterLast('/') ?: "document.pdf"
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "document.bin"
     }
+
+    private fun File.extensionLowercase(): String =
+        name
+            .substringAfterLast('.', "")
+            .lowercase()
 }
