@@ -15,7 +15,7 @@ import java.util.Locale
 
 object PdfCrashDiagnostics {
     private const val PREFIX = "LPDFDIAG4"
-    private const val BUILD_MARKER = "rc4-picker-stream-v2"
+    private const val BUILD_MARKER = "rc5-native-range-v1"
     private const val BREADCRUMB_FILE = "pdfreader_breadcrumb.txt"
     private const val READER_LAUNCH_FILE = "pdfreader_launch.txt"
     private const val MAIN_LAUNCH_FILE = "main_startup_attempt.txt"
