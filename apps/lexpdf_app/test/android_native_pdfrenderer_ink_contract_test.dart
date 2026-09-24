@@ -78,6 +78,38 @@ void main() {
     expect(activity, contains('require(version in 2..SIDECAR_VERSION)'));
   });
 
+  test('finger paging and ink alignment remain synchronized during scrolling', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('scheduleMetricsSync()'));
+    expect(activity, contains('settleMetrics()'));
+    expect(activity, contains("stage.addEventListener('scroll'"));
+    expect(activity, contains("stage.addEventListener('touchmove'"));
+    expect(activity, contains("stage.addEventListener('touchend'"));
+    expect(activity, contains('verticalGesture'));
+    expect(activity, contains('renderPage(pageNumber + 1)'));
+    expect(activity, contains('renderPage(pageNumber - 1)'));
+    expect(activity, contains('stage.scrollTop = 0'));
+    expect(activity, contains('dryInkView.invalidate()'));
+  });
+
+  test('ink tools select in one tap and customize on long press', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('button("Caneta")'));
+    expect(activity, contains('button("Marca")'));
+    expect(activity, contains('setOnLongClickListener'));
+    expect(activity, contains('showInkSettings(InkKind.PEN)'));
+    expect(activity, contains('showInkSettings(InkKind.HIGHLIGHTER)'));
+    expect(activity, contains('"✓ Caneta"'));
+    expect(activity, contains('"✓ Marca"'));
+    expect(activity, contains('segure para personalizar'));
+  });
+
   test('S Pen is routed to Ink while finger interaction stays in WebView', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
