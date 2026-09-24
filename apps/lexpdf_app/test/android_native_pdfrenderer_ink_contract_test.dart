@@ -93,6 +93,12 @@ void main() {
     expect(activity, contains('renderPage(pageNumber - 1)'));
     expect(activity, contains('stage.scrollTop = 0'));
     expect(activity, contains('dryInkView.invalidate()'));
+    expect(
+      activity,
+      contains(
+        'viewToPageMatrix(),\n                        pageToViewMatrix(),',
+      ),
+    );
   });
 
   test('ink tools select in one tap and customize on long press', () {
