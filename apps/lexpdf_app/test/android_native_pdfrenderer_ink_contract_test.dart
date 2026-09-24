@@ -174,6 +174,29 @@ void main() {
     expect(activity, contains('source: \'toc\''));
   });
 
+  test('stylus palettes, thickness and readable highlighter compositing are enforced', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('PREF_PEN_COLOR'));
+    expect(activity, contains('PREF_PEN_SIZE'));
+    expect(activity, contains('PREF_HIGHLIGHT_COLOR'));
+    expect(activity, contains('PREF_HIGHLIGHT_SIZE'));
+    expect(activity, contains('val minSize = if (kind == InkKind.PEN) 1 else 6'));
+    expect(activity, contains('val maxSize = if (kind == InkKind.PEN) 16 else 40'));
+    expect(activity, contains('Color.argb(72, 255, 224, 64)'));
+    expect(activity, contains('PorterDuff.Mode.MULTIPLY'));
+    expect(activity, contains('updateWetInkCompositing'));
+    expect(activity, contains('highlighterInkView'));
+    expect(activity, contains('penInkView'));
+    expect(activity, contains('values.filter { it.style.kind == kind }'));
+    expect(
+      activity,
+      contains('O marca-texto usa transparência baixa e composição MULTIPLY'),
+    );
+  });
+
   test('ink tools select in one tap and customize on long press', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
