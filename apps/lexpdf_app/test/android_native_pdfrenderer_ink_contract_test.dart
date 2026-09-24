@@ -55,7 +55,7 @@ void main() {
     expect(activity, contains('renderToken'));
   });
 
-  test('Android reader exposes direct navigation, outline and stylus customization', () {
+  test('Android reader exposes direct page navigation, outline and stylus customization', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
