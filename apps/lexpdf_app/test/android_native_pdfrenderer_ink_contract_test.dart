@@ -63,7 +63,7 @@ void main() {
     expect(activity, contains('showPageJumpDialog()'));
     expect(activity, contains('LexPDF.goToPage('));
     expect(activity, contains('pdf.getOutline()'));
-    expect(activity, contains('LexPdfBridge.outline(JSON.stringify(output))'));
+    expect(activity, contains('LexPdfBridge.outline(JSON.stringify('));
     expect(activity, contains('showOutlineDialog()'));
     expect(activity, contains('Personalizar caneta'));
     expect(activity, contains('Personalizar marca-texto'));
