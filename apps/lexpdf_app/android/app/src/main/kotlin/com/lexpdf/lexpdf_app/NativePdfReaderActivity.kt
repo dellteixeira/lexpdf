@@ -1929,8 +1929,22 @@ function hypot(a,b) {
             .show()
     }
 
+    private fun updateWetInkCompositing(kind: InkKind) {
+        if (!::wetInkView.isInitialized) return
+        if (kind == InkKind.HIGHLIGHTER) {
+            val layerPaint =
+                Paint().apply {
+                    xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+                }
+            wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint)
+        } else {
+            wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        }
+    }
+
     private fun selectInk(kind: InkKind) {
         currentKind = kind
+        updateWetInkCompositing(kind)
         val style = currentInkStyle()
 
         if (::penButton.isInitialized) {
@@ -2131,17 +2145,31 @@ function hypot(a,b) {
                             InkKind.entries.getOrElse(input.readInt()) { InkKind.PEN }
                         val style =
                             if (version >= 3) {
-                                InkStyle(
-                                    kind = kind,
-                                    colorArgb = input.readInt(),
-                                    size =
-                                        input
-                                            .readFloat()
-                                            .coerceIn(
-                                                if (kind == InkKind.PEN) 1f else 8f,
-                                                if (kind == InkKind.PEN) 12f else 32f,
-                                            ),
-                                )
+                                run {
+                                    val savedColor = input.readInt()
+                                    val normalizedColor =
+                                        if (kind == InkKind.HIGHLIGHTER) {
+                                            Color.argb(
+                                                72,
+                                                Color.red(savedColor),
+                                                Color.green(savedColor),
+                                                Color.blue(savedColor),
+                                            )
+                                        } else {
+                                            savedColor
+                                        }
+                                    InkStyle(
+                                        kind = kind,
+                                        colorArgb = normalizedColor,
+                                        size =
+                                            input
+                                                .readFloat()
+                                                .coerceIn(
+                                                    if (kind == InkKind.PEN) 1f else 6f,
+                                                    if (kind == InkKind.PEN) 16f else 40f,
+                                                ),
+                                    )
+                                }
                             } else {
                                 if (kind == InkKind.PEN) {
                                     InkStyle(
@@ -2152,7 +2180,7 @@ function hypot(a,b) {
                                 } else {
                                     InkStyle(
                                         InkKind.HIGHLIGHTER,
-                                        Color.argb(92, 255, 224, 64),
+                                        Color.argb(72, 255, 224, 64),
                                         18f,
                                     )
                                 }
