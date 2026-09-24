@@ -885,33 +885,54 @@ function textLinesFromContent(content) {
     .filter(row => row.text.length > 0);
 }
 
-async function inferPrintedPageOffset(startPage) {
-  const votes = new Map();
-  const last = Math.min(pdf.numPages, startPage + 35);
+async function detectPrintedPageLabel(physical) {
+  try {
+    const page = await pdf.getPage(physical);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const content = await page.getTextContent();
+    const rows = textLinesFromContent(content);
 
-  for (let physical = Math.max(1, startPage); physical <= last; physical++) {
-    try {
-      const page = await pdf.getPage(physical);
-      const viewport = page.getViewport({ scale: 1.0 });
-      const content = await page.getTextContent();
-      const edgeItems = (content.items || []).filter(item => {
-        if (!Array.isArray(item.transform)) return false;
-        const text = String(item.str || '').trim();
-        if (!/^\d{1,4}$/.test(text)) return false;
-        const y = Number(item.transform[5] || 0);
-        return y <= viewport.height * 0.16 || y >= viewport.height * 0.84;
-      });
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const row of rows) {
+      const nearEdge =
+        row.y <= viewport.height * 0.18 ||
+        row.y >= viewport.height * 0.82;
+      if (!nearEdge) continue;
 
-      for (const item of edgeItems) {
-        const printed = Number.parseInt(String(item.str).trim(), 10);
-        if (!Number.isInteger(printed) || printed <= 0) continue;
-        const offset = physical - printed;
-        if (Math.abs(offset) > 120) continue;
-        votes.set(offset, (votes.get(offset) || 0) + 1);
+      const label = parsePrintedPageLabel(row.text);
+      if (!label) continue;
+
+      const numeric = Number.parseInt(label, 10);
+      if (
+        Number.isInteger(numeric) &&
+        (numeric < 1 || numeric > Math.max(pdf.numPages, 2000))
+      ) {
+        continue;
       }
-    } catch (_) {}
-  }
 
+      const edgeDistance = Math.min(
+        Math.abs(row.y),
+        Math.abs(viewport.height - row.y)
+      );
+      let score = edgeDistance;
+      if (Number.isInteger(numeric)) {
+        const offset = physical - numeric;
+        if (Math.abs(offset) <= 250) score -= 40;
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = label;
+      }
+    }
+    return best;
+  } catch (_) {
+    return null;
+  }
+}
+
+function bestOffsetFromVotes(votes) {
   let bestOffset = null;
   let bestVotes = 0;
   for (const [offset, count] of votes.entries()) {
@@ -920,7 +941,109 @@ async function inferPrintedPageOffset(startPage) {
       bestOffset = offset;
     }
   }
-  return bestVotes >= 2 ? bestOffset : null;
+  return { offset: bestOffset, votes: bestVotes };
+}
+
+async function buildPrintedPaginationModel(startPage) {
+  if (pdfPageLabels) {
+    printedPaginationReady = true;
+    return;
+  }
+
+  printedToPhysical.clear();
+  physicalToPrinted.clear();
+  inferredPrintedOffset = null;
+
+  const votes = new Map();
+  const first = Math.max(1, startPage);
+  const last = Math.min(pdf.numPages, first + 420);
+  let numberedPages = 0;
+
+  for (let physical = first; physical <= last; physical++) {
+    const label = await detectPrintedPageLabel(physical);
+    if (!label) continue;
+
+    const normalized = normalizedLabel(label);
+    if (!normalized) continue;
+
+    if (!printedToPhysical.has(normalized)) {
+      printedToPhysical.set(normalized, physical);
+    }
+    physicalToPrinted.set(physical, label);
+    numberedPages++;
+
+    const numeric = Number.parseInt(normalized, 10);
+    if (Number.isInteger(numeric)) {
+      const offset = physical - numeric;
+      if (Math.abs(offset) <= 250) {
+        votes.set(offset, (votes.get(offset) || 0) + 1);
+      }
+    }
+
+    const best = bestOffsetFromVotes(votes);
+    if (best.votes >= 6 && numberedPages >= 8) {
+      inferredPrintedOffset = best.offset;
+      break;
+    }
+  }
+
+  if (!Number.isInteger(inferredPrintedOffset)) {
+    const best = bestOffsetFromVotes(votes);
+    if (best.votes >= 3) {
+      inferredPrintedOffset = best.offset;
+    }
+  }
+
+  printedPaginationReady =
+    printedToPhysical.size > 0 ||
+    Number.isInteger(inferredPrintedOffset);
+
+  publishDerivedPageLabels();
+}
+
+async function inferOffsetFromTocTitles(candidates, contentStartPage) {
+  if (pdfPageLabels || Number.isInteger(inferredPrintedOffset)) return;
+
+  const votes = new Map();
+  const anchors = candidates
+    .filter(candidate => /^\d{1,4}$/.test(candidate.printedLabel))
+    .filter(candidate => titleSearchKey(candidate.title).length >= 5)
+    .slice(0, 4);
+
+  for (const candidate of anchors) {
+    const printed = Number.parseInt(candidate.printedLabel, 10);
+    if (!Number.isInteger(printed)) continue;
+
+    const key = titleSearchKey(candidate.title);
+    const first = Math.max(contentStartPage, printed);
+    const last = Math.min(pdf.numPages, printed + 180);
+
+    for (let physical = first; physical <= last; physical++) {
+      try {
+        const page = await pdf.getPage(physical);
+        const content = await page.getTextContent();
+        const pageText = normalizeSearchText(
+          (content.items || [])
+            .map(item => String(item.str || ''))
+            .join(' ')
+        );
+        if (!pageText.includes(key)) continue;
+
+        const offset = physical - printed;
+        votes.set(offset, (votes.get(offset) || 0) + 1);
+        printedToPhysical.set(normalizedLabel(candidate.printedLabel), physical);
+        physicalToPrinted.set(physical, candidate.printedLabel);
+        break;
+      } catch (_) {}
+    }
+  }
+
+  const best = bestOffsetFromVotes(votes);
+  if (best.votes >= 1 && Number.isInteger(best.offset)) {
+    inferredPrintedOffset = best.offset;
+    printedPaginationReady = true;
+    publishDerivedPageLabels();
+  }
 }
 
 async function buildVisualIndex() {
