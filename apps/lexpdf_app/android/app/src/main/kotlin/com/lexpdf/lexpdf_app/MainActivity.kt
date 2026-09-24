@@ -1,5 +1,8 @@
 package com.lexpdf.lexpdf_app
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -21,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private var nativeReaderChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
+    private var diagnosticShown = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -89,6 +93,30 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (diagnosticShown) return
+        diagnosticShown = true
+        window.decorView.postDelayed(
+            {
+                val report = PdfCrashDiagnostics.recentExitReport(this)
+                if (report.isNullOrBlank() || isFinishing) return@postDelayed
+                AlertDialog.Builder(this)
+                    .setTitle("Diagnóstico do travamento do PDF")
+                    .setMessage(report)
+                    .setPositiveButton("Copiar") { _, _ ->
+                        val clipboard = getSystemService(ClipboardManager::class.java)
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText("LexPDF diagnóstico", report),
+                        )
+                    }
+                    .setNegativeButton("Fechar", null)
+                    .show()
+            },
+            800L,
+        )
     }
 
     private fun hasStylusInputDevice(): Boolean {
