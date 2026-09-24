@@ -4,8 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
-import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -14,32 +15,79 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Native launcher that runs before Flutter.
+ * Native launcher/circuit breaker that lives in the dedicated :crashguard
+ * process. The Flutter process may die without taking this Activity down.
  *
- * Its only job is to guarantee that a previous abnormal LexPDF exit is visible
- * to the user even when Flutter itself crashed before MainActivity could draw.
+ * The guard never blindly relaunches Flutter after a crash. It records every
+ * launch attempt, stays behind MainActivity, and surfaces the exit reason when
+ * MainActivity disappears abnormally.
  */
 class CrashGateActivity : AppCompatActivity() {
+    private val handler = Handler(Looper.getMainLooper())
+    private var launchedMain = false
+    private var mainWasForeground = false
+    private var recoveryCheckScheduled = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val report = PdfCrashDiagnostics.recentExitReport(this)
         if (report.isNullOrBlank()) {
-            continueToLexPdf()
-            return
+            launchLexPdf()
+        } else {
+            showDiagnostic(report)
         }
+    }
 
-        showDiagnostic(report)
+    override fun onPause() {
+        if (launchedMain) {
+            mainWasForeground = true
+        }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!launchedMain || !mainWasForeground || recoveryCheckScheduled) return
+
+        recoveryCheckScheduled = true
+        handler.postDelayed(
+            {
+                recoveryCheckScheduled = false
+                if (isFinishing || isDestroyed || !launchedMain) return@postDelayed
+
+                val report = PdfCrashDiagnostics.recentExitReport(this)
+                if (!report.isNullOrBlank()) {
+                    launchedMain = false
+                    mainWasForeground = false
+                    showDiagnostic(report)
+                    return@postDelayed
+                }
+
+                // MainActivity returned normally (for example, Back). Do not
+                // relaunch it automatically and accidentally create a loop.
+                finish()
+            },
+            1200L,
+        )
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     private fun showDiagnostic(report: String) {
+        launchedMain = false
+        mainWasForeground = false
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24.dp, 24.dp, 24.dp, 24.dp)
         }
 
         val title = TextView(this).apply {
-            text = "Diagnóstico de falha do LexPDF"
+            text = "LexPDF interrompeu uma falha contínua"
             textSize = 22f
             setPadding(0, 0, 0, 14.dp)
         }
@@ -47,9 +95,9 @@ class CrashGateActivity : AppCompatActivity() {
 
         val explanation = TextView(this).apply {
             text =
-                "O LexPDF detectou que um processo foi encerrado de forma anormal. " +
-                    "Este relatório é exibido antes do Flutter para não desaparecer " +
-                    "mesmo quando a falha ocorre durante a inicialização."
+                "O processo que falhou foi isolado e não será reiniciado automaticamente. " +
+                    "Abaixo está o diagnóstico persistente desta execução. Assim o LexPDF " +
+                    "não entra novamente no ciclo abrir → cair → abrir."
             textSize = 14f
             setPadding(0, 0, 0, 14.dp)
         }
@@ -96,39 +144,62 @@ class CrashGateActivity : AppCompatActivity() {
         }
         buttons.addView(copyButton)
 
-        val continueButton = Button(this).apply {
-            text = "Continuar para o LexPDF"
-            setOnClickListener {
-                continueToLexPdf()
-            }
+        val closeButton = Button(this).apply {
+            text = "Fechar"
+            setOnClickListener { finish() }
         }
-        buttons.addView(continueButton)
+        buttons.addView(closeButton)
+
+        val retryButton = Button(this).apply {
+            text = "Tentar uma vez"
+            setOnClickListener { launchLexPdf() }
+        }
+        buttons.addView(retryButton)
 
         root.addView(buttons)
         setContentView(root)
     }
 
-    private fun continueToLexPdf() {
-        val target =
-            Intent(this, MainActivity::class.java).apply {
-                action = intent.action
-                data = intent.data
-                type = intent.type
-                clipData = intent.clipData
+    private fun launchLexPdf() {
+        if (launchedMain) return
 
-                intent.extras?.let { putExtras(it) }
-                intent.categories?.forEach { addCategory(it) }
+        try {
+            PdfCrashDiagnostics.markAppLaunchAttempt(this)
 
-                // Do not propagate task-creation flags from the external
-                // launcher/share intent into the internal MainActivity hop.
-                flags = intent.flags and
-                    (Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK).inv()
-            }
+            val target =
+                Intent(this, MainActivity::class.java).apply {
+                    action = intent.action
+                    data = intent.data
+                    type = intent.type
+                    clipData = intent.clipData
 
-        startActivity(target)
-        finish()
+                    intent.extras?.let { putExtras(it) }
+                    intent.categories?.forEach { addCategory(it) }
+
+                    // Do not propagate task-creation flags from the external
+                    // launcher/share intent into the internal MainActivity hop.
+                    flags = intent.flags and
+                        (Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                            Intent.FLAG_ACTIVITY_MULTIPLE_TASK).inv()
+                }
+
+            launchedMain = true
+            mainWasForeground = false
+            startActivity(target)
+        } catch (error: Throwable) {
+            launchedMain = false
+            mainWasForeground = false
+            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+            showDiagnostic(
+                buildString {
+                    appendLine("LexPDF diagnóstico de inicialização")
+                    appendLine("processo: ${packageName}:crashguard")
+                    appendLine("motivo: falha controlada ao iniciar MainActivity")
+                    appendLine("${error.javaClass.name}: ${error.message ?: "(sem mensagem)"}")
+                }.trim(),
+            )
+        }
     }
 
     private val Int.dp: Int
