@@ -87,6 +87,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private enum class InkKind { PEN, HIGHLIGHTER }
 
+    private enum class InkTool { PEN, HIGHLIGHTER, ERASER }
+
+    private sealed interface InkHistoryAction {
+        data class Added(val entry: InkEntry) : InkHistoryAction
+        data class Removed(val index: Int, val entry: InkEntry) : InkHistoryAction
+    }
+
     private data class InkStyle(
         val kind: InkKind,
         val colorArgb: Int,
@@ -126,6 +133,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var statusLabel: TextView
     private lateinit var penButton: Button
     private lateinit var highlighterButton: Button
+    private lateinit var eraserButton: Button
     private lateinit var readerFrame: StylusRouterLayout
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -134,12 +142,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var pageMetrics: PageMetrics? = null
 
     private var currentKind = InkKind.PEN
+    private var currentTool = InkTool.PEN
     private var penColor = Color.rgb(20, 24, 30)
     private var penSize = 3.0f
     private var highlighterColor = Color.argb(72, 255, 224, 64)
     private var highlighterSize = 18f
     private val currentEntries = mutableListOf<InkEntry>()
-    private val redoEntries = ArrayDeque<InkEntry>()
+    private val undoHistory = ArrayDeque<InkHistoryAction>()
+    private val redoHistory = ArrayDeque<InkHistoryAction>()
+    private var eraserGestureActive = false
+    private val erasedThisGesture = mutableSetOf<InkEntry>()
     private val strokeStyles = mutableMapOf<InProgressStrokeId, InkStyle>()
     private val outlineEntries = mutableListOf<OutlineEntry>()
     private val pageLabels = mutableListOf<String>()
@@ -286,8 +298,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     true
                 }
             }
+        eraserButton =
+            button("Borracha") {
+                selectEraser()
+            }.apply {
+                contentDescription = "Apagar traços da caneta e do marca-texto"
+            }
+
         inkRow.addView(penButton)
         inkRow.addView(highlighterButton)
+        inkRow.addView(eraserButton)
         inkRow.addView(button("Desfazer") { undoInk() })
         inkRow.addView(button("Refazer") { redoInk() })
 
@@ -1944,6 +1964,8 @@ function hypot(a,b) {
 
     private fun selectInk(kind: InkKind) {
         currentKind = kind
+        currentTool =
+            if (kind == InkKind.PEN) InkTool.PEN else InkTool.HIGHLIGHTER
         updateWetInkCompositing(kind)
         val style = currentInkStyle()
 
@@ -1958,6 +1980,11 @@ function hypot(a,b) {
                 if (kind == InkKind.HIGHLIGHTER) 1.0f else 0.72f
         }
 
+        if (::eraserButton.isInitialized) {
+            eraserButton.text = "Borracha"
+            eraserButton.alpha = 0.72f
+        }
+
         statusLabel.text =
             when (kind) {
                 InkKind.PEN ->
@@ -1965,6 +1992,127 @@ function hypot(a,b) {
                 InkKind.HIGHLIGHTER ->
                     "S Pen: marca-texto • ${style.size.roundToInt()} • segure para personalizar"
             }
+    }
+
+    private fun selectEraser() {
+        currentTool = InkTool.ERASER
+        wetInkView.cancelUnfinishedStrokes()
+        strokeStyles.clear()
+        updateWetInkCompositing(InkKind.PEN)
+
+        if (::penButton.isInitialized) {
+            penButton.text = "Caneta"
+            penButton.alpha = 0.72f
+        }
+        if (::highlighterButton.isInitialized) {
+            highlighterButton.text = "Marca"
+            highlighterButton.alpha = 0.72f
+        }
+        if (::eraserButton.isInitialized) {
+            eraserButton.text = "✓ Borracha"
+            eraserButton.alpha = 1.0f
+        }
+        statusLabel.text =
+            "S Pen: borracha de traço • apaga caneta e marca-texto"
+    }
+
+    private fun eventPointInPage(event: MotionEvent): FloatArray {
+        val point = floatArrayOf(event.x, event.y)
+        viewToPageMatrix().mapPoints(point)
+        return point
+    }
+
+    private fun eraserRadiusInPage(): Float {
+        val metrics = pageMetrics ?: return 14f
+        val sx = metrics.canvasWidth / metrics.pageWidth.coerceAtLeast(1f)
+        val sy = metrics.canvasHeight / metrics.pageHeight.coerceAtLeast(1f)
+        val scale = ((sx + sy) / 2f).coerceAtLeast(0.1f)
+        return 18f.dp / scale
+    }
+
+    private fun squaredDistanceToSegment(
+        px: Float,
+        py: Float,
+        ax: Float,
+        ay: Float,
+        bx: Float,
+        by: Float,
+    ): Float {
+        val abx = bx - ax
+        val aby = by - ay
+        val ab2 = abx * abx + aby * aby
+        if (ab2 <= 0.0001f) {
+            val dx = px - ax
+            val dy = py - ay
+            return dx * dx + dy * dy
+        }
+        val apx = px - ax
+        val apy = py - ay
+        val t = ((apx * abx + apy * aby) / ab2).coerceIn(0f, 1f)
+        val cx = ax + t * abx
+        val cy = ay + t * aby
+        val dx = px - cx
+        val dy = py - cy
+        return dx * dx + dy * dy
+    }
+
+    private fun strokeIntersectsEraser(
+        entry: InkEntry,
+        pageX: Float,
+        pageY: Float,
+        radius: Float,
+    ): Boolean {
+        val inputs = entry.stroke.inputs
+        if (inputs.size <= 0) return false
+
+        val effectiveRadius = radius + entry.style.size * 0.55f
+        val radiusSquared = effectiveRadius * effectiveRadius
+
+        var previous = inputs[0]
+        run {
+            val dx = pageX - previous.x
+            val dy = pageY - previous.y
+            if (dx * dx + dy * dy <= radiusSquared) return true
+        }
+
+        for (index in 1 until inputs.size) {
+            val point = inputs[index]
+            if (
+                squaredDistanceToSegment(
+                    pageX,
+                    pageY,
+                    previous.x,
+                    previous.y,
+                    point.x,
+                    point.y,
+                ) <= radiusSquared
+            ) {
+                return true
+            }
+            previous = point
+        }
+        return false
+    }
+
+    private fun eraseAt(event: MotionEvent): Boolean {
+        if (currentEntries.isEmpty()) return false
+        val point = eventPointInPage(event)
+        val radius = eraserRadiusInPage()
+
+        for (index in currentEntries.indices.reversed()) {
+            val entry = currentEntries[index]
+            if (entry in erasedThisGesture) continue
+            if (!strokeIntersectsEraser(entry, point[0], point[1], radius)) continue
+
+            currentEntries.removeAt(index)
+            erasedThisGesture += entry
+            undoHistory.addLast(InkHistoryAction.Removed(index, entry))
+            redoHistory.clear()
+            refreshInkLayers()
+            persistInkForPage(currentPageIndex)
+            return true
+        }
+        return false
     }
 
     private fun currentInkStyle(): InkStyle =
@@ -2000,7 +2148,39 @@ function hypot(a,b) {
     private fun handleStylusEvent(event: MotionEvent): Boolean {
         val metrics = pageMetrics ?: return false
         if (metrics.pageIndex != currentPageIndex) return false
-        val pointerId = event.getPointerId(event.actionIndex.coerceAtLeast(0))
+
+        val actionIndex = event.actionIndex.coerceAtLeast(0)
+        val pointerId = event.getPointerId(actionIndex)
+        val toolType = event.getToolType(actionIndex)
+        val hardwareEraser = toolType == MotionEvent.TOOL_TYPE_ERASER
+        val eraseMode = hardwareEraser || currentTool == InkTool.ERASER
+
+        if (eraseMode) {
+            return when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    readerFrame.requestUnbufferedDispatch(event)
+                    eraserGestureActive = true
+                    erasedThisGesture.clear()
+                    eraseAt(event)
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    eraseAt(event)
+                    true
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_POINTER_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    eraserGestureActive = false
+                    erasedThisGesture.clear()
+                    true
+                }
+
+                else -> true
+            }
+        }
 
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -2044,25 +2224,43 @@ function hypot(a,b) {
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
         strokes.forEach { (id, stroke) ->
             val style = strokeStyles.remove(id) ?: currentInkStyle()
-            currentEntries += InkEntry(style, stroke)
+            val entry = InkEntry(style, stroke)
+            currentEntries += entry
+            undoHistory.addLast(InkHistoryAction.Added(entry))
         }
-        redoEntries.clear()
+        redoHistory.clear()
         refreshInkLayers()
         wetInkView.removeFinishedStrokes(strokes.keys)
         persistInkForPage(currentPageIndex)
     }
 
     private fun undoInk() {
-        val entry = currentEntries.removeLastOrNull() ?: return
-        redoEntries.addLast(entry)
+        val action = undoHistory.removeLastOrNull() ?: return
+        when (action) {
+            is InkHistoryAction.Added -> {
+                currentEntries.remove(action.entry)
+            }
+            is InkHistoryAction.Removed -> {
+                val targetIndex = action.index.coerceIn(0, currentEntries.size)
+                currentEntries.add(targetIndex, action.entry)
+            }
+        }
+        redoHistory.addLast(action)
         refreshInkLayers()
         persistInkForPage(currentPageIndex)
     }
 
     private fun redoInk() {
-        if (redoEntries.isEmpty()) return
-        val entry = redoEntries.removeLast()
-        currentEntries += entry
+        val action = redoHistory.removeLastOrNull() ?: return
+        when (action) {
+            is InkHistoryAction.Added -> {
+                currentEntries += action.entry
+            }
+            is InkHistoryAction.Removed -> {
+                currentEntries.remove(action.entry)
+            }
+        }
+        undoHistory.addLast(action)
         refreshInkLayers()
         persistInkForPage(currentPageIndex)
     }
@@ -2127,7 +2325,10 @@ function hypot(a,b) {
 
     private fun loadInkForPage(pageIndex: Int) {
         currentEntries.clear()
-        dryInkView.setEntries(emptyList())
+        undoHistory.clear()
+        redoHistory.clear()
+        erasedThisGesture.clear()
+        refreshInkLayers()
         pageMetrics = null
 
         val source = sidecarFile(pageIndex)
