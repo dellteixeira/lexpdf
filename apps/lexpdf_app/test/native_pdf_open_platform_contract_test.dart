@@ -100,9 +100,9 @@ void main() {
     ).readAsStringSync();
     final pubspec = File('pubspec.yaml').readAsStringSync();
 
-    expect(diagnostics, contains('BUILD_MARKER = "rc5-native-range-v1"'));
+    expect(diagnostics, contains('BUILD_MARKER = "rc6-fast-range-v1"'));
     expect(diagnostics, contains(r'appendLine("build: $BUILD_MARKER")'));
-    expect(pubspec, contains('version: 1.0.0-rc.5+5'));
+    expect(pubspec, contains('version: 1.0.0-rc.6+6'));
   });
 
   test('Windows forwards command line arguments into Dart startup', () {
