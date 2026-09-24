@@ -45,6 +45,19 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+        <!--
+          LexPDF native Android reader: platform PdfRenderer + AndroidX Ink.
+          It lives in a separate process so the PDF bitmap/cache heap is
+          isolated from Flutter/Skia and can be reclaimed independently.
+        -->
+        <activity
+            android:name=".NativePdfReaderActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:process=":pdfreader"
+            android:theme="@style/NativePdfReaderTheme"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
             android:exported="true"
