@@ -55,6 +55,29 @@ void main() {
     expect(activity, contains('renderToken'));
   });
 
+  test('Android reader exposes direct navigation, outline and stylus customization', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('showPageJumpDialog()'));
+    expect(activity, contains('LexPDF.goToPage('));
+    expect(activity, contains('pdf.getOutline()'));
+    expect(activity, contains('LexPdfBridge.outline(JSON.stringify(output))'));
+    expect(activity, contains('showOutlineDialog()'));
+    expect(activity, contains('Personalizar caneta'));
+    expect(activity, contains('Personalizar marca-texto'));
+    expect(activity, contains('SeekBar(this)'));
+    expect(activity, contains('PREF_PEN_COLOR'));
+    expect(activity, contains('PREF_PEN_SIZE'));
+    expect(activity, contains('PREF_HIGHLIGHT_COLOR'));
+    expect(activity, contains('PREF_HIGHLIGHT_SIZE'));
+    expect(activity, contains('SIDECAR_VERSION = 3'));
+    expect(activity, contains('output.writeInt(entry.style.colorArgb)'));
+    expect(activity, contains('output.writeFloat(entry.style.size)'));
+    expect(activity, contains('require(version in 2..SIDECAR_VERSION)'));
+  });
+
   test('S Pen is routed to Ink while finger interaction stays in WebView', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
