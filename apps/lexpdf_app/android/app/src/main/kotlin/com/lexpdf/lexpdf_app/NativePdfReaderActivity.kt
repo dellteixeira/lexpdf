@@ -49,11 +49,11 @@ import kotlin.math.roundToInt
 /**
  * LexPDF Android reader based on Mozilla PDF.js inside the system WebView.
  *
- * The PDF itself is never copied into JavaScript memory by Android code.
- * shouldInterceptRequest streams the local file and honors HTTP byte ranges,
- * allowing PDF.js to request document chunks on demand. AndroidX Ink remains
- * native and independent from the renderer so S Pen input does not depend on
- * any PDF SDK.
+ * The PDF is read on demand through PDF.js PDFDataRangeTransport. Native
+ * reads stay bounded and reuse one RandomAccessFile for the reader session,
+ * avoiding full-document copies and repeated file-open overhead. AndroidX Ink
+ * remains native and independent from the renderer so S Pen input does not
+ * depend on any PDF SDK.
  */
 class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedListener {
     companion object {
@@ -63,7 +63,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val LOCAL_ORIGIN = "https://lexpdf.local"
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
         private const val PDFJS_VERSION = "6.3.289"
-        private const val RANGE_CHUNK_SIZE = 64 * 1024
+        private const val RANGE_CHUNK_SIZE = 512 * 1024
         private const val SIDECAR_VERSION = 2
         @Volatile
         private var webViewDirectoryConfigured = false
@@ -87,6 +87,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     )
 
     private lateinit var sourceFile: File
+    private var rangeReader: RandomAccessFile? = null
     private lateinit var webView: WebView
     private lateinit var dryInkView: DryInkView
     private lateinit var wetInkView: InProgressStrokesView
@@ -144,6 +145,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             finish()
             return
         }
+
+        rangeReader = RandomAccessFile(sourceFile, "r")
 
         currentPageIndex =
             (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1).coerceAtLeast(0)
@@ -374,10 +377,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ioExecutor.execute {
                 try {
                     val bytes = ByteArray(requestedLength.toInt())
-                    RandomAccessFile(sourceFile, "r").use { file ->
-                        file.seek(begin)
-                        file.readFully(bytes)
-                    }
+                    val file =
+                        rangeReader
+                            ?: throw IllegalStateException("PDF range reader is closed")
+                    file.seek(begin)
+                    file.readFully(bytes)
                     val encoded =
                         Base64.encodeToString(bytes, Base64.NO_WRAP)
                     PdfCrashDiagnostics.mark(
@@ -537,8 +541,14 @@ class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
 
   requestDataRange(begin, end) {
     if (rangeFailed) return;
-    const requestedEnd = Math.min(end, begin + RANGE_CHUNK_SIZE);
-    LexPdfBridge.requestRange(String(begin), String(requestedEnd));
+
+    // PDF.js may request a span larger than rangeChunkSize. Never truncate the
+    // request silently: split the entire requested span into bounded native
+    // chunks so the original range can be satisfied completely.
+    for (let cursor = begin; cursor < end; cursor += RANGE_CHUNK_SIZE) {
+      const chunkEnd = Math.min(end, cursor + RANGE_CHUNK_SIZE);
+      LexPdfBridge.requestRange(String(cursor), String(chunkEnd));
+    }
   }
 
   abort() {
@@ -911,6 +921,11 @@ function hypot(a,b) {
         }
         try {
             wetInkView.clearFinishedStrokesListeners()
+        } catch (_: Throwable) {
+        }
+        try {
+            rangeReader?.close()
+            rangeReader = null
         } catch (_: Throwable) {
         }
         try {
