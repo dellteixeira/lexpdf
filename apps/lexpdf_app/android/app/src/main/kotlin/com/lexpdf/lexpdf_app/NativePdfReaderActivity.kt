@@ -959,10 +959,22 @@ function hypot(a,b) {
         webView.evaluateJavascript(script, null)
     }
 
+    private fun logicalPageLabel(pageIndex: Int): String? =
+        pageLabels
+            .getOrNull(pageIndex)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
     private fun updatePageLabel() {
+        val physical = currentPageIndex + 1
+        val logical = logicalPageLabel(currentPageIndex)
         pageLabel.text =
-            if (pageCount > 0) "${currentPageIndex + 1} / $pageCount"
-            else "${currentPageIndex + 1} / …"
+            when {
+                pageCount <= 0 -> "$physical / …"
+                logical != null && logical != physical.toString() ->
+                    "$logical · $physical / $pageCount"
+                else -> "$physical / $pageCount"
+            }
     }
 
     private fun showPageJumpDialog() {
@@ -971,29 +983,49 @@ function hypot(a,b) {
             return
         }
 
+        val currentLogical = logicalPageLabel(currentPageIndex)
         val input =
             EditText(this).apply {
-                inputType = InputType.TYPE_CLASS_NUMBER
-                setText((currentPageIndex + 1).toString())
+                inputType = InputType.TYPE_CLASS_TEXT
+                setText(currentLogical ?: (currentPageIndex + 1).toString())
                 selectAll()
                 setPadding(24.dp, 12.dp, 24.dp, 12.dp)
             }
 
         AlertDialog.Builder(this)
             .setTitle("Ir para página")
-            .setMessage("Digite uma página entre 1 e $pageCount.")
+            .setMessage(
+                if (pageLabels.isNotEmpty()) {
+                    "Digite a numeração impressa do PDF (ex.: 200, xii) " +
+                        "ou o número físico da página."
+                } else {
+                    "Digite uma página entre 1 e $pageCount."
+                },
+            )
             .setView(input)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Ir") { _, _ ->
-                val requested = input.text?.toString()?.trim()?.toIntOrNull()
-                if (requested == null || requested !in 1..pageCount) {
+                val requested = input.text?.toString()?.trim().orEmpty()
+                val labelIndex =
+                    pageLabels.indexOfFirst {
+                        it.equals(requested, ignoreCase = true)
+                    }
+                val numeric = requested.toIntOrNull()
+                val target =
+                    when {
+                        labelIndex >= 0 -> labelIndex + 1
+                        numeric != null && numeric in 1..pageCount -> numeric
+                        else -> null
+                    }
+
+                if (target == null) {
                     Toast.makeText(
                         this,
-                        "Página inválida. Use um número entre 1 e $pageCount.",
+                        "Página inválida para este PDF.",
                         Toast.LENGTH_LONG,
                     ).show()
                 } else {
-                    js("LexPDF.goToPage($requested)")
+                    js("LexPDF.goToPage($target)")
                 }
             }
             .show()
@@ -1025,13 +1057,24 @@ function hypot(a,b) {
             outlineEntries
                 .map { entry ->
                     val indent = "    ".repeat(entry.depth.coerceAtMost(6))
-                    val suffix = entry.page?.let { "  ·  p. $it" } ?: ""
+                    val displayPage =
+                        entry.pageLabel
+                            ?: entry.page?.let { logicalPageLabel(it - 1) }
+                            ?: entry.page?.toString()
+                    val suffix = displayPage?.let { "  ·  p. $it" } ?: ""
                     "$indent${entry.title}$suffix"
                 }
                 .toTypedArray()
 
+        val title =
+            when (outlineSource) {
+                "toc" -> "Índice do PDF (sumário)"
+                "outline" -> "Índice do PDF"
+                else -> "Índice do PDF"
+            }
+
         AlertDialog.Builder(this)
-            .setTitle("Índice do PDF")
+            .setTitle(title)
             .setItems(labels) { _, which ->
                 val entry = outlineEntries.getOrNull(which) ?: return@setItems
                 val page = entry.page
