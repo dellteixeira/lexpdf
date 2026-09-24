@@ -66,6 +66,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val PDF_URL = "$LOCAL_ORIGIN/document.pdf"
         private const val PDFJS_VERSION = "6.3.289"
         private const val SIDECAR_VERSION = 2
+        @Volatile
+        private var webViewDirectoryConfigured = false
     }
 
     private enum class InkKind { PEN, HIGHLIGHTER }
@@ -127,9 +129,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         // This activity runs in :pdfreader. Android 9+ requires every
         // additional process that uses WebView to have its own data directory.
         // This MUST execute before WebView is initialized in this process.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            WebView.setDataDirectorySuffix("pdfreader")
-        }
+        configureWebViewProcessStorage()
 
         super.onCreate(savedInstanceState)
         PdfCrashDiagnostics.mark(this, "JS01_ACTIVITY_CREATED")
@@ -160,6 +160,19 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         loadInkForPage(currentPageIndex)
         PdfCrashDiagnostics.mark(this, "JS03_BEFORE_LOAD_VIEWER")
         webView.loadUrl(VIEWER_URL)
+    }
+
+    private fun configureWebViewProcessStorage() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || webViewDirectoryConfigured) {
+            return
+        }
+
+        synchronized(NativePdfReaderActivity::class.java) {
+            if (!webViewDirectoryConfigured) {
+                WebView.setDataDirectorySuffix("pdfreader")
+                webViewDirectoryConfigured = true
+            }
+        }
     }
 
     private fun buildUi() {
