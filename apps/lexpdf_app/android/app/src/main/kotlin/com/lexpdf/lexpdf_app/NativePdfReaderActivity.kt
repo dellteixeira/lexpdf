@@ -482,6 +482,25 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         @JavascriptInterface
+        fun pageLabels(json: String) {
+            val parsed = mutableListOf<String>()
+            try {
+                val array = JSONArray(json)
+                for (index in 0 until array.length()) {
+                    parsed += array.optString(index, (index + 1).toString())
+                }
+            } catch (_: Throwable) {
+                parsed.clear()
+            }
+
+            runOnUiThread {
+                pageLabels.clear()
+                pageLabels += parsed
+                updatePageLabel()
+            }
+        }
+
+        @JavascriptInterface
         fun outline(json: String) {
             val parsed = mutableListOf<OutlineEntry>()
             try {
@@ -500,7 +519,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         OutlineEntry(
                             title = title,
                             page = page,
+                            pageLabel =
+                                item
+                                    .optString("pageLabel")
+                                    .trim()
+                                    .takeIf { it.isNotBlank() },
                             depth = item.optInt("depth").coerceIn(0, 8),
+                            source = item.optString("source", "outline"),
                         )
                 }
             } catch (_: Throwable) {
@@ -511,10 +536,12 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 outlineEntries.clear()
                 outlineEntries += parsed
                 outlineLoaded = true
+                outlineSource =
+                    parsed.firstOrNull()?.source ?: "none"
                 PdfCrashDiagnostics.mark(
                     this@NativePdfReaderActivity,
                     "JS07_OUTLINE_READY",
-                    "entries=${parsed.size}",
+                    "entries=${parsed.size} source=$outlineSource",
                 )
             }
         }
