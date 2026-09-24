@@ -107,6 +107,11 @@ void main() {
         ),
       ),
     );
+    expect(activity, contains('const density = window.devicePixelRatio || 1'));
+    expect(activity, contains('left: r.left * density'));
+    expect(activity, contains('top: r.top * density'));
+    expect(activity, contains('width: r.width * density'));
+    expect(activity, contains('height: r.height * density'));
   });
 
   test('reader builds a navigable PDF index and supports fit-page', () {
