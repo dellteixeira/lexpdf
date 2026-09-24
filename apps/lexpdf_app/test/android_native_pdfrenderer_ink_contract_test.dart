@@ -174,6 +174,23 @@ void main() {
     expect(activity, contains('source: \'toc\''));
   });
 
+  test('stylus eraser removes pen and highlighter strokes with undo redo history', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('InkTool.ERASER'));
+    expect(activity, contains('button("Borracha")'));
+    expect(activity, contains('selectEraser()'));
+    expect(activity, contains('MotionEvent.TOOL_TYPE_ERASER'));
+    expect(activity, contains('strokeIntersectsEraser'));
+    expect(activity, contains('squaredDistanceToSegment'));
+    expect(activity, contains('InkHistoryAction.Removed'));
+    expect(activity, contains('undoHistory'));
+    expect(activity, contains('redoHistory'));
+    expect(activity, contains('apaga caneta e marca-texto'));
+  });
+
   test('stylus palettes, thickness and readable highlighter compositing are enforced', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
