@@ -121,6 +121,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
         super.onCreate(savedInstanceState)
         PdfCrashDiagnostics.mark(this, "JS01_ACTIVITY_CREATED")
 
