@@ -68,6 +68,17 @@ kotlin {
     }
 }
 
+dependencies {
+    // Stable Google Ink stack. PDF rendering itself uses the platform
+    // android.graphics.pdf.PdfRenderer (API 21+) instead of any viewer SDK.
+    implementation("androidx.appcompat:appcompat:1.8.0")
+    implementation("androidx.ink:ink-authoring:1.0.0")
+    implementation("androidx.ink:ink-brush:1.0.0")
+    implementation("androidx.ink:ink-rendering:1.0.0")
+    implementation("androidx.ink:ink-strokes:1.0.0")
+    implementation("androidx.ink:ink-storage:1.0.0")
+}
+
 flutter {
     source = "../.."
 }

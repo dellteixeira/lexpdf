@@ -1,5 +1,8 @@
 package com.lexpdf.lexpdf_app
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -13,12 +16,15 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
+        private const val NATIVE_READER_CHANNEL = "lexpdf/native_pdf_reader"
     }
 
     private var channel: MethodChannel? = null
     private var inputCapabilitiesChannel: MethodChannel? = null
+    private var nativeReaderChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
+    private var diagnosticDialogVisible = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -45,6 +51,60 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        nativeReaderChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NATIVE_READER_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openDocument" -> {
+                        val path = call.argument<String>("path")
+                        val initialPage = call.argument<Int>("initialPage") ?: 1
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_path", "PDF path is required.", null)
+                            return@setMethodCallHandler
+                        }
+                        val file = File(path)
+                        if (!file.isFile || file.length() <= 0L) {
+                            result.error("missing_pdf", "PDF file is unavailable.", null)
+                            return@setMethodCallHandler
+                        }
+
+                        try {
+                            PdfCrashDiagnostics.markReaderLaunchAttempt(
+                                this,
+                                file.absolutePath,
+                            )
+                            val readerIntent =
+                                Intent(this, NativePdfReaderActivity::class.java).apply {
+                                    putExtra(
+                                        NativePdfReaderActivity.EXTRA_PATH,
+                                        file.absolutePath,
+                                    )
+                                    putExtra(
+                                        NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
+                                        initialPage.coerceAtLeast(1),
+                                    )
+                                }
+                            startActivity(readerIntent)
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            PdfCrashDiagnostics.recordControlledLaunchFailure(
+                                this,
+                                error,
+                            )
+                            result.error(
+                                "native_reader_launch_failed",
+                                "${error.javaClass.simpleName}: ${error.message}",
+                                null,
+                            )
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         processIntent(intent)
     }
 
@@ -52,6 +112,37 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (diagnosticDialogVisible || isFinishing || isDestroyed) return
+
+        try {
+            val report = PdfCrashDiagnostics.recentExitReport(this)
+            if (report.isNullOrBlank()) return
+
+            diagnosticDialogVisible = true
+            AlertDialog.Builder(this)
+                .setTitle("Diagnóstico de falha do LexPDF")
+                .setMessage(report)
+                .setPositiveButton("Copiar") { _, _ ->
+                    val clipboard = getSystemService(ClipboardManager::class.java)
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText("LexPDF diagnóstico", report),
+                    )
+                }
+                .setNegativeButton("Fechar") { _, _ ->
+                    diagnosticDialogVisible = false
+                }
+                .setOnDismissListener {
+                    diagnosticDialogVisible = false
+                }
+                .show()
+        } catch (error: Throwable) {
+            diagnosticDialogVisible = false
+            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+        }
     }
 
     private fun hasStylusInputDevice(): Boolean {
