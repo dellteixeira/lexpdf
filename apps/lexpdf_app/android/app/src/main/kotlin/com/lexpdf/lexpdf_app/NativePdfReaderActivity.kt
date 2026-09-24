@@ -1115,15 +1115,16 @@ function hypot(a,b) {
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 readerFrame.requestUnbufferedDispatch(event)
+                val style = currentInkStyle()
                 val strokeId =
                     wetInkView.startStroke(
                         event,
                         pointerId,
-                        currentBrush(),
+                        brushFor(style),
                         viewToPageMatrix(),
                         Matrix(),
                     )
-                strokeKinds[strokeId] = currentKind
+                strokeStyles[strokeId] = style
                 true
             }
 
@@ -1142,7 +1143,7 @@ function hypot(a,b) {
 
             MotionEvent.ACTION_CANCEL -> {
                 wetInkView.cancelUnfinishedStrokes()
-                strokeKinds.clear()
+                strokeStyles.clear()
                 true
             }
 
@@ -1152,7 +1153,8 @@ function hypot(a,b) {
 
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
         strokes.forEach { (id, stroke) ->
-            currentEntries += InkEntry(strokeKinds.remove(id) ?: currentKind, stroke)
+            val style = strokeStyles.remove(id) ?: currentInkStyle()
+            currentEntries += InkEntry(style, stroke)
         }
         redoEntries.clear()
         dryInkView.setEntries(currentEntries)
