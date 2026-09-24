@@ -841,20 +841,271 @@ function hypot(a,b) {
             else "${currentPageIndex + 1} / …"
     }
 
+    private fun showPageJumpDialog() {
+        if (pageCount <= 0) {
+            Toast.makeText(this, "Aguarde o PDF terminar de abrir.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val input =
+            EditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText((currentPageIndex + 1).toString())
+                selectAll()
+                setPadding(24.dp, 12.dp, 24.dp, 12.dp)
+            }
+
+        AlertDialog.Builder(this)
+            .setTitle("Ir para página")
+            .setMessage("Digite uma página entre 1 e $pageCount.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Ir") { _, _ ->
+                val requested = input.text?.toString()?.trim()?.toIntOrNull()
+                if (requested == null || requested !in 1..pageCount) {
+                    Toast.makeText(
+                        this,
+                        "Página inválida. Use um número entre 1 e $pageCount.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    js("LexPDF.goToPage($requested)")
+                }
+            }
+            .show()
+    }
+
+    private fun showOutlineDialog() {
+        if (!outlineLoaded) {
+            Toast.makeText(
+                this,
+                "O índice ainda está sendo carregado.",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+
+        if (outlineEntries.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Índice do PDF")
+                .setMessage(
+                    "Este PDF não possui sumário/bookmarks internos. " +
+                        "Use “Ir” para navegar diretamente por número de página.",
+                )
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        val labels =
+            outlineEntries
+                .map { entry ->
+                    val indent = "    ".repeat(entry.depth.coerceAtMost(6))
+                    val suffix = entry.page?.let { "  ·  p. $it" } ?: ""
+                    "$indent${entry.title}$suffix"
+                }
+                .toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Índice do PDF")
+            .setItems(labels) { _, which ->
+                val entry = outlineEntries.getOrNull(which) ?: return@setItems
+                val page = entry.page
+                if (page == null) {
+                    Toast.makeText(
+                        this,
+                        "Este item do índice não aponta para uma página.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    js("LexPDF.goToPage($page)")
+                }
+            }
+            .setNegativeButton("Fechar", null)
+            .show()
+    }
+
+    private fun loadInkPreferences() {
+        val prefs = getSharedPreferences(INK_PREFS, Context.MODE_PRIVATE)
+        penColor = prefs.getInt(PREF_PEN_COLOR, Color.rgb(20, 24, 30))
+        penSize = prefs.getFloat(PREF_PEN_SIZE, 3.0f).coerceIn(1f, 12f)
+        highlighterColor =
+            prefs.getInt(PREF_HIGHLIGHT_COLOR, Color.argb(92, 255, 224, 64))
+        highlighterSize =
+            prefs.getFloat(PREF_HIGHLIGHT_SIZE, 18f).coerceIn(8f, 32f)
+    }
+
+    private fun saveInkPreferences() {
+        getSharedPreferences(INK_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(PREF_PEN_COLOR, penColor)
+            .putFloat(PREF_PEN_SIZE, penSize)
+            .putInt(PREF_HIGHLIGHT_COLOR, highlighterColor)
+            .putFloat(PREF_HIGHLIGHT_SIZE, highlighterSize)
+            .apply()
+    }
+
+    private fun showInkSettings(kind: InkKind) {
+        currentKind = kind
+        val initialStyle = currentInkStyle()
+        var selectedColor = initialStyle.colorArgb
+        var selectedSize = initialStyle.size
+
+        val container =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(20.dp, 8.dp, 20.dp, 4.dp)
+            }
+
+        val colorLabel =
+            TextView(this).apply {
+                text = "Cor"
+                textSize = 15f
+                setPadding(0, 4.dp, 0, 8.dp)
+            }
+        container.addView(colorLabel)
+
+        val palette =
+            if (kind == InkKind.PEN) {
+                intArrayOf(
+                    Color.rgb(20, 24, 30),
+                    Color.rgb(25, 92, 190),
+                    Color.rgb(210, 45, 45),
+                    Color.rgb(25, 135, 75),
+                    Color.rgb(125, 65, 180),
+                    Color.rgb(120, 75, 45),
+                )
+            } else {
+                intArrayOf(
+                    Color.argb(92, 255, 224, 64),
+                    Color.argb(92, 115, 225, 120),
+                    Color.argb(92, 75, 200, 235),
+                    Color.argb(92, 245, 105, 175),
+                    Color.argb(92, 255, 155, 70),
+                    Color.argb(92, 175, 120, 235),
+                )
+            }
+
+        val colorRow =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+        palette.forEachIndexed { index, color ->
+            val swatch =
+                Button(this).apply {
+                    text = if (color == selectedColor) "✓" else ""
+                    textSize = 16f
+                    minWidth = 0
+                    setPadding(0, 0, 0, 0)
+                    setBackgroundColor(color)
+                    contentDescription = "Cor ${index + 1}"
+                    setOnClickListener {
+                        selectedColor = color
+                        for (childIndex in 0 until colorRow.childCount) {
+                            (colorRow.getChildAt(childIndex) as? Button)?.text =
+                                if (childIndex == index) "✓" else ""
+                        }
+                    }
+                }
+            colorRow.addView(
+                swatch,
+                LinearLayout.LayoutParams(46.dp, 42.dp).apply {
+                    marginEnd = 6.dp
+                },
+            )
+        }
+        container.addView(colorRow)
+
+        val minSize = if (kind == InkKind.PEN) 1 else 8
+        val maxSize = if (kind == InkKind.PEN) 12 else 32
+        val sizeLabel =
+            TextView(this).apply {
+                text = "Espessura: ${selectedSize.roundToInt()}"
+                textSize = 15f
+                setPadding(0, 14.dp, 0, 2.dp)
+            }
+        container.addView(sizeLabel)
+
+        val seek =
+            SeekBar(this).apply {
+                max = maxSize - minSize
+                progress =
+                    (selectedSize.roundToInt().coerceIn(minSize, maxSize) - minSize)
+            }
+        seek.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(
+                    seekBar: SeekBar?,
+                    progress: Int,
+                    fromUser: Boolean,
+                ) {
+                    selectedSize = (minSize + progress).toFloat()
+                    sizeLabel.text = "Espessura: ${selectedSize.roundToInt()}"
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            },
+        )
+        container.addView(seek)
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                if (kind == InkKind.PEN) {
+                    "Personalizar caneta"
+                } else {
+                    "Personalizar marca-texto"
+                },
+            )
+            .setView(container)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Aplicar") { _, _ ->
+                if (kind == InkKind.PEN) {
+                    penColor = selectedColor
+                    penSize = selectedSize
+                } else {
+                    highlighterColor = selectedColor
+                    highlighterSize = selectedSize
+                }
+                saveInkPreferences()
+                selectInk(kind)
+            }
+            .show()
+    }
+
     private fun selectInk(kind: InkKind) {
         currentKind = kind
+        val style = currentInkStyle()
         statusLabel.text =
             when (kind) {
-                InkKind.PEN -> "S Pen: caneta • dedo: PDF.js"
-                InkKind.HIGHLIGHTER -> "S Pen: marca-texto • dedo: PDF.js"
+                InkKind.PEN ->
+                    "S Pen: caneta • espessura ${style.size.roundToInt()}"
+                InkKind.HIGHLIGHTER ->
+                    "S Pen: marca-texto • espessura ${style.size.roundToInt()}"
             }
     }
 
-    private fun currentBrush(): Brush =
+    private fun currentInkStyle(): InkStyle =
         when (currentKind) {
-            InkKind.PEN -> penBrush
-            InkKind.HIGHLIGHTER -> highlighterBrush
+            InkKind.PEN -> InkStyle(InkKind.PEN, penColor, penSize)
+            InkKind.HIGHLIGHTER ->
+                InkStyle(InkKind.HIGHLIGHTER, highlighterColor, highlighterSize)
         }
+
+    private fun brushFor(style: InkStyle): Brush =
+        Brush.createWithColorIntArgb(
+            if (style.kind == InkKind.PEN) {
+                StockBrushes.pressurePen()
+            } else {
+                StockBrushes.highlighter()
+            },
+            style.colorArgb,
+            style.size,
+            if (style.kind == InkKind.PEN) 0.1f else 0.2f,
+        )
+
+    private fun currentBrush(): Brush = brushFor(currentInkStyle())
 
     private fun handleStylusEvent(event: MotionEvent): Boolean {
         val metrics = pageMetrics ?: return false
