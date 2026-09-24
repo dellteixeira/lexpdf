@@ -941,7 +941,10 @@ async function resolveOutlineItem(item, depth, output) {
   output.push({
     title: String(item.title || 'Sem título'),
     page,
-    pageLabel: page ? pageLabelForPhysical(page) : null,
+    pageLabel:
+      page && pdfPageLabels && page <= pdfPageLabels.length
+        ? String(pdfPageLabels[page - 1])
+        : (page ? String(page) : null),
     depth,
     source: 'outline'
   });
@@ -1387,19 +1390,20 @@ async function buildOutlineIndex() {
 async function loadNavigationMetadata() {
   await loadPageLabels();
 
-  // Prefer the table of contents printed inside the PDF because its page
-  // numbers are the ones the reader sees in the material.
+  // Use the outline/bookmarks embedded in the PDF itself. Destinations are
+  // resolved directly by PDF.js to physical PDF pages, matching the behavior
+  // that was stable before printed-TOC inference was introduced.
   try {
-    const generated = await buildVisualIndex();
-    if (generated.length >= 2) {
-      LexPdfBridge.outline(JSON.stringify(generated));
-      return;
+    const raw = await pdf.getOutline();
+    const output = [];
+    for (const item of (raw || [])) {
+      if (output.length >= 2000) break;
+      await resolveOutlineItem(item, 0, output);
     }
-  } catch (_) {}
-
-  // Fallback to embedded PDF bookmarks when no usable printed TOC exists.
-  const outline = await buildOutlineIndex();
-  LexPdfBridge.outline(JSON.stringify(outline));
+    LexPdfBridge.outline(JSON.stringify(output));
+  } catch (_) {
+    LexPdfBridge.outline('[]');
+  }
 }
 
 function reportMetrics() {
@@ -1725,7 +1729,7 @@ function hypot(a,b) {
             AlertDialog.Builder(this)
                 .setTitle("Índice do PDF")
                 .setMessage(
-                    "Este PDF não possui sumário/bookmarks internos. " +
+                    "Este PDF não possui índice/bookmarks internos. " +
                         "Use “Ir” para navegar diretamente por número de página.",
                 )
                 .setPositiveButton("OK", null)
@@ -1746,15 +1750,8 @@ function hypot(a,b) {
                 }
                 .toTypedArray()
 
-        val title =
-            when (outlineSource) {
-                "toc" -> "Índice do PDF (sumário)"
-                "outline" -> "Índice do PDF"
-                else -> "Índice do PDF"
-            }
-
         AlertDialog.Builder(this)
-            .setTitle(title)
+            .setTitle("Índice do PDF")
             .setItems(labels) { _, which ->
                 val entry = outlineEntries.getOrNull(which) ?: return@setItems
                 val page = entry.page
