@@ -122,16 +122,49 @@ void main() {
     expect(activity, contains('pdf.getPageLabels()'));
     expect(activity, contains('pdf.getOutline()'));
     expect(activity, contains('buildVisualIndex()'));
-    expect(activity, contains('inferPrintedPageOffset'));
+    expect(activity, contains('buildPrintedPaginationModel'));
     expect(activity, contains("source: 'toc'"));
     expect(activity, contains("source: 'outline'"));
     expect(activity, contains('physicalPageForPrintedLabel'));
+    expect(activity, contains('detectPrintedPageLabel'));
+    expect(activity, contains('printedToPhysical'));
+    expect(activity, contains('physicalToPrinted'));
+    expect(activity, contains('inferOffsetFromTocTitles'));
+    expect(activity, contains('publishDerivedPageLabels'));
     expect(activity, contains('LexPdfBridge.pageLabels'));
     expect(activity, contains('button("⛶ Página")'));
     expect(activity, contains('LexPDF.fitPage()'));
     expect(activity, contains('fitPage() {'));
     expect(activity, contains('widthScale'));
     expect(activity, contains('heightScale'));
+  });
+
+  test('toolbar labels never wrap and shrink to fit', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('setSingleLine(true)'));
+    expect(activity, contains('maxLines = 1'));
+    expect(
+      activity,
+      contains('TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration'),
+    );
+    expect(activity, contains('TypedValue.COMPLEX_UNIT_SP'));
+    expect(activity, contains('button("Fechar")'));
+  });
+
+  test('printed TOC pagination is preferred over physical PDF numbering', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('Prefer the table of contents printed inside the PDF'));
+    expect(activity, contains('buildVisualIndex()'));
+    expect(activity, contains('buildPrintedPaginationModel(tocEnd + 1)'));
+    expect(activity, contains('physicalPageForPrintedLabel(candidate.printedLabel)'));
+    expect(activity, contains('pageLabel: candidate.printedLabel'));
+    expect(activity, contains('source: \'toc\''));
   });
 
   test('ink tools select in one tap and customize on long press', () {
