@@ -92,7 +92,8 @@ void main() {
     expect(activity, contains('renderPage(pageNumber + 1)'));
     expect(activity, contains('renderPage(pageNumber - 1)'));
     expect(activity, contains('stage.scrollTop = 0'));
-    expect(activity, contains('dryInkView.invalidate()'));
+    expect(activity, contains('highlighterInkView.invalidate()'));
+    expect(activity, contains('penInkView.invalidate()'));
     expect(
       activity,
       contains(
