@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -39,8 +40,6 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.InputStream
 import java.io.RandomAccessFile
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
@@ -63,8 +62,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         private const val LOCAL_ORIGIN = "https://lexpdf.local"
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
-        private const val PDF_URL = "$LOCAL_ORIGIN/document.pdf"
         private const val PDFJS_VERSION = "6.3.289"
+        private const val RANGE_CHUNK_SIZE = 64 * 1024
         private const val SIDECAR_VERSION = 2
         @Volatile
         private var webViewDirectoryConfigured = false
@@ -313,7 +312,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 ): WebResourceResponse? {
                     return when (request.url.toString()) {
                         VIEWER_URL -> htmlResponse()
-                        PDF_URL -> pdfResponse(request)
                         else -> null
                     }
                 }
@@ -345,58 +343,69 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         )
     }
 
-    private fun pdfResponse(request: WebResourceRequest): WebResourceResponse {
-        val fileLength = sourceFile.length()
-        val range = request.requestHeaders["Range"] ?: request.requestHeaders["range"]
+    private inner class JsBridge {
+        @JavascriptInterface
+        fun requestRange(beginText: String, endText: String) {
+            val begin = beginText.toLongOrNull() ?: return
+            val requestedEnd = endText.toLongOrNull() ?: return
+            val fileLength = sourceFile.length()
+            if (fileLength <= 0L || begin < 0L || begin >= fileLength) return
 
-        if (range != null && range.startsWith("bytes=")) {
-            val raw = range.removePrefix("bytes=").substringBefore(",")
-            val parts = raw.split("-", limit = 2)
-            val start = parts.getOrNull(0)?.toLongOrNull()?.coerceIn(0L, fileLength - 1)
-                ?: 0L
-            val requestedEnd = parts.getOrNull(1)?.toLongOrNull()
-            val end =
-                (requestedEnd ?: (start + 1024L * 1024L - 1L))
-                    .coerceIn(start, fileLength - 1)
-            val length = end - start + 1
+            val endExclusive =
+                requestedEnd
+                    .coerceAtLeast(begin + 1L)
+                    .coerceAtMost(fileLength)
+            val requestedLength = endExclusive - begin
+            if (requestedLength <= 0L || requestedLength > RANGE_CHUNK_SIZE) {
+                runOnUiThread {
+                    val message =
+                        "Faixa inválida solicitada pelo PDF.js: " +
+                            "$begin-$endExclusive ($requestedLength bytes)"
+                    PdfCrashDiagnostics.mark(
+                        this@NativePdfReaderActivity,
+                        "JSR_INVALID_RANGE",
+                        message,
+                    )
+                    js("LexPDF.rangeFailure(${JSONObject.quote(message)})")
+                }
+                return
+            }
 
-            PdfCrashDiagnostics.mark(
-                this,
-                "JSR_RANGE",
-                "start=$start end=$end len=$length",
-            )
-
-            return WebResourceResponse(
-                "application/pdf",
-                null,
-                206,
-                "Partial Content",
-                mapOf(
-                    "Accept-Ranges" to "bytes",
-                    "Content-Range" to "bytes $start-$end/$fileLength",
-                    "Content-Length" to length.toString(),
-                    "Cache-Control" to "no-store",
-                ),
-                RangeFileInputStream(sourceFile, start, length),
-            )
+            ioExecutor.execute {
+                try {
+                    val bytes = ByteArray(requestedLength.toInt())
+                    RandomAccessFile(sourceFile, "r").use { file ->
+                        file.seek(begin)
+                        file.readFully(bytes)
+                    }
+                    val encoded =
+                        Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    PdfCrashDiagnostics.mark(
+                        this@NativePdfReaderActivity,
+                        "JSR_NATIVE_RANGE",
+                        "start=$begin end=$endExclusive len=${bytes.size}",
+                    )
+                    runOnUiThread {
+                        js(
+                            "LexPDF.receiveRange(" +
+                                "$begin,${JSONObject.quote(encoded)})",
+                        )
+                    }
+                } catch (error: Throwable) {
+                    PdfCrashDiagnostics.recordControlledLaunchFailure(
+                        this@NativePdfReaderActivity,
+                        error,
+                    )
+                    val message =
+                        "Falha ao ler PDF local em $begin-$endExclusive: " +
+                            "${error.javaClass.simpleName}: ${error.message}"
+                    runOnUiThread {
+                        js("LexPDF.rangeFailure(${JSONObject.quote(message)})")
+                    }
+                }
+            }
         }
 
-        PdfCrashDiagnostics.mark(this, "JSR_FULL_STREAM", "len=$fileLength")
-        return WebResourceResponse(
-            "application/pdf",
-            null,
-            200,
-            "OK",
-            mapOf(
-                "Accept-Ranges" to "bytes",
-                "Content-Length" to fileLength.toString(),
-                "Cache-Control" to "no-store",
-            ),
-            FileInputStream(sourceFile),
-        )
-    }
-
-    private inner class JsBridge {
         @JavascriptInterface
         fun ready(totalPages: Int) {
             runOnUiThread {
@@ -503,7 +512,8 @@ import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSI
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs';
 
-const PDF_URL = '${PDF_URL}';
+const PDF_LENGTH = ${sourceFile.length()};
+const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
 const canvas = document.getElementById('pdf');
 const ctx = canvas.getContext('2d', { alpha: false });
 const stage = document.getElementById('stage');
@@ -517,6 +527,33 @@ let renderTask = null;
 let pageAtScaleOne = { width: 1, height: 1 };
 let pinchStartDistance = 0;
 let pinchStartScale = scale;
+let rangeTransport = null;
+let rangeFailed = false;
+
+class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
+  constructor(length) {
+    super(length, new Uint8Array(0), false, 'document.pdf');
+  }
+
+  requestDataRange(begin, end) {
+    if (rangeFailed) return;
+    const requestedEnd = Math.min(end, begin + RANGE_CHUNK_SIZE);
+    LexPdfBridge.requestRange(String(begin), String(requestedEnd));
+  }
+
+  abort() {
+    rangeFailed = true;
+  }
+}
+
+function decodeBase64(base64) {
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    bytes[i] = raw.charCodeAt(i);
+  }
+  return bytes;
+}
 
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
@@ -595,6 +632,15 @@ async function renderPage(target, preserveCenter = false) {
 }
 
 window.LexPDF = {
+  receiveRange(begin, base64) {
+    if (!rangeTransport || rangeFailed) return;
+    rangeTransport.onDataRange(Number(begin), decodeBase64(base64));
+  },
+  rangeFailure(message) {
+    rangeFailed = true;
+    loading.style.display = 'none';
+    LexPdfBridge.error(String(message));
+  },
   nextPage() { renderPage(pageNumber + 1); },
   previousPage() { renderPage(pageNumber - 1); },
   zoomIn() {
@@ -642,9 +688,10 @@ function hypot(a,b) {
 
 (async () => {
   try {
+    rangeTransport = new NativePdfRangeTransport(PDF_LENGTH);
     const task = pdfjsLib.getDocument({
-      url: PDF_URL,
-      rangeChunkSize: 131072,
+      range: rangeTransport,
+      rangeChunkSize: RANGE_CHUNK_SIZE,
       disableStream: true,
       disableAutoFetch: true,
       disableRange: false,
@@ -932,30 +979,4 @@ function hypot(a,b) {
         }
     }
 
-    private class RangeFileInputStream(
-        file: File,
-        start: Long,
-        private var remaining: Long,
-    ) : InputStream() {
-        private val raf = RandomAccessFile(file, "r").apply { seek(start) }
-
-        override fun read(): Int {
-            if (remaining <= 0) return -1
-            val value = raf.read()
-            if (value >= 0) remaining--
-            return value
-        }
-
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-            if (remaining <= 0) return -1
-            val maxRead = minOf(length.toLong(), remaining).toInt()
-            val count = raf.read(buffer, offset, maxRead)
-            if (count > 0) remaining -= count.toLong()
-            return count
-        }
-
-        override fun close() {
-            raf.close()
-        }
-    }
 }
