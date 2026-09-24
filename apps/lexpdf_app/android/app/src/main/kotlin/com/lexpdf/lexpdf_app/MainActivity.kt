@@ -1,5 +1,8 @@
 package com.lexpdf.lexpdf_app
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -21,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private var nativeReaderChannel: MethodChannel? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
+    private var diagnosticDialogVisible = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -108,6 +112,37 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         processIntent(intent)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (diagnosticDialogVisible || isFinishing || isDestroyed) return
+
+        try {
+            val report = PdfCrashDiagnostics.recentExitReport(this)
+            if (report.isNullOrBlank()) return
+
+            diagnosticDialogVisible = true
+            AlertDialog.Builder(this)
+                .setTitle("Diagnóstico de falha do LexPDF")
+                .setMessage(report)
+                .setPositiveButton("Copiar") { _, _ ->
+                    val clipboard = getSystemService(ClipboardManager::class.java)
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText("LexPDF diagnóstico", report),
+                    )
+                }
+                .setNegativeButton("Fechar") { _, _ ->
+                    diagnosticDialogVisible = false
+                }
+                .setOnDismissListener {
+                    diagnosticDialogVisible = false
+                }
+                .show()
+        } catch (error: Throwable) {
+            diagnosticDialogVisible = false
+            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+        }
     }
 
     private fun hasStylusInputDevice(): Boolean {
