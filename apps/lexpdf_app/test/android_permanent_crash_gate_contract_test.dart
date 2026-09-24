@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  // Physical-device regression: the guard must survive a Flutter process crash.
   test('native crash gate is isolated from Flutter and breaks restart loops', () {
     final manifest =
         File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
