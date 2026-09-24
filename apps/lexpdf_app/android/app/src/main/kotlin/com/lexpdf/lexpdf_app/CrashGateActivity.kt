@@ -1,5 +1,6 @@
 package com.lexpdf.lexpdf_app
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -11,7 +12,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 
 /**
  * Native launcher that runs before Flutter.
@@ -19,9 +19,10 @@ import androidx.appcompat.app.AppCompatActivity
  * Its only job is to guarantee that a previous abnormal LexPDF exit is visible
  * to the user even when Flutter itself crashed before MainActivity could draw.
  */
-class CrashGateActivity : AppCompatActivity() {
+class CrashGateActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
 
         val report = PdfCrashDiagnostics.recentExitReport(this)
         if (report.isNullOrBlank()) {
@@ -127,6 +128,7 @@ class CrashGateActivity : AppCompatActivity() {
                         Intent.FLAG_ACTIVITY_MULTIPLE_TASK).inv()
             }
 
+        PdfCrashDiagnostics.markMainLaunchAttempt(this)
         startActivity(target)
         finish()
     }
