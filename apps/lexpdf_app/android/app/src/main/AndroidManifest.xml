@@ -3,7 +3,6 @@
 
     <application
         android:label="LexPDF"
-        android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!--
           Flutter 3.47 enables Impeller by default on Android. Some physical
@@ -16,19 +15,15 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+        <!--
+          Permanent native crash gate. Every normal launch/open/share enters
+          here before Flutter so a previous failure can always be displayed.
+        -->
         <activity
-            android:name=".MainActivity"
+            android:name=".CrashGateActivity"
             android:exported="true"
-            android:launchMode="singleTop"
             android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-            <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
+            android:theme="@style/CrashGateTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -45,6 +40,34 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+        </activity>
+        <!--
+          LexPDF Android reader: streamed Mozilla PDF.js + AndroidX Ink.
+          It lives in a separate process so the PDF bitmap/cache heap is
+          isolated from Flutter/Skia and can be reclaimed independently.
+        -->
+        <activity
+            android:name=".NativePdfReaderActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:process=":pdfreader"
+            android:theme="@style/NativePdfReaderTheme"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
             android:exported="true"
