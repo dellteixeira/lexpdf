@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.text.TextUtils
 import android.text.InputType
 import android.util.Base64
 import android.util.TypedValue
@@ -215,16 +216,21 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 text = label
                 isAllCaps = false
                 minWidth = 0
+                minimumWidth = 0
+                setMinWidth(0)
                 setSingleLine(true)
                 maxLines = 1
+                setHorizontallyScrolling(true)
+                includeFontPadding = false
+                ellipsize = TextUtils.TruncateAt.END
                 TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
                     this,
-                    8,
-                    13,
+                    7,
+                    12,
                     1,
                     TypedValue.COMPLEX_UNIT_SP,
                 )
-                setPadding(8.dp, 0, 8.dp, 0)
+                setPadding(6.dp, 0, 6.dp, 0)
                 setOnClickListener { onClick() }
             }
 
@@ -676,6 +682,7 @@ let inferredPrintedOffset = null;
 let printedPaginationReady = false;
 const printedToPhysical = new Map();
 const physicalToPrinted = new Map();
+let numericPaginationSegments = [];
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -741,12 +748,46 @@ function pageLabelForPhysical(page) {
   const direct = physicalToPrinted.get(page);
   if (direct) return String(direct);
 
+  for (const segment of numericPaginationSegments) {
+    if (page < segment.physicalStart || page > segment.physicalEnd) continue;
+    const printed = page - segment.offset;
+    if (printed >= segment.printedStart && printed <= segment.printedEnd) {
+      return String(printed);
+    }
+  }
+
   if (Number.isInteger(inferredPrintedOffset)) {
     const printed = page - inferredPrintedOffset;
     if (printed >= 1) return String(printed);
   }
 
   return String(page);
+}
+
+function segmentPhysicalPageForPrintedNumber(printed) {
+  const candidates = numericPaginationSegments
+    .filter(segment =>
+      printed >= segment.printedStart - 2 &&
+      printed <= segment.printedEnd + 2
+    )
+    .map(segment => ({
+      physical: printed + segment.offset,
+      distance:
+        printed < segment.printedStart
+          ? segment.printedStart - printed
+          : printed > segment.printedEnd
+            ? printed - segment.printedEnd
+            : 0,
+      confidence: segment.confidence
+    }))
+    .filter(item => item.physical >= 1 && item.physical <= pdf.numPages)
+    .sort((a, b) =>
+      a.distance - b.distance ||
+      b.confidence - a.confidence ||
+      a.physical - b.physical
+    );
+
+  return candidates.length ? candidates[0].physical : null;
 }
 
 function physicalPageForPrintedLabel(label) {
@@ -760,21 +801,23 @@ function physicalPageForPrintedLabel(label) {
     if (match >= 0) return match + 1;
   }
 
-  const numeric = Number.parseInt(normalized, 10);
-  if (
-    Number.isInteger(numeric) &&
-    Number.isInteger(inferredPrintedOffset)
-  ) {
-    const candidate = numeric + inferredPrintedOffset;
-    if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
-  }
-
+  // Exact visual-page detections always win over any inferred model.
   const direct = printedToPhysical.get(normalized);
   if (direct) return direct;
 
-  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= pdf.numPages) {
-    return numeric;
+  const numeric = Number.parseInt(normalized, 10);
+  if (Number.isInteger(numeric)) {
+    const segmented = segmentPhysicalPageForPrintedNumber(numeric);
+    if (segmented) return segmented;
+
+    if (Number.isInteger(inferredPrintedOffset)) {
+      const candidate = numeric + inferredPrintedOffset;
+      if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
+    }
   }
+
+  // Never assume printed page N == physical PDF page N. That fallback is the
+  // source of wrong TOC jumps in PDFs with covers/front matter.
   return null;
 }
 
@@ -957,6 +1000,68 @@ function bestOffsetFromVotes(votes) {
   return { offset: bestOffset, votes: bestVotes };
 }
 
+function buildNumericPaginationSegments(anchors) {
+  const byOffset = new Map();
+  for (const anchor of anchors) {
+    const offset = anchor.physical - anchor.printed;
+    if (Math.abs(offset) > 600) continue;
+    if (!byOffset.has(offset)) byOffset.set(offset, []);
+    byOffset.get(offset).push(anchor);
+  }
+
+  const segments = [];
+  for (const [offset, raw] of byOffset.entries()) {
+    const points = raw
+      .slice()
+      .sort((a, b) => a.physical - b.physical);
+
+    let group = [];
+    const flush = () => {
+      if (group.length < 2) {
+        group = [];
+        return;
+      }
+      const first = group[0];
+      const last = group[group.length - 1];
+      segments.push({
+        offset,
+        physicalStart: first.physical,
+        physicalEnd: last.physical,
+        printedStart: first.printed,
+        printedEnd: last.printed,
+        confidence: group.length
+      });
+      group = [];
+    };
+
+    for (const point of points) {
+      if (!group.length) {
+        group.push(point);
+        continue;
+      }
+
+      const previous = group[group.length - 1];
+      const physicalDelta = point.physical - previous.physical;
+      const printedDelta = point.printed - previous.printed;
+      const coherent =
+        physicalDelta > 0 &&
+        physicalDelta <= 48 &&
+        printedDelta === physicalDelta;
+
+      if (!coherent) flush();
+      group.push(point);
+    }
+    flush();
+  }
+
+  return segments
+    .filter(segment => segment.confidence >= 2)
+    .sort((a, b) =>
+      a.physicalStart - b.physicalStart ||
+      b.confidence - a.confidence
+    );
+}
+
 async function buildPrintedPaginationModel(startPage) {
   if (pdfPageLabels) {
     printedPaginationReady = true;
@@ -966,13 +1071,27 @@ async function buildPrintedPaginationModel(startPage) {
   printedToPhysical.clear();
   physicalToPrinted.clear();
   inferredPrintedOffset = null;
+  numericPaginationSegments = [];
 
-  const votes = new Map();
   const first = Math.max(1, startPage);
-  const last = Math.min(pdf.numPages, first + 420);
-  let numberedPages = 0;
+  const anchors = [];
+  const pagesToInspect = new Set();
 
-  for (let physical = first; physical <= last; physical++) {
+  // Read a dense window immediately after the TOC and then sample the whole
+  // document. This handles covers, roman front matter, page-number restarts
+  // and long books without assuming one global offset.
+  const denseEnd = Math.min(pdf.numPages, first + 48);
+  for (let physical = first; physical <= denseEnd; physical++) {
+    pagesToInspect.add(physical);
+  }
+
+  const stride = pdf.numPages > 1800 ? 12 : pdf.numPages > 900 ? 8 : 5;
+  for (let physical = first; physical <= pdf.numPages; physical += stride) {
+    pagesToInspect.add(physical);
+  }
+  pagesToInspect.add(pdf.numPages);
+
+  for (const physical of Array.from(pagesToInspect).sort((a, b) => a - b)) {
     const label = await detectPrintedPageLabel(physical);
     if (!label) continue;
 
@@ -983,35 +1102,67 @@ async function buildPrintedPaginationModel(startPage) {
       printedToPhysical.set(normalized, physical);
     }
     physicalToPrinted.set(physical, label);
-    numberedPages++;
 
     const numeric = Number.parseInt(normalized, 10);
-    if (Number.isInteger(numeric)) {
-      const offset = physical - numeric;
-      if (Math.abs(offset) <= 250) {
-        votes.set(offset, (votes.get(offset) || 0) + 1);
-      }
-    }
-
-    const best = bestOffsetFromVotes(votes);
-    if (best.votes >= 6 && numberedPages >= 8) {
-      inferredPrintedOffset = best.offset;
-      break;
+    if (Number.isInteger(numeric) && numeric >= 1) {
+      anchors.push({ physical, printed: numeric });
     }
   }
 
-  if (!Number.isInteger(inferredPrintedOffset)) {
-    const best = bestOffsetFromVotes(votes);
-    if (best.votes >= 3) {
-      inferredPrintedOffset = best.offset;
-    }
+  numericPaginationSegments = buildNumericPaginationSegments(anchors);
+
+  // Global offset remains only as a conservative fallback when the document
+  // truly behaves like one continuous numbering sequence.
+  const votes = new Map();
+  for (const anchor of anchors) {
+    const offset = anchor.physical - anchor.printed;
+    if (Math.abs(offset) > 600) continue;
+    votes.set(offset, (votes.get(offset) || 0) + 1);
+  }
+  const best = bestOffsetFromVotes(votes);
+  const totalNumeric = anchors.length;
+  if (
+    best.votes >= 4 &&
+    totalNumeric > 0 &&
+    best.votes / totalNumeric >= 0.7
+  ) {
+    inferredPrintedOffset = best.offset;
   }
 
   printedPaginationReady =
     printedToPhysical.size > 0 ||
+    numericPaginationSegments.length > 0 ||
     Number.isInteger(inferredPrintedOffset);
 
   publishDerivedPageLabels();
+}
+
+async function findTitleNearPhysicalPage(candidate, predictedPage) {
+  if (!Number.isInteger(predictedPage)) return null;
+  const key = titleSearchKey(candidate.title);
+  if (key.length < 5) return null;
+
+  const first = Math.max(1, predictedPage - 6);
+  const last = Math.min(pdf.numPages, predictedPage + 6);
+  for (let physical = first; physical <= last; physical++) {
+    try {
+      const page = await pdf.getPage(physical);
+      const content = await page.getTextContent();
+      const pageText = normalizeSearchText(
+        (content.items || [])
+          .map(item => String(item.str || ''))
+          .join(' ')
+      );
+      if (pageText.includes(key)) return physical;
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function resolveTocCandidatePage(candidate) {
+  const predicted = physicalPageForPrintedLabel(candidate.printedLabel);
+  const validated = await findTitleNearPhysicalPage(candidate, predicted);
+  return validated || predicted;
 }
 
 async function inferOffsetFromTocTitles(candidates, contentStartPage) {
@@ -1052,11 +1203,14 @@ async function inferOffsetFromTocTitles(candidates, contentStartPage) {
   }
 
   const best = bestOffsetFromVotes(votes);
-  if (best.votes >= 1 && Number.isInteger(best.offset)) {
+  if (best.votes >= 2 && Number.isInteger(best.offset)) {
     inferredPrintedOffset = best.offset;
-    printedPaginationReady = true;
-    publishDerivedPageLabels();
   }
+  printedPaginationReady =
+    printedPaginationReady ||
+    printedToPhysical.size > 0 ||
+    Number.isInteger(inferredPrintedOffset);
+  publishDerivedPageLabels();
 }
 
 async function buildVisualIndex() {
@@ -1135,9 +1289,12 @@ async function buildVisualIndex() {
     if (seen.has(key)) continue;
     seen.add(key);
 
+    const resolvedPage = await resolveTocCandidatePage(candidate);
+    if (!resolvedPage) continue;
+
     output.push({
       title: candidate.title,
-      page: physicalPageForPrintedLabel(candidate.printedLabel),
+      page: resolvedPage,
       pageLabel: candidate.printedLabel,
       depth: Math.max(
         0,
