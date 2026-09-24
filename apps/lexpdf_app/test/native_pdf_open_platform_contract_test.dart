@@ -23,6 +23,32 @@ void main() {
     expect(activity, contains('invokeMethod("openPdfPath", path)'));
   });
 
+  test('Android file picker streams large PDFs without file_selector buffering', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
+    ).readAsStringSync();
+    final picker = File(
+      'lib/src/core/documents/document_picker_service.dart',
+    ).readAsStringSync();
+
+    expect(picker, contains("MethodChannel('lexpdf/native_pdf_picker')"));
+    expect(picker, contains('if (Platform.isAndroid)'));
+    final androidBranch = picker.substring(
+      picker.indexOf('if (Platform.isAndroid)'),
+      picker.indexOf('final file = await openFile'),
+    );
+    expect(androidBranch, isNot(contains('openFile(')));
+
+    expect(activity, contains('Intent.ACTION_OPEN_DOCUMENT'));
+    expect(activity, contains('Intent.CATEGORY_OPENABLE'));
+    expect(activity, contains('contentResolver.openInputStream(uri)'));
+    expect(activity, contains('input.copyTo(output)'));
+    expect(activity, contains('PICKER_COPY_START'));
+    expect(activity, contains('PICKER_COPY_DONE'));
+    expect(activity, isNot(contains('ByteArrayOutputStream')));
+    expect(activity, isNot(contains('readBytes()')));
+  });
+
   test('Windows forwards command line arguments into Dart startup', () {
     final runner = File('windows/runner/main.cpp').readAsStringSync();
     final mainDart = File('lib/main.dart').readAsStringSync();
