@@ -112,6 +112,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PdfCrashDiagnostics.mark(this, "A01_ACTIVITY_CREATED")
 
         val path = intent.getStringExtra(EXTRA_PATH)
         if (path.isNullOrBlank()) {
@@ -119,6 +120,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             return
         }
         sourceFile = File(path)
+        PdfCrashDiagnostics.mark(
+            this,
+            "A02_SOURCE_RESOLVED",
+            "size=${sourceFile.length()} pathHash=${sourceFile.absolutePath.hashCode()}",
+        )
         if (!sourceFile.isFile || sourceFile.length() <= 0L) {
             Toast.makeText(this, "PDF indisponível.", Toast.LENGTH_LONG).show()
             finish()
@@ -126,9 +132,17 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         try {
+            PdfCrashDiagnostics.mark(this, "A03_BEFORE_PFD_OPEN")
             descriptor =
                 ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            PdfCrashDiagnostics.mark(this, "A04_AFTER_PFD_OPEN")
+            PdfCrashDiagnostics.mark(this, "A05_BEFORE_PDFRENDERER_CTOR")
             renderer = PdfRenderer(descriptor)
+            PdfCrashDiagnostics.mark(
+                this,
+                "A06_AFTER_PDFRENDERER_CTOR",
+                "pages=${renderer.pageCount}",
+            )
         } catch (error: Throwable) {
             Toast.makeText(
                 this,
@@ -143,9 +157,15 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1)
                 .coerceIn(0, max(0, renderer.pageCount - 1))
 
+        PdfCrashDiagnostics.mark(this, "A07_BEFORE_UI_BUILD")
         buildUi()
+        PdfCrashDiagnostics.mark(this, "A08_AFTER_UI_BUILD")
         loadInkForPage(currentPageIndex)
-        surface.post { renderPage(currentPageIndex) }
+        PdfCrashDiagnostics.mark(this, "A09_AFTER_INK_LOAD_REQUEST")
+        surface.post {
+            PdfCrashDiagnostics.mark(this, "A10_SURFACE_POST_READY")
+            renderPage(currentPageIndex)
+        }
     }
 
     private fun buildUi() {
@@ -240,12 +260,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
+        PdfCrashDiagnostics.mark(this, "UI01_BEFORE_INK_VIEW")
         wetInkView = InProgressStrokesView(this).apply {
             isClickable = false
             isFocusable = false
             addFinishedStrokesListener(this@NativePdfReaderActivity)
             eagerInit()
         }
+        PdfCrashDiagnostics.mark(this, "UI02_AFTER_INK_VIEW_EAGER_INIT")
         readerFrame.addView(
             wetInkView,
             FrameLayout.LayoutParams(
@@ -381,6 +403,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun renderPage(pageIndex: Int) {
+        PdfCrashDiagnostics.mark(this, "R01_RENDER_REQUEST", "page=${pageIndex + 1}")
         val generation = ++renderGeneration
         statusLabel.text = "Renderizando página ${pageIndex + 1}…"
 
@@ -398,7 +421,17 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             var error: Throwable? = null
 
             try {
+                PdfCrashDiagnostics.mark(
+                    this,
+                    "R02_BEFORE_OPEN_PAGE",
+                    "page=${pageIndex + 1}",
+                )
                 renderer.openPage(pageIndex).use { page ->
+                    PdfCrashDiagnostics.mark(
+                        this,
+                        "R03_AFTER_OPEN_PAGE",
+                        "page=${pageIndex + 1}",
+                    )
                     pageWidth = page.width
                     pageHeight = page.height
 
@@ -421,6 +454,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         bitmapHeight = max(1, (bitmapHeight * factor).roundToInt())
                     }
 
+                    PdfCrashDiagnostics.mark(
+                        this,
+                        "R04_BEFORE_BITMAP",
+                        "page=${pageIndex + 1} w=$bitmapWidth h=$bitmapHeight",
+                    )
                     rendered =
                         Bitmap.createBitmap(
                             bitmapWidth,
@@ -437,11 +475,21 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         )
                     }
 
+                    PdfCrashDiagnostics.mark(
+                        this,
+                        "R05_BEFORE_PAGE_RENDER",
+                        "page=${pageIndex + 1}",
+                    )
                     page.render(
                         rendered!!,
                         null,
                         renderMatrix,
                         PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY,
+                    )
+                    PdfCrashDiagnostics.mark(
+                        this,
+                        "R06_AFTER_PAGE_RENDER",
+                        "page=${pageIndex + 1}",
                     )
                 }
             } catch (t: Throwable) {
@@ -464,8 +512,18 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     return@post
                 }
 
+                PdfCrashDiagnostics.mark(
+                    this,
+                    "R07_BEFORE_SURFACE_SET",
+                    "page=${pageIndex + 1}",
+                )
                 surface.setPage(rendered!!, pageWidth.toFloat(), pageHeight.toFloat())
                 dryInkView.invalidate()
+                PdfCrashDiagnostics.mark(
+                    this,
+                    "R08_PAGE_VISIBLE",
+                    "page=${pageIndex + 1}",
+                )
                 statusLabel.text =
                     "PdfRenderer • ${rendered!!.width}×${rendered!!.height} • " +
                         "S Pen: ${currentEntries.size} traço(s)"
@@ -564,6 +622,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     override fun onDestroy() {
+        PdfCrashDiagnostics.mark(this, "Z01_ON_DESTROY")
         ++renderGeneration
         try {
             wetInkView.clearFinishedStrokesListeners()
