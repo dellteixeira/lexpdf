@@ -3,7 +3,7 @@
 
     <application
         android:label="LexPDF"
-        android:name="${applicationName}"
+        android:name=".LexPdfApplication"
         android:icon="@mipmap/ic_launcher">
         <!--
           Flutter 3.47 enables Impeller by default on Android. Some physical
@@ -46,7 +46,7 @@
             </intent-filter>
         </activity>
         <!--
-          LexPDF native Android reader: platform PdfRenderer + AndroidX Ink.
+          LexPDF Android reader: streamed Mozilla PDF.js + AndroidX Ink.
           It lives in a separate process so the PDF bitmap/cache heap is
           isolated from Flutter/Skia and can be reclaimed independently.
         -->
