@@ -214,7 +214,8 @@ void main() {
     expect(activity, contains('InkHistoryAction.Removed'));
     expect(activity, contains('undoHistory'));
     expect(activity, contains('redoHistory'));
-    expect(activity, contains('apaga caneta e marca-texto'));
+    expect(activity, contains('remove o desenho inteiro'));
+    expect(activity, contains('recorta somente a região tocada'));
   });
 
   test('Samsung rendering avoids layer-wide blend modes that can black out WebView', () {
