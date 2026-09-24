@@ -672,6 +672,10 @@ let metricsFrame = 0;
 let rangeTransport = null;
 let rangeFailed = false;
 let pdfPageLabels = null;
+let inferredPrintedOffset = null;
+let printedPaginationReady = false;
+const printedToPhysical = new Map();
+const physicalToPrinted = new Map();
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -733,10 +737,19 @@ function pageLabelForPhysical(page) {
   if (pdfPageLabels && page >= 1 && page <= pdfPageLabels.length) {
     return String(pdfPageLabels[page - 1]);
   }
+
+  const direct = physicalToPrinted.get(page);
+  if (direct) return String(direct);
+
+  if (Number.isInteger(inferredPrintedOffset)) {
+    const printed = page - inferredPrintedOffset;
+    if (printed >= 1) return String(printed);
+  }
+
   return String(page);
 }
 
-function physicalPageForPrintedLabel(label, inferredOffset = null) {
+function physicalPageForPrintedLabel(label) {
   const normalized = normalizedLabel(label);
   if (!normalized) return null;
 
@@ -747,15 +760,68 @@ function physicalPageForPrintedLabel(label, inferredOffset = null) {
     if (match >= 0) return match + 1;
   }
 
+  const direct = printedToPhysical.get(normalized);
+  if (direct) return direct;
+
   const numeric = Number.parseInt(normalized, 10);
-  if (Number.isInteger(numeric)) {
-    if (inferredOffset !== null) {
-      const candidate = numeric + inferredOffset;
-      if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
-    }
-    if (numeric >= 1 && numeric <= pdf.numPages) return numeric;
+  if (
+    Number.isInteger(numeric) &&
+    Number.isInteger(inferredPrintedOffset)
+  ) {
+    const candidate = numeric + inferredPrintedOffset;
+    if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
+  }
+
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= pdf.numPages) {
+    return numeric;
   }
   return null;
+}
+
+function publishDerivedPageLabels() {
+  if (pdfPageLabels || !printedPaginationReady) return;
+  const labels = [];
+  for (let physical = 1; physical <= pdf.numPages; physical++) {
+    labels.push(pageLabelForPhysical(physical));
+  }
+  LexPdfBridge.pageLabels(JSON.stringify(labels));
+}
+
+function parsePrintedPageLabel(text) {
+  const cleaned = String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let match = cleaned.match(
+    /^(?:p(?:ágina)?\.?\s*)?[-–—]?\s*(\d{1,4})\s*[-–—]?$/i
+  );
+  if (!match) {
+    match = cleaned.match(/^(\d{1,4})\s*(?:\/|de)\s*\d{1,4}$/i);
+  }
+  if (match) return match[1];
+
+  if (/^[ivxlcdm]{1,10}$/i.test(cleaned)) {
+    return cleaned.toLowerCase();
+  }
+  return null;
+}
+
+function normalizeSearchText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function titleSearchKey(title) {
+  const words = normalizeSearchText(title)
+    .split(' ')
+    .filter(word => word.length >= 3)
+    .slice(0, 7);
+  return words.join(' ');
 }
 
 async function resolveOutlineItem(item, depth, output) {
