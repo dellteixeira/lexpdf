@@ -71,16 +71,35 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
 
-                        startActivity(
-                            Intent(this, NativePdfReaderActivity::class.java).apply {
-                                putExtra(NativePdfReaderActivity.EXTRA_PATH, file.absolutePath)
-                                putExtra(
-                                    NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
-                                    initialPage.coerceAtLeast(1),
-                                )
-                            },
-                        )
-                        result.success(true)
+                        try {
+                            PdfCrashDiagnostics.markReaderLaunchAttempt(
+                                this,
+                                file.absolutePath,
+                            )
+                            val readerIntent =
+                                Intent(this, NativePdfReaderActivity::class.java).apply {
+                                    putExtra(
+                                        NativePdfReaderActivity.EXTRA_PATH,
+                                        file.absolutePath,
+                                    )
+                                    putExtra(
+                                        NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
+                                        initialPage.coerceAtLeast(1),
+                                    )
+                                }
+                            startActivity(readerIntent)
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            PdfCrashDiagnostics.recordControlledLaunchFailure(
+                                this,
+                                error,
+                            )
+                            result.error(
+                                "native_reader_launch_failed",
+                                "${error.javaClass.simpleName}: ${error.message}",
+                                null,
+                            )
+                        }
                     }
                     else -> result.notImplemented()
                 }
