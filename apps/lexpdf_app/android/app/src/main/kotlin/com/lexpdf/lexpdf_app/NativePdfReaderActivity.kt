@@ -820,7 +820,7 @@ function titleSearchKey(title) {
   const words = normalizeSearchText(title)
     .split(' ')
     .filter(word => word.length >= 3)
-    .slice(0, 7);
+    .slice(0, 4);
   return words.join(' ');
 }
 
@@ -890,17 +890,30 @@ async function detectPrintedPageLabel(physical) {
     const page = await pdf.getPage(physical);
     const viewport = page.getViewport({ scale: 1.0 });
     const content = await page.getTextContent();
-    const rows = textLinesFromContent(content);
+    const candidates = [];
+
+    for (const row of textLinesFromContent(content)) {
+      candidates.push({ text: row.text, y: row.y });
+    }
+    for (const item of (content.items || [])) {
+      if (!Array.isArray(item.transform)) continue;
+      const text = String(item.str || '').trim();
+      if (!text) continue;
+      candidates.push({
+        text,
+        y: Number(item.transform[5] || 0)
+      });
+    }
 
     let best = null;
     let bestScore = Number.POSITIVE_INFINITY;
-    for (const row of rows) {
+    for (const candidate of candidates) {
       const nearEdge =
-        row.y <= viewport.height * 0.18 ||
-        row.y >= viewport.height * 0.82;
+        candidate.y <= viewport.height * 0.18 ||
+        candidate.y >= viewport.height * 0.82;
       if (!nearEdge) continue;
 
-      const label = parsePrintedPageLabel(row.text);
+      const label = parsePrintedPageLabel(candidate.text);
       if (!label) continue;
 
       const numeric = Number.parseInt(label, 10);
@@ -912,8 +925,8 @@ async function detectPrintedPageLabel(physical) {
       }
 
       const edgeDistance = Math.min(
-        Math.abs(row.y),
-        Math.abs(viewport.height - row.y)
+        Math.abs(candidate.y),
+        Math.abs(viewport.height - candidate.y)
       );
       let score = edgeDistance;
       if (Number.isInteger(numeric)) {
