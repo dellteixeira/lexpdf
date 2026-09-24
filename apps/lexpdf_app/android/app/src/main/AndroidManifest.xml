@@ -23,6 +23,7 @@
         <activity
             android:name=".CrashGateActivity"
             android:exported="true"
+            android:process=":crashguard"
             android:taskAffinity=""
             android:theme="@style/CrashGateTheme">
             <intent-filter>
