@@ -1222,7 +1222,7 @@ function hypot(a,b) {
                         pointerId,
                         brushFor(style),
                         viewToPageMatrix(),
-                        Matrix(),
+                        pageToViewMatrix(),
                     )
                 strokeStyles[strokeId] = style
                 true
