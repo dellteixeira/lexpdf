@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
@@ -2219,6 +2220,205 @@ function hypot(a,b) {
         return false
     }
 
+    private fun syntheticStrokeFromPoints(
+        template: Stroke,
+        points: List<PointF>,
+    ): Stroke {
+        if (points.size < 2) return template
+
+        val source = template.inputs
+        val first = source[0]
+        val batch = MutableStrokeInputBatch()
+        points.forEachIndexed { index, point ->
+            batch.add(
+                type = first.toolType,
+                x = point.x,
+                y = point.y,
+                elapsedTimeMillis = index * 6L,
+                strokeUnitLengthCm = first.strokeUnitLengthCm,
+                pressure = first.pressure,
+                tiltRadians = first.tiltRadians,
+                orientationRadians = first.orientationRadians,
+            )
+        }
+        return Stroke(template.brush, batch)
+    }
+
+    private fun shapePoints(
+        tool: InkTool,
+        shape: ShapeTool,
+        stroke: Stroke,
+    ): List<PointF> {
+        val inputs = stroke.inputs
+        if (inputs.size < 2) return emptyList()
+
+        val start = inputs[0]
+        val end = inputs[inputs.size - 1]
+        val x0 = start.x
+        val y0 = start.y
+        val x1 = end.x
+        val y1 = end.y
+        val dx = x1 - x0
+        val dy = y1 - y0
+        val distance = sqrt(dx * dx + dy * dy)
+        if (distance < 2f) return emptyList()
+
+        if (tool == InkTool.UNDERLINE) {
+            val y = (y0 + y1) / 2f
+            return listOf(PointF(x0, y), PointF(x1, y))
+        }
+
+        return when (shape) {
+            ShapeTool.LINE -> listOf(PointF(x0, y0), PointF(x1, y1))
+
+            ShapeTool.RECTANGLE ->
+                listOf(
+                    PointF(x0, y0),
+                    PointF(x1, y0),
+                    PointF(x1, y1),
+                    PointF(x0, y1),
+                    PointF(x0, y0),
+                )
+
+            ShapeTool.CIRCLE -> {
+                val cx = (x0 + x1) / 2f
+                val cy = (y0 + y1) / 2f
+                val rx = kotlin.math.abs(x1 - x0) / 2f
+                val ry = kotlin.math.abs(y1 - y0) / 2f
+                val output = mutableListOf<PointF>()
+                val count = 48
+                for (i in 0..count) {
+                    val angle = 2.0 * PI * i / count
+                    output +=
+                        PointF(
+                            cx + (cos(angle) * rx).toFloat(),
+                            cy + (sin(angle) * ry).toFloat(),
+                        )
+                }
+                output
+            }
+
+            ShapeTool.STAR -> {
+                val cx = (x0 + x1) / 2f
+                val cy = (y0 + y1) / 2f
+                val rx = kotlin.math.abs(x1 - x0) / 2f
+                val ry = kotlin.math.abs(y1 - y0) / 2f
+                val output = mutableListOf<PointF>()
+                for (i in 0..10) {
+                    val vertex = i % 10
+                    val outer = vertex % 2 == 0
+                    val radiusScale = if (outer) 1f else 0.42f
+                    val angle = -PI / 2.0 + vertex * PI / 5.0
+                    output +=
+                        PointF(
+                            cx + (cos(angle) * rx * radiusScale).toFloat(),
+                            cy + (sin(angle) * ry * radiusScale).toFloat(),
+                        )
+                }
+                output
+            }
+
+            ShapeTool.ARROW -> {
+                val ux = dx / distance
+                val uy = dy / distance
+                val px = -uy
+                val py = ux
+                val headLength = kotlin.math.min(34f, kotlin.math.max(12f, distance * 0.24f))
+                val headWidth = headLength * 0.55f
+                val baseX = x1 - ux * headLength
+                val baseY = y1 - uy * headLength
+                val left = PointF(baseX + px * headWidth, baseY + py * headWidth)
+                val right = PointF(baseX - px * headWidth, baseY - py * headWidth)
+                listOf(
+                    PointF(x0, y0),
+                    PointF(x1, y1),
+                    left,
+                    PointF(x1, y1),
+                    right,
+                )
+            }
+        }
+    }
+
+    private fun snapFinishedStroke(
+        tool: InkTool,
+        shape: ShapeTool,
+        stroke: Stroke,
+    ): Stroke {
+        if (tool != InkTool.UNDERLINE && tool != InkTool.SHAPE) return stroke
+        val points = shapePoints(tool, shape, stroke)
+        return if (points.size >= 2) syntheticStrokeFromPoints(stroke, points) else stroke
+    }
+
+    private fun sampledPointsForPartialErase(
+        stroke: Stroke,
+        sampleStep: Float,
+    ): List<PointF> {
+        val inputs = stroke.inputs
+        if (inputs.size == 0) return emptyList()
+        if (inputs.size == 1) return listOf(PointF(inputs[0].x, inputs[0].y))
+
+        val output = mutableListOf<PointF>()
+        output += PointF(inputs[0].x, inputs[0].y)
+
+        for (index in 1 until inputs.size) {
+            val a = inputs[index - 1]
+            val b = inputs[index]
+            val dx = b.x - a.x
+            val dy = b.y - a.y
+            val distance = sqrt(dx * dx + dy * dy)
+            val steps = ceil(distance / sampleStep.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
+            for (step in 1..steps) {
+                val t = step.toFloat() / steps.toFloat()
+                output += PointF(a.x + dx * t, a.y + dy * t)
+            }
+        }
+        return output
+    }
+
+    private fun partialEraseEntry(
+        entry: InkEntry,
+        pageX: Float,
+        pageY: Float,
+        radius: Float,
+    ): List<InkEntry> {
+        val effectiveRadius = radius + entry.style.size * 0.35f
+        val radiusSquared = effectiveRadius * effectiveRadius
+        val sampled =
+            sampledPointsForPartialErase(
+                entry.stroke,
+                kotlin.math.max(1.5f, effectiveRadius * 0.28f),
+            )
+        if (sampled.size < 2) return emptyList()
+
+        val groups = mutableListOf<MutableList<PointF>>()
+        var current = mutableListOf<PointF>()
+
+        fun flush() {
+            if (current.size >= 2) groups += current
+            current = mutableListOf()
+        }
+
+        sampled.forEach { point ->
+            val dx = point.x - pageX
+            val dy = point.y - pageY
+            val erased = dx * dx + dy * dy <= radiusSquared
+            if (erased) {
+                flush()
+            } else {
+                current += point
+            }
+        }
+        flush()
+
+        return groups.map { points ->
+            InkEntry(
+                entry.style,
+                syntheticStrokeFromPoints(entry.stroke, points),
+            )
+        }
+    }
+
     private fun eraseAt(event: MotionEvent): Boolean {
         if (currentEntries.isEmpty()) return false
         val point = eventPointInPage(event)
@@ -2226,12 +2426,29 @@ function hypot(a,b) {
 
         for (index in currentEntries.indices.reversed()) {
             val entry = currentEntries[index]
-            if (entry in erasedThisGesture) continue
             if (!strokeIntersectsEraser(entry, point[0], point[1], radius)) continue
 
-            currentEntries.removeAt(index)
-            erasedThisGesture += entry
-            undoHistory.addLast(InkHistoryAction.Removed(index, entry))
+            if (eraserMode == EraserMode.WHOLE_STROKE) {
+                if (entry in erasedThisGesture) continue
+                currentEntries.removeAt(index)
+                erasedThisGesture += entry
+                undoHistory.addLast(InkHistoryAction.Removed(index, entry))
+            } else {
+                val replacements =
+                    partialEraseEntry(entry, point[0], point[1], radius)
+                currentEntries.removeAt(index)
+                if (replacements.isNotEmpty()) {
+                    currentEntries.addAll(index, replacements)
+                }
+                undoHistory.addLast(
+                    InkHistoryAction.Replaced(
+                        index = index,
+                        original = entry,
+                        replacements = replacements,
+                    ),
+                )
+            }
+
             redoHistory.clear()
             refreshInkLayers()
             persistInkForPage(currentPageIndex)
