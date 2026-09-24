@@ -42,7 +42,13 @@ void main() {
     expect(activity, contains('Intent.ACTION_OPEN_DOCUMENT'));
     expect(activity, contains('Intent.CATEGORY_OPENABLE'));
     expect(activity, contains('contentResolver.openInputStream(uri)'));
-    expect(activity, contains('input.copyTo(output)'));
+    expect(activity, contains('Thread('));
+    expect(activity, contains('"LexPdfPickerCopy"'));
+    expect(activity, contains('"LexPdfIntentCopy"'));
+    expect(
+      activity,
+      contains('input.copyTo(output, bufferSize = 64 * 1024)'),
+    );
     expect(activity, contains('PICKER_COPY_START'));
     expect(activity, contains('PICKER_COPY_DONE'));
     expect(activity, isNot(contains('ByteArrayOutputStream')));
