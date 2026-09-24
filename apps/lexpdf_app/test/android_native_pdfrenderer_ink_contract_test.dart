@@ -16,6 +16,7 @@ void main() {
     expect(gradle, contains('androidx.ink:ink-storage:1.0.0'));
 
     expect(activity, contains('PDFJS_VERSION = "6.3.289"'));
+    expect(activity, contains('WebView.setDataDirectorySuffix("pdfreader")'));
     expect(activity, contains('shouldInterceptRequest'));
     expect(activity, contains('RangeFileInputStream'));
     expect(activity, contains('Content-Range'));
