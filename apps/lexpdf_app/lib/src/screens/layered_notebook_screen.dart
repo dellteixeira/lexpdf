@@ -874,7 +874,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     late final String selectedName;
     if (Platform.isAndroid) {
       final picked = await const NativeAndroidFilePickerService().pickFile(
-        extensions: group.extensions,
+        extensions: group.extensions ?? const <String>[],
       );
       if (picked == null) return;
       selectedPath = picked.path;
@@ -906,7 +906,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _lastDocumentContentVersion = document.contentVersion;
       await _persistRichDocumentNow();
       _activateTextMode();
-      _showNotebookMessage('Documento aberto: ${selected.name}');
+      _showNotebookMessage('Documento aberto: $selectedName');
     } catch (error) {
       _showNotebookMessage('Não foi possível abrir o documento: $error');
     }
