@@ -5,9 +5,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
@@ -231,22 +228,33 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             Button(this).apply {
                 text = label
                 isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                setMinWidth(0)
+
+                val targetWidthDp =
+                    when {
+                        label.length <= 1 -> 42
+                        label == "Ir" -> 48
+                        label.contains("Página") -> 86
+                        label.length <= 5 -> 64
+                        label.length <= 7 -> 72
+                        else -> 80
+                    }
+                minWidth = targetWidthDp.dp
+                minimumWidth = targetWidthDp.dp
+                setMinWidth(targetWidthDp.dp)
+
                 setSingleLine(true)
                 maxLines = 1
-                setHorizontallyScrolling(true)
+                setHorizontallyScrolling(false)
                 includeFontPadding = false
                 ellipsize = TextUtils.TruncateAt.END
                 TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
                     this,
-                    7,
-                    12,
+                    8,
+                    13,
                     1,
                     TypedValue.COMPLEX_UNIT_SP,
                 )
-                setPadding(6.dp, 0, 6.dp, 0)
+                setPadding(8.dp, 0, 8.dp, 0)
                 setOnClickListener { onClick() }
             }
 
@@ -352,14 +360,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
-        // Highlighter has its own compositing layer. MULTIPLY preserves dark
-        // glyphs and prevents the marker from washing out PDF text.
+        // Highlighter is isolated from pen strokes but uses ordinary transparent
+        // compositing. Applying MULTIPLY to the whole Android view can black out
+        // the WebView on some Samsung/GPU combinations.
         highlighterInkView =
             DryInkView(
                 this,
                 { pageToViewMatrix() },
                 InkKind.HIGHLIGHTER,
-                multiplyWithContent = true,
             )
         readerFrame.addView(
             highlighterInkView,
@@ -375,7 +383,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 this,
                 { pageToViewMatrix() },
                 InkKind.PEN,
-                multiplyWithContent = false,
             )
         readerFrame.addView(
             penInkView,
@@ -1910,7 +1917,7 @@ function hypot(a,b) {
         if (kind == InkKind.HIGHLIGHTER) {
             container.addView(
                 TextView(this).apply {
-                    text = "O marca-texto usa transparência baixa e composição MULTIPLY para manter o texto legível."
+                    text = "O marca-texto usa transparência baixa para preservar a legibilidade do texto sem cobrir a página."
                     textSize = 12f
                     alpha = 0.72f
                     setPadding(0, 8.dp, 0, 0)
@@ -1952,15 +1959,10 @@ function hypot(a,b) {
 
     private fun updateWetInkCompositing(kind: InkKind) {
         if (!::wetInkView.isInitialized) return
-        if (kind == InkKind.HIGHLIGHTER) {
-            val layerPaint =
-                Paint().apply {
-                    xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
-                }
-            wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint)
-        } else {
-            wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        }
+        // Keep the live stroke on normal hardware composition. Highlighter
+        // readability is controlled by its low-alpha color, not by an Xfermode
+        // applied to the whole overlay (which can obscure the PDF WebView).
+        wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
     }
 
     private fun selectInk(kind: InkKind) {
@@ -2460,7 +2462,6 @@ function hypot(a,b) {
         context: Context,
         private val matrixProvider: () -> Matrix,
         private val kind: InkKind,
-        multiplyWithContent: Boolean,
     ) : View(context) {
         private val entries = mutableListOf<InkEntry>()
         private val renderer =
@@ -2473,17 +2474,7 @@ function hypot(a,b) {
             setWillNotDraw(false)
             isClickable = false
             isFocusable = false
-
-            if (multiplyWithContent) {
-                // The marker is composited with MULTIPLY instead of ordinary
-                // source-over alpha. Dark PDF text therefore remains dark,
-                // producing the visual effect of ink placed behind the glyphs.
-                val layerPaint =
-                    Paint().apply {
-                        xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
-                    }
-                setLayerType(LAYER_TYPE_HARDWARE, layerPaint)
-            }
+            setLayerType(LAYER_TYPE_HARDWARE, null)
         }
 
         fun setEntries(values: List<InkEntry>) {
