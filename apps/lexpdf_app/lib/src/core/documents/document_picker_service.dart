@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/services.dart';
 
 import 'document_provider.dart';
+import 'native_android_file_picker_service.dart';
 
 class DocumentPickerService {
   const DocumentPickerService();
@@ -14,31 +14,22 @@ class DocumentPickerService {
     mimeTypes: <String>['application/pdf'],
   );
 
-  static const MethodChannel _androidPicker =
-      MethodChannel('lexpdf/native_pdf_picker');
+  static const NativeAndroidFilePickerService _androidPicker =
+      NativeAndroidFilePickerService();
 
   Future<DocumentRef?> pickPdf() async {
     if (Platform.isAndroid) {
-      final result =
-          await _androidPicker.invokeMapMethod<String, dynamic>('pickPdf');
-      if (result == null) return null;
-
-      final path = result['path'] as String?;
-      final name = result['name'] as String?;
-      if (path == null || path.trim().isEmpty) {
-        throw PlatformException(
-          code: 'picker_missing_path',
-          message: 'Android picker returned no local PDF path.',
-        );
-      }
+      final picked = await _androidPicker.pickFile(
+        extensions: const ['pdf'],
+        mimeType: 'application/pdf',
+      );
+      if (picked == null) return null;
 
       return DocumentRef(
-        id: path,
-        name: (name == null || name.trim().isEmpty)
-            ? path.split(Platform.pathSeparator).last
-            : name,
+        id: picked.path,
+        name: picked.name,
         provider: DocumentProviderKind.local,
-        localPath: path,
+        localPath: picked.path,
         availableOffline: true,
         syncState: DocumentSyncState.localOnly,
       );
