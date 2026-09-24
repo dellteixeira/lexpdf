@@ -96,9 +96,37 @@ void main() {
     expect(
       activity,
       contains(
-        'viewToPageMatrix(),\n                        pageToViewMatrix(),',
+        'viewToPageMatrix(),\n                        Matrix(),',
       ),
     );
+    expect(
+      activity,
+      isNot(
+        contains(
+          'viewToPageMatrix(),\n                        pageToViewMatrix(),',
+        ),
+      ),
+    );
+  });
+
+  test('reader builds a navigable PDF index and supports fit-page', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('pdf.getPageLabels()'));
+    expect(activity, contains('pdf.getOutline()'));
+    expect(activity, contains('buildVisualIndex()'));
+    expect(activity, contains('inferPrintedPageOffset'));
+    expect(activity, contains("source: 'toc'"));
+    expect(activity, contains("source: 'outline'"));
+    expect(activity, contains('physicalPageForPrintedLabel'));
+    expect(activity, contains('LexPdfBridge.pageLabels'));
+    expect(activity, contains('button("⛶ Página")'));
+    expect(activity, contains('LexPDF.fitPage()'));
+    expect(activity, contains('fitPage() {'));
+    expect(activity, contains('widthScale'));
+    expect(activity, contains('heightScale'));
   });
 
   test('ink tools select in one tap and customize on long press', () {
