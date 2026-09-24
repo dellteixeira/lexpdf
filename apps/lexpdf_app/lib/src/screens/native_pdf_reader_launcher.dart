@@ -101,10 +101,10 @@ class _NativePdfReaderLauncherState extends State<NativePdfReaderLauncher> {
                   _error != null
                       ? 'O leitor nativo não pôde ser iniciado.'
                       : _openedOnce
-                          ? 'O documento foi aberto pelo PdfRenderer do Android. '
+                          ? 'O documento foi aberto pelo Mozilla PDF.js no WebView. '
                               'Toque abaixo para abri-lo novamente.'
                           : 'Abrindo em um processo Android separado com '
-                              'PdfRenderer + AndroidX Ink, sem SDK comercial…',
+                              'PDF.js + streaming por faixa + AndroidX Ink, sem SDK comercial…',
                   textAlign: TextAlign.center,
                 ),
                 if (_error != null) ...[
