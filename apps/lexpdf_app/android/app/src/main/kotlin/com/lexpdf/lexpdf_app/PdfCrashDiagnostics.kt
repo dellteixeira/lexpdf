@@ -21,6 +21,7 @@ object PdfCrashDiagnostics {
     private const val READER_CRASH_FILE = "uncaught_pdfreader.txt"
     private const val PREFS = "pdf_crash_diagnostics"
     private const val LAST_SHOWN_EXIT = "last_shown_exit_timestamp"
+    private const val LAST_SHOWN_CAPTURE = "last_shown_capture_timestamp"
     private const val LAUNCH_CORRELATION_WINDOW_MS = 60_000L
 
     fun installUncaughtExceptionCapture(context: Context) {
@@ -162,21 +163,36 @@ object PdfCrashDiagnostics {
 
     private fun recentCapturedCrashReport(context: Context): String? {
         val launchTimestamp = readLaunchTimestamp(context)
-        val reader = readDiagnosticFile(context, READER_CRASH_FILE)
-        if (!reader.isNullOrBlank()) return reader
+        val candidates =
+            listOfNotNull(
+                readDiagnosticFile(context, READER_CRASH_FILE),
+                readDiagnosticFile(context, MAIN_CRASH_FILE),
+            )
+                .mapNotNull { payload ->
+                    val timestamp = payload.substringBefore('|').toLongOrNull()
+                        ?: return@mapNotNull null
+                    timestamp to payload
+                }
+                .sortedByDescending { it.first }
 
-        val main = readDiagnosticFile(context, MAIN_CRASH_FILE)
-        if (!main.isNullOrBlank() && launchTimestamp != null) {
-            val crashTimestamp = main.substringBefore('|').toLongOrNull()
-            if (
-                crashTimestamp != null &&
-                crashTimestamp >= launchTimestamp &&
-                crashTimestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
-            ) {
-                return main
-            }
+        val (timestamp, payload) =
+            candidates.firstOrNull { (timestamp, payload) ->
+                if (wasCapturedAlreadyShown(context, timestamp)) {
+                    false
+                } else if (payload.contains("processo=${context.packageName}:pdfreader")) {
+                    true
+                } else {
+                    launchTimestamp != null &&
+                        timestamp >= launchTimestamp &&
+                        timestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
+                }
+            } ?: return null
+
+        rememberCapturedShown(context, timestamp)
+        return buildString {
+            appendLine("LexPDF diagnóstico local de exceção")
+            append(payload)
         }
-        return null
     }
 
     private fun readLaunchTimestamp(context: Context): Long? =
@@ -204,6 +220,19 @@ object PdfCrashDiagnostics {
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(LAST_SHOWN_EXIT, timestamp)
+            .apply()
+    }
+
+    private fun wasCapturedAlreadyShown(context: Context, timestamp: Long): Boolean =
+        context
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(LAST_SHOWN_CAPTURE, -1L) == timestamp
+
+    private fun rememberCapturedShown(context: Context, timestamp: Long) {
+        context
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(LAST_SHOWN_CAPTURE, timestamp)
             .apply()
     }
 
