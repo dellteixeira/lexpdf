@@ -2537,6 +2537,8 @@ function hypot(a,b) {
                         Matrix(),
                     )
                 strokeStyles[strokeId] = style
+                strokeTools[strokeId] = currentTool
+                strokeShapeTools[strokeId] = currentShape
                 true
             }
 
@@ -2556,6 +2558,8 @@ function hypot(a,b) {
             MotionEvent.ACTION_CANCEL -> {
                 wetInkView.cancelUnfinishedStrokes()
                 strokeStyles.clear()
+                strokeTools.clear()
+                strokeShapeTools.clear()
                 true
             }
 
@@ -2564,8 +2568,11 @@ function hypot(a,b) {
     }
 
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-        strokes.forEach { (id, stroke) ->
+        strokes.forEach { (id, rawStroke) ->
             val style = strokeStyles.remove(id) ?: currentInkStyle()
+            val tool = strokeTools.remove(id) ?: currentTool
+            val shape = strokeShapeTools.remove(id) ?: currentShape
+            val stroke = snapFinishedStroke(tool, shape, rawStroke)
             val entry = InkEntry(style, stroke)
             currentEntries += entry
             undoHistory.addLast(InkHistoryAction.Added(entry))
@@ -2583,9 +2590,16 @@ function hypot(a,b) {
             is InkHistoryAction.Added -> {
                 currentEntries.remove(action.entry)
             }
+
             is InkHistoryAction.Removed -> {
                 val targetIndex = action.index.coerceIn(0, currentEntries.size)
                 currentEntries.add(targetIndex, action.entry)
+            }
+
+            is InkHistoryAction.Replaced -> {
+                action.replacements.forEach { currentEntries.remove(it) }
+                val targetIndex = action.index.coerceIn(0, currentEntries.size)
+                currentEntries.add(targetIndex, action.original)
             }
         }
         redoHistory.addLast(action)
@@ -2600,8 +2614,17 @@ function hypot(a,b) {
             is InkHistoryAction.Added -> {
                 currentEntries += action.entry
             }
+
             is InkHistoryAction.Removed -> {
                 currentEntries.remove(action.entry)
+            }
+
+            is InkHistoryAction.Replaced -> {
+                currentEntries.remove(action.original)
+                val targetIndex = action.index.coerceIn(0, currentEntries.size)
+                if (action.replacements.isNotEmpty()) {
+                    currentEntries.addAll(targetIndex, action.replacements)
+                }
             }
         }
         undoHistory.addLast(action)
@@ -2671,6 +2694,9 @@ function hypot(a,b) {
         currentEntries.clear()
         undoHistory.clear()
         redoHistory.clear()
+        strokeStyles.clear()
+        strokeTools.clear()
+        strokeShapeTools.clear()
         erasedThisGesture.clear()
         refreshInkLayers()
         pageMetrics = null
