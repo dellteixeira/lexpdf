@@ -157,6 +157,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         rangeReader = RandomAccessFile(sourceFile, "r")
+        loadInkPreferences()
 
         currentPageIndex =
             (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1).coerceAtLeast(0)
@@ -193,61 +194,77 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             setBackgroundColor(Color.rgb(18, 20, 24))
         }
 
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(6.dp, 4.dp, 6.dp, 4.dp)
-            setBackgroundColor(Color.rgb(242, 244, 247))
-        }
+        fun toolRow(): LinearLayout =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(6.dp, 3.dp, 6.dp, 3.dp)
+                setBackgroundColor(Color.rgb(242, 244, 247))
+            }
 
-        fun button(label: String, onClick: () -> Unit): Button {
-            return Button(this).apply {
+        fun button(label: String, onClick: () -> Unit): Button =
+            Button(this).apply {
                 text = label
                 isAllCaps = false
                 minWidth = 0
                 setPadding(10.dp, 0, 10.dp, 0)
                 setOnClickListener { onClick() }
             }
-        }
 
-        toolbar.addView(button("‹") { js("LexPDF.previousPage()") })
+        val navigationRow = toolRow()
+        navigationRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
         pageLabel = TextView(this).apply {
             gravity = Gravity.CENTER
             textSize = 14f
             setTextColor(Color.rgb(30, 33, 38))
             text = "…"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showPageJumpDialog() }
         }
-        toolbar.addView(
+        navigationRow.addView(
             pageLabel,
-            LinearLayout.LayoutParams(96.dp, LinearLayout.LayoutParams.WRAP_CONTENT),
+            LinearLayout.LayoutParams(110.dp, LinearLayout.LayoutParams.MATCH_PARENT),
         )
 
-        toolbar.addView(button("›") { js("LexPDF.nextPage()") })
-        toolbar.addView(button("−") { js("LexPDF.zoomOut()") })
-        toolbar.addView(button("+") { js("LexPDF.zoomIn()") })
-        toolbar.addView(button("Caneta") { selectInk(InkKind.PEN) })
-        toolbar.addView(button("Marca") { selectInk(InkKind.HIGHLIGHTER) })
-        toolbar.addView(button("Desfazer") { undoInk() })
-        toolbar.addView(button("Refazer") { redoInk() })
-        toolbar.addView(button("Fechar") { finish() })
+        navigationRow.addView(button("Ir") { showPageJumpDialog() })
+        navigationRow.addView(button("›") { js("LexPDF.nextPage()") })
+        navigationRow.addView(button("−") { js("LexPDF.zoomOut()") })
+        navigationRow.addView(button("+") { js("LexPDF.zoomIn()") })
+        navigationRow.addView(button("Índice") { showOutlineDialog() })
+        navigationRow.addView(button("Fechar") { finish() })
+
+        val inkRow = toolRow()
+        inkRow.addView(button("Caneta ▾") { showInkSettings(InkKind.PEN) })
+        inkRow.addView(button("Marca ▾") { showInkSettings(InkKind.HIGHLIGHTER) })
+        inkRow.addView(button("Desfazer") { undoInk() })
+        inkRow.addView(button("Refazer") { redoInk() })
 
         statusLabel = TextView(this).apply {
             textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
             setTextColor(Color.rgb(65, 68, 74))
-            setPadding(8.dp, 0, 6.dp, 0)
+            setPadding(10.dp, 0, 6.dp, 0)
             text = "PDF.js iniciando…"
         }
-        toolbar.addView(
+        inkRow.addView(
             statusLabel,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
         )
 
         root.addView(
-            toolbar,
+            navigationRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                54.dp,
+                48.dp,
+            ),
+        )
+        root.addView(
+            inkRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                48.dp,
             ),
         )
 
