@@ -147,7 +147,9 @@ void main() {
 
     expect(activity, contains('setSingleLine(true)'));
     expect(activity, contains('maxLines = 1'));
-    expect(activity, contains('setHorizontallyScrolling(true)'));
+    expect(activity, contains('setHorizontallyScrolling(false)'));
+    expect(activity, contains('targetWidthDp'));
+    expect(activity, contains('setMinWidth(targetWidthDp.dp)'));
     expect(activity, contains('ellipsize = TextUtils.TruncateAt.END'));
     expect(
       activity,
@@ -192,6 +194,17 @@ void main() {
     expect(activity, contains('apaga caneta e marca-texto'));
   });
 
+  test('Samsung rendering avoids layer-wide blend modes that can black out WebView', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, isNot(contains('PorterDuffXfermode')));
+    expect(activity, isNot(contains('PorterDuff.Mode.MULTIPLY')));
+    expect(activity, contains('setLayerType(LAYER_TYPE_HARDWARE, null)'));
+    expect(activity, contains('Color.argb(72, 255, 224, 64)'));
+  });
+
   test('stylus palettes, thickness and readable highlighter compositing are enforced', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
@@ -204,14 +217,14 @@ void main() {
     expect(activity, contains('val minSize = if (kind == InkKind.PEN) 1 else 6'));
     expect(activity, contains('val maxSize = if (kind == InkKind.PEN) 16 else 40'));
     expect(activity, contains('Color.argb(72, 255, 224, 64)'));
-    expect(activity, contains('PorterDuff.Mode.MULTIPLY'));
+    expect(activity, isNot(contains('PorterDuff.Mode.MULTIPLY')));
     expect(activity, contains('updateWetInkCompositing'));
     expect(activity, contains('highlighterInkView'));
     expect(activity, contains('penInkView'));
     expect(activity, contains('values.filter { it.style.kind == kind }'));
     expect(
       activity,
-      contains('O marca-texto usa transparência baixa e composição MULTIPLY'),
+      contains('O marca-texto usa transparência baixa para preservar a legibilidade do texto'),
     );
   });
 
