@@ -452,6 +452,44 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         @JavascriptInterface
+        fun outline(json: String) {
+            val parsed = mutableListOf<OutlineEntry>()
+            try {
+                val array = JSONArray(json)
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val title = item.optString("title").trim()
+                    if (title.isBlank()) continue
+                    val page =
+                        if (item.has("page") && !item.isNull("page")) {
+                            item.optInt("page").takeIf { it > 0 }
+                        } else {
+                            null
+                        }
+                    parsed +=
+                        OutlineEntry(
+                            title = title,
+                            page = page,
+                            depth = item.optInt("depth").coerceIn(0, 8),
+                        )
+                }
+            } catch (_: Throwable) {
+                parsed.clear()
+            }
+
+            runOnUiThread {
+                outlineEntries.clear()
+                outlineEntries += parsed
+                outlineLoaded = true
+                PdfCrashDiagnostics.mark(
+                    this@NativePdfReaderActivity,
+                    "JS07_OUTLINE_READY",
+                    "entries=${parsed.size}",
+                )
+            }
+        }
+
+        @JavascriptInterface
         fun pageChanged(page: Int) {
             runOnUiThread {
                 val next = (page - 1).coerceAtLeast(0)
@@ -592,6 +630,46 @@ function decodeBase64(base64) {
   return bytes;
 }
 
+async function resolveOutlineItem(item, depth, output) {
+  if (output.length >= 2000) return;
+
+  let page = null;
+  try {
+    let dest = item.dest;
+    if (typeof dest === 'string') {
+      dest = await pdf.getDestination(dest);
+    }
+    if (Array.isArray(dest) && dest.length > 0) {
+      page = (await pdf.getPageIndex(dest[0])) + 1;
+    }
+  } catch (_) {}
+
+  output.push({
+    title: String(item.title || 'Sem título'),
+    page,
+    depth
+  });
+
+  for (const child of (item.items || [])) {
+    if (output.length >= 2000) break;
+    await resolveOutlineItem(child, depth + 1, output);
+  }
+}
+
+async function loadOutline() {
+  try {
+    const raw = await pdf.getOutline();
+    const output = [];
+    for (const item of (raw || [])) {
+      if (output.length >= 2000) break;
+      await resolveOutlineItem(item, 0, output);
+    }
+    LexPdfBridge.outline(JSON.stringify(output));
+  } catch (_) {
+    LexPdfBridge.outline('[]');
+  }
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   LexPdfBridge.metrics(JSON.stringify({
@@ -678,6 +756,7 @@ window.LexPDF = {
     loading.style.display = 'none';
     LexPdfBridge.error(String(message));
   },
+  goToPage(page) { renderPage(Number(page)); },
   nextPage() { renderPage(pageNumber + 1); },
   previousPage() { renderPage(pageNumber - 1); },
   zoomIn() {
@@ -739,6 +818,7 @@ function hypot(a,b) {
     });
     pdf = await task.promise;
     LexPdfBridge.ready(pdf.numPages);
+    void loadOutline();
     await renderPage(pageNumber);
   } catch (e) {
     loading.style.display = 'none';
