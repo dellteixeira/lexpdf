@@ -27,7 +27,7 @@ void main() {
     ).readAsStringSync();
 
     expect(source, contains('File.createTempFile('));
-    expect(source, contains('input.copyTo(output)'));
+    expect(source, contains('input.copyTo(output, bufferSize = 64 * 1024)'));
     expect(source, contains('output.flush()'));
     expect(source, contains('temporary.length() <= 0L'));
     expect(source, contains('temporary.renameTo(target)'));

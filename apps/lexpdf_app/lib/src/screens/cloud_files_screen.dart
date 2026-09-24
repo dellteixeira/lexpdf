@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/cloud/cloud_gateway_document_provider.dart';
 import '../core/cloud/direct_cloud_document_provider.dart';
 import '../core/documents/document_provider.dart';
+import '../core/documents/native_android_file_picker_service.dart';
 import '../core/storage/local_cloud_account_store.dart';
 import '../core/storage/local_cloud_cache_store.dart';
 import '../core/storage/local_document_catalog.dart';
@@ -149,27 +150,43 @@ class _CloudFilesScreenState extends State<CloudFilesScreen> {
   Future<void> _upload() async {
     final provider = _provider;
     if (provider == null || _busy) return;
-    const group = XTypeGroup(
-      label: 'PDF',
-      extensions: ['pdf'],
-      mimeTypes: ['application/pdf'],
-    );
-    final file = await openFile(acceptedTypeGroups: const [group]);
-    if (file == null) return;
+
+    late final String localPath;
+    late final String fileName;
+    if (Platform.isAndroid) {
+      final picked = await const NativeAndroidFilePickerService().pickFile(
+        extensions: const ['pdf'],
+        mimeType: 'application/pdf',
+      );
+      if (picked == null) return;
+      localPath = picked.path;
+      fileName = picked.name;
+    } else {
+      const group = XTypeGroup(
+        label: 'PDF',
+        extensions: ['pdf'],
+        mimeTypes: ['application/pdf'],
+      );
+      final file = await openFile(acceptedTypeGroups: const [group]);
+      if (file == null) return;
+      localPath = file.path;
+      fileName = file.name;
+    }
+
     setState(() => _busy = true);
     final job = await widget.syncStore?.enqueue(
-      entityId: file.path,
+      entityId: localPath,
       provider: widget.account.provider,
       operation: LocalSyncOperation.upload,
       payload: {
         'accountId': widget.account.accountId,
-        'localPath': file.path,
-        'name': file.name,
+        'localPath': localPath,
+        'name': fileName,
       },
     );
     if (job != null) await widget.syncStore!.markRunning(job.id);
     try {
-      final uploaded = await provider.upload(file.path);
+      final uploaded = await provider.upload(localPath);
       await widget.catalog?.upsert(uploaded);
       await widget.syncStore?.bindAccount(
         entityId: uploaded.id,
