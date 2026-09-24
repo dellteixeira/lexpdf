@@ -18,11 +18,15 @@ class MainActivity : FlutterActivity() {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
         private const val NATIVE_READER_CHANNEL = "lexpdf/native_pdf_reader"
+        private const val NATIVE_PICKER_CHANNEL = "lexpdf/native_pdf_picker"
+        private const val PICK_PDF_REQUEST_CODE = 0x4C50
     }
 
     private var channel: MethodChannel? = null
     private var inputCapabilitiesChannel: MethodChannel? = null
     private var nativeReaderChannel: MethodChannel? = null
+    private var nativePickerChannel: MethodChannel? = null
+    private var pendingPickerResult: MethodChannel.Result? = null
     private var pendingPdfPath: String? = null
     private var flutterReady = false
     private var diagnosticDialogVisible = false
@@ -60,6 +64,18 @@ class MainActivity : FlutterActivity() {
             methodChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "hasStylus" -> result.success(hasStylusInputDevice())
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
+        nativePickerChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NATIVE_PICKER_CHANNEL,
+        ).also { methodChannel ->
+            methodChannel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "pickPdf" -> launchNativePdfPicker(result)
                     else -> result.notImplemented()
                 }
             }
@@ -119,6 +135,101 @@ class MainActivity : FlutterActivity() {
             }
         }
         processIntent(intent)
+    }
+
+    private fun launchNativePdfPicker(result: MethodChannel.Result) {
+        if (pendingPickerResult != null) {
+            result.error("picker_busy", "A PDF selection is already in progress.", null)
+            return
+        }
+
+        pendingPickerResult = result
+        try {
+            PdfCrashDiagnostics.mark(this, "PICKER_OPEN")
+            val pickerIntent =
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/pdf"
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                    )
+                }
+            startActivityForResult(pickerIntent, PICK_PDF_REQUEST_CODE)
+        } catch (error: Throwable) {
+            pendingPickerResult = null
+            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+            result.error(
+                "picker_launch_failed",
+                "${error.javaClass.simpleName}: ${error.message}",
+                null,
+            )
+        }
+    }
+
+    @Deprecated("Deprecated in Android framework; retained for FlutterActivity compatibility.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != PICK_PDF_REQUEST_CODE) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+
+        val result = pendingPickerResult
+        pendingPickerResult = null
+        if (result == null) return
+
+        if (resultCode != RESULT_OK) {
+            result.success(null)
+            return
+        }
+
+        val uri = data?.data
+        if (uri == null) {
+            result.error("picker_missing_uri", "Android returned no PDF URI.", null)
+            return
+        }
+
+        try {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+                // Immediate streaming copy below does not depend on persistence.
+            }
+
+            val displayName = queryDisplayName(uri)
+            PdfCrashDiagnostics.mark(
+                this,
+                "PICKER_COPY_START",
+                "nameHash=${displayName.hashCode()}",
+            )
+            val path = materializePdf(uri)
+            if (path.isNullOrBlank()) {
+                result.error("picker_copy_failed", "Could not stream the selected PDF.", null)
+                return
+            }
+
+            PdfCrashDiagnostics.mark(
+                this,
+                "PICKER_COPY_DONE",
+                "size=${File(path).length()}",
+            )
+            result.success(
+                mapOf(
+                    "path" to path,
+                    "name" to displayName,
+                ),
+            )
+        } catch (error: Throwable) {
+            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+            result.error(
+                "picker_copy_failed",
+                "${error.javaClass.simpleName}: ${error.message}",
+                null,
+            )
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
