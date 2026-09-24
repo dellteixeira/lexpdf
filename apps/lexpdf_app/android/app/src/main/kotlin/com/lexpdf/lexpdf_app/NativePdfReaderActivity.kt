@@ -115,6 +115,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var wetInkView: InProgressStrokesView
     private lateinit var pageLabel: TextView
     private lateinit var statusLabel: TextView
+    private lateinit var penButton: Button
+    private lateinit var highlighterButton: Button
     private lateinit var readerFrame: StylusRouterLayout
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -236,8 +238,26 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         navigationRow.addView(button("Fechar") { finish() })
 
         val inkRow = toolRow()
-        inkRow.addView(button("Caneta ▾") { showInkSettings(InkKind.PEN) })
-        inkRow.addView(button("Marca ▾") { showInkSettings(InkKind.HIGHLIGHTER) })
+        penButton =
+            button("Caneta") {
+                selectInk(InkKind.PEN)
+            }.apply {
+                setOnLongClickListener {
+                    showInkSettings(InkKind.PEN)
+                    true
+                }
+            }
+        highlighterButton =
+            button("Marca") {
+                selectInk(InkKind.HIGHLIGHTER)
+            }.apply {
+                setOnLongClickListener {
+                    showInkSettings(InkKind.HIGHLIGHTER)
+                    true
+                }
+            }
+        inkRow.addView(penButton)
+        inkRow.addView(highlighterButton)
         inkRow.addView(button("Desfazer") { undoInk() })
         inkRow.addView(button("Refazer") { redoInk() })
 
@@ -315,6 +335,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         )
 
         setContentView(root)
+        selectInk(currentKind)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -596,6 +617,11 @@ let renderTask = null;
 let pageAtScaleOne = { width: 1, height: 1 };
 let pinchStartDistance = 0;
 let pinchStartScale = scale;
+let singleTouchStartX = 0;
+let singleTouchStartY = 0;
+let singleTouchStartScrollTop = 0;
+let singleTouchActive = false;
+let metricsFrame = 0;
 let rangeTransport = null;
 let rangeFailed = false;
 
@@ -683,6 +709,21 @@ function reportMetrics() {
   }));
 }
 
+function scheduleMetricsSync() {
+  if (metricsFrame) return;
+  metricsFrame = requestAnimationFrame(() => {
+    metricsFrame = 0;
+    reportMetrics();
+  });
+}
+
+function settleMetrics() {
+  scheduleMetricsSync();
+  setTimeout(scheduleMetricsSync, 32);
+  setTimeout(scheduleMetricsSync, 96);
+  setTimeout(scheduleMetricsSync, 220);
+}
+
 async function renderPage(target, preserveCenter = false) {
   if (!pdf) return;
   target = Math.max(1, Math.min(pdf.numPages, target));
@@ -731,11 +772,16 @@ async function renderPage(target, preserveCenter = false) {
     renderTask = null;
 
     if (token !== renderToken) return;
+    const pageChanged = pageNumber !== target;
     pageNumber = target;
     page.cleanup();
+    if (pageChanged && !preserveCenter) {
+      stage.scrollTop = 0;
+      stage.scrollLeft = 0;
+    }
     loading.style.display = 'none';
     requestAnimationFrame(() => {
-      reportMetrics();
+      settleMetrics();
       LexPdfBridge.pageChanged(pageNumber);
       LexPdfBridge.rendered(pageNumber);
     });
@@ -769,17 +815,31 @@ window.LexPDF = {
   }
 };
 
-stage.addEventListener('scroll', () => requestAnimationFrame(reportMetrics), { passive: true });
-window.addEventListener('resize', () => requestAnimationFrame(reportMetrics));
+stage.addEventListener('scroll', () => {
+  scheduleMetricsSync();
+}, { passive: true });
+window.addEventListener('resize', settleMetrics);
 
 stage.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    singleTouchActive = true;
+    singleTouchStartX = e.touches[0].clientX;
+    singleTouchStartY = e.touches[0].clientY;
+    singleTouchStartScrollTop = stage.scrollTop;
+  } else {
+    singleTouchActive = false;
+  }
+
   if (e.touches.length === 2) {
     pinchStartDistance = hypot(e.touches[0], e.touches[1]);
     pinchStartScale = scale;
   }
+  scheduleMetricsSync();
 }, { passive: true });
 
 stage.addEventListener('touchmove', e => {
+  scheduleMetricsSync();
+
   if (e.touches.length === 2 && pinchStartDistance > 0) {
     const d = hypot(e.touches[0], e.touches[1]);
     const next = Math.max(0.65, Math.min(4.0, pinchStartScale * d / pinchStartDistance));
@@ -794,8 +854,36 @@ stage.addEventListener('touchend', e => {
     if (m) scale = Math.max(0.65, Math.min(4.0, scale * Number(m[1])));
     canvas.style.transform = '';
     pinchStartDistance = 0;
+    singleTouchActive = false;
     renderPage(pageNumber, true);
+    settleMetrics();
+    return;
   }
+
+  if (singleTouchActive && e.changedTouches.length > 0) {
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - singleTouchStartX;
+    const dy = touch.clientY - singleTouchStartY;
+    const verticalGesture = Math.abs(dy) > 72 && Math.abs(dy) > Math.abs(dx) * 1.15;
+
+    const atTop = stage.scrollTop <= 3;
+    const atBottom =
+      stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 3;
+    const normalReadingScale = scale <= 1.30;
+    const barelyScrolled =
+      Math.abs(stage.scrollTop - singleTouchStartScrollTop) < 28;
+
+    if (verticalGesture) {
+      if (dy < 0 && (normalReadingScale || atBottom || barelyScrolled)) {
+        renderPage(pageNumber + 1);
+      } else if (dy > 0 && (normalReadingScale || atTop || barelyScrolled)) {
+        renderPage(pageNumber - 1);
+      }
+    }
+  }
+
+  singleTouchActive = false;
+  settleMetrics();
 }, { passive: true });
 
 function hypot(a,b) {
@@ -1077,12 +1165,24 @@ function hypot(a,b) {
     private fun selectInk(kind: InkKind) {
         currentKind = kind
         val style = currentInkStyle()
+
+        if (::penButton.isInitialized) {
+            penButton.text = if (kind == InkKind.PEN) "✓ Caneta" else "Caneta"
+            penButton.alpha = if (kind == InkKind.PEN) 1.0f else 0.72f
+        }
+        if (::highlighterButton.isInitialized) {
+            highlighterButton.text =
+                if (kind == InkKind.HIGHLIGHTER) "✓ Marca" else "Marca"
+            highlighterButton.alpha =
+                if (kind == InkKind.HIGHLIGHTER) 1.0f else 0.72f
+        }
+
         statusLabel.text =
             when (kind) {
                 InkKind.PEN ->
-                    "S Pen: caneta • espessura ${style.size.roundToInt()}"
+                    "S Pen: caneta • ${style.size.roundToInt()} • segure para personalizar"
                 InkKind.HIGHLIGHTER ->
-                    "S Pen: marca-texto • espessura ${style.size.roundToInt()}"
+                    "S Pen: marca-texto • ${style.size.roundToInt()} • segure para personalizar"
             }
     }
 
