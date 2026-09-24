@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
@@ -18,10 +19,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
@@ -34,6 +38,7 @@ import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInputBatch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -64,16 +69,33 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
         private const val PDFJS_VERSION = "6.3.289"
         private const val RANGE_CHUNK_SIZE = 512 * 1024
-        private const val SIDECAR_VERSION = 2
+        private const val SIDECAR_VERSION = 3
+        private const val INK_PREFS = "native_reader_ink"
+        private const val PREF_PEN_COLOR = "pen_color"
+        private const val PREF_PEN_SIZE = "pen_size"
+        private const val PREF_HIGHLIGHT_COLOR = "highlight_color"
+        private const val PREF_HIGHLIGHT_SIZE = "highlight_size"
         @Volatile
         private var webViewDirectoryConfigured = false
     }
 
     private enum class InkKind { PEN, HIGHLIGHTER }
 
-    private data class InkEntry(
+    private data class InkStyle(
         val kind: InkKind,
+        val colorArgb: Int,
+        val size: Float,
+    )
+
+    private data class InkEntry(
+        val style: InkStyle,
         val stroke: Stroke,
+    )
+
+    private data class OutlineEntry(
+        val title: String,
+        val page: Int?,
+        val depth: Int,
     )
 
     private data class PageMetrics(
@@ -101,27 +123,15 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var pageMetrics: PageMetrics? = null
 
     private var currentKind = InkKind.PEN
+    private var penColor = Color.rgb(20, 24, 30)
+    private var penSize = 3.0f
+    private var highlighterColor = Color.argb(92, 255, 224, 64)
+    private var highlighterSize = 18f
     private val currentEntries = mutableListOf<InkEntry>()
     private val redoEntries = ArrayDeque<InkEntry>()
-    private val strokeKinds = mutableMapOf<InProgressStrokeId, InkKind>()
-
-    private val penBrush: Brush by lazy {
-        Brush.createWithColorIntArgb(
-            StockBrushes.pressurePen(),
-            Color.rgb(20, 24, 30),
-            3.0f,
-            0.1f,
-        )
-    }
-
-    private val highlighterBrush: Brush by lazy {
-        Brush.createWithColorIntArgb(
-            StockBrushes.highlighter(),
-            Color.argb(92, 255, 224, 64),
-            18f,
-            0.2f,
-        )
-    }
+    private val strokeStyles = mutableMapOf<InProgressStrokeId, InkStyle>()
+    private val outlineEntries = mutableListOf<OutlineEntry>()
+    private var outlineLoaded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
