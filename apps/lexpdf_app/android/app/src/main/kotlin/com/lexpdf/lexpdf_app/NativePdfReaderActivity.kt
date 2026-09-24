@@ -961,14 +961,16 @@ async function loadNavigationMetadata() {
 
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
+  const density = window.devicePixelRatio || 1;
   LexPdfBridge.metrics(JSON.stringify({
     page: pageNumber,
     pageWidth: pageAtScaleOne.width,
     pageHeight: pageAtScaleOne.height,
-    left: r.left,
-    top: r.top,
-    width: r.width,
-    height: r.height
+    left: r.left * density,
+    top: r.top * density,
+    width: r.width * density,
+    height: r.height * density,
+    density
   }));
 }
 
