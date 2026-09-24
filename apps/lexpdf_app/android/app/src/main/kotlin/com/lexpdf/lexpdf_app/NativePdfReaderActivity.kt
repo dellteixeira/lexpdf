@@ -2014,27 +2014,44 @@ function hypot(a,b) {
         wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
     }
 
+    private fun resetToolButtons() {
+        if (::penButton.isInitialized) {
+            penButton.text = "Caneta"
+            penButton.alpha = 0.72f
+        }
+        if (::highlighterButton.isInitialized) {
+            highlighterButton.text = "Marca"
+            highlighterButton.alpha = 0.72f
+        }
+        if (::underlineButton.isInitialized) {
+            underlineButton.text = "Sublinhar"
+            underlineButton.alpha = 0.72f
+        }
+        if (::shapesButton.isInitialized) {
+            shapesButton.text = "Formas"
+            shapesButton.alpha = 0.72f
+        }
+        if (::eraserButton.isInitialized) {
+            eraserButton.text = "Borracha"
+            eraserButton.alpha = 0.72f
+        }
+    }
+
     private fun selectInk(kind: InkKind) {
         currentKind = kind
         currentTool =
             if (kind == InkKind.PEN) InkTool.PEN else InkTool.HIGHLIGHTER
         updateWetInkCompositing(kind)
+        resetToolButtons()
         val style = currentInkStyle()
 
-        if (::penButton.isInitialized) {
-            penButton.text = if (kind == InkKind.PEN) "✓ Caneta" else "Caneta"
-            penButton.alpha = if (kind == InkKind.PEN) 1.0f else 0.72f
+        if (kind == InkKind.PEN && ::penButton.isInitialized) {
+            penButton.text = "✓ Caneta"
+            penButton.alpha = 1.0f
         }
-        if (::highlighterButton.isInitialized) {
-            highlighterButton.text =
-                if (kind == InkKind.HIGHLIGHTER) "✓ Marca" else "Marca"
-            highlighterButton.alpha =
-                if (kind == InkKind.HIGHLIGHTER) 1.0f else 0.72f
-        }
-
-        if (::eraserButton.isInitialized) {
-            eraserButton.text = "Borracha"
-            eraserButton.alpha = 0.72f
+        if (kind == InkKind.HIGHLIGHTER && ::highlighterButton.isInitialized) {
+            highlighterButton.text = "✓ Marca"
+            highlighterButton.alpha = 1.0f
         }
 
         statusLabel.text =
@@ -2046,26 +2063,82 @@ function hypot(a,b) {
             }
     }
 
+    private fun selectUnderline() {
+        currentKind = InkKind.PEN
+        currentTool = InkTool.UNDERLINE
+        updateWetInkCompositing(InkKind.PEN)
+        resetToolButtons()
+        underlineButton.text = "✓ Sublinhar"
+        underlineButton.alpha = 1.0f
+        statusLabel.text =
+            "S Pen: sublinhado reto • arraste sob a palavra ou trecho"
+    }
+
+    private fun selectShape(shape: ShapeTool) {
+        currentKind = InkKind.PEN
+        currentTool = InkTool.SHAPE
+        currentShape = shape
+        updateWetInkCompositing(InkKind.PEN)
+        resetToolButtons()
+        shapesButton.text = "✓ ${shape.label}"
+        shapesButton.alpha = 1.0f
+        statusLabel.text =
+            "S Pen: ${shape.label.lowercase()} • arraste para definir o tamanho"
+    }
+
+    private fun showShapeToolDialog() {
+        val values = ShapeTool.entries
+        AlertDialog.Builder(this)
+            .setTitle("Figuras geométricas")
+            .setSingleChoiceItems(
+                values.map { it.label }.toTypedArray(),
+                currentShape.ordinal,
+            ) { dialog, which ->
+                selectShape(values[which])
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showEraserModeDialog() {
+        val values = EraserMode.entries
+        AlertDialog.Builder(this)
+            .setTitle("Borracha")
+            .setSingleChoiceItems(
+                values.map { it.label }.toTypedArray(),
+                eraserMode.ordinal,
+            ) { dialog, which ->
+                eraserMode = values[which]
+                selectEraser()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
     private fun selectEraser() {
         currentTool = InkTool.ERASER
         wetInkView.cancelUnfinishedStrokes()
         strokeStyles.clear()
+        strokeTools.clear()
+        strokeShapeTools.clear()
         updateWetInkCompositing(InkKind.PEN)
+        resetToolButtons()
 
-        if (::penButton.isInitialized) {
-            penButton.text = "Caneta"
-            penButton.alpha = 0.72f
-        }
-        if (::highlighterButton.isInitialized) {
-            highlighterButton.text = "Marca"
-            highlighterButton.alpha = 0.72f
-        }
-        if (::eraserButton.isInitialized) {
-            eraserButton.text = "✓ Borracha"
-            eraserButton.alpha = 1.0f
-        }
+        eraserButton.text =
+            if (eraserMode == EraserMode.PARTIAL) {
+                "✓ Borracha parte"
+            } else {
+                "✓ Borracha"
+            }
+        eraserButton.alpha = 1.0f
         statusLabel.text =
-            "S Pen: borracha de traço • apaga caneta e marca-texto"
+            if (eraserMode == EraserMode.PARTIAL) {
+                "S Pen: apagar parte • recorta somente a região tocada"
+            } else {
+                "S Pen: borracha de traço • remove o desenho inteiro"
+            }
     }
 
     private fun eventPointInPage(event: MotionEvent): FloatArray {
