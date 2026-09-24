@@ -3,18 +3,45 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('PDF.js crash diagnostics records exit reason and lifecycle breadcrumbs', () {
+  test('PDF crash diagnostics attributes failures to the correct process', () {
     final diagnostics = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/PdfCrashDiagnostics.kt',
     ).readAsStringSync();
+    final mainActivity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
+    ).readAsStringSync();
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+
+    expect(diagnostics, contains('getHistoricalProcessExitReasons'));
+    expect(diagnostics, contains('info.processName == readerProcessName'));
+    expect(diagnostics, contains('info.processName == packageName'));
+    expect(diagnostics, contains('LAUNCH_CORRELATION_WINDOW_MS'));
+    expect(diagnostics, contains('REASON_CRASH_NATIVE'));
+    expect(diagnostics, contains('REASON_CRASH'));
+    expect(diagnostics, contains('setProcessStateSummary'));
+    expect(diagnostics, contains('UncaughtExceptionHandler'));
+    expect(diagnostics, contains('error.printStackTrace'));
+    expect(diagnostics, contains('uncaught_pdfreader.txt'));
+    expect(diagnostics, contains('uncaught_main.txt'));
+
+    expect(
+      mainActivity,
+      contains('PdfCrashDiagnostics.markReaderLaunchAttempt('),
+    );
+    expect(
+      mainActivity,
+      contains('PdfCrashDiagnostics.recordControlledLaunchFailure('),
+    );
+    expect(mainActivity, contains('native_reader_launch_failed'));
+    expect(manifest, contains('android:name=".LexPdfApplication"'));
+  });
+
+  test('PDF.js lifecycle breadcrumbs survive reader process death', () {
     final reader = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(diagnostics, contains('getHistoricalProcessExitReasons'));
-    expect(diagnostics, contains('REASON_CRASH_NATIVE'));
-    expect(diagnostics, contains('REASON_LOW_MEMORY'));
-    expect(diagnostics, contains('setProcessStateSummary'));
     expect(reader, contains('JS03_BEFORE_LOAD_VIEWER'));
     expect(reader, contains('JS04_VIEWER_HTML_FINISHED'));
     expect(reader, contains('JS05_DOCUMENT_READY'));
