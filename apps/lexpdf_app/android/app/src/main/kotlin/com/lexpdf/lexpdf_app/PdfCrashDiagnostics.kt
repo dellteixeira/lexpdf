@@ -16,13 +16,15 @@ import java.util.Locale
 object PdfCrashDiagnostics {
     private const val PREFIX = "LPDFDIAG2"
     private const val BREADCRUMB_FILE = "pdfreader_breadcrumb.txt"
-    private const val LAUNCH_FILE = "pdfreader_launch.txt"
+    private const val READER_LAUNCH_FILE = "pdfreader_launch.txt"
+    private const val APP_LAUNCH_FILE = "app_launch.txt"
     private const val MAIN_CRASH_FILE = "uncaught_main.txt"
     private const val READER_CRASH_FILE = "uncaught_pdfreader.txt"
+    private const val GUARD_CRASH_FILE = "uncaught_crashguard.txt"
     private const val PREFS = "pdf_crash_diagnostics"
     private const val LAST_SHOWN_EXIT = "last_shown_exit_timestamp"
     private const val LAST_SHOWN_CAPTURE = "last_shown_capture_timestamp"
-    private const val LAUNCH_CORRELATION_WINDOW_MS = 60_000L
+    private const val LAUNCH_CORRELATION_WINDOW_MS = 120_000L
 
     fun installUncaughtExceptionCapture(context: Context) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -36,10 +38,15 @@ object PdfCrashDiagnostics {
         )
     }
 
+    fun markAppLaunchAttempt(context: Context) {
+        val payload = "${System.currentTimeMillis()}|process=${context.packageName}"
+        writeDiagnosticFile(context, APP_LAUNCH_FILE, payload)
+    }
+
     fun markReaderLaunchAttempt(context: Context, path: String) {
         val payload =
             "${System.currentTimeMillis()}|pathHash=${path.hashCode()}|size=${File(path).length()}"
-        writeDiagnosticFile(context, LAUNCH_FILE, payload)
+        writeDiagnosticFile(context, READER_LAUNCH_FILE, payload)
     }
 
     fun mark(context: Context, stage: String, detail: String = "") {
@@ -98,17 +105,18 @@ object PdfCrashDiagnostics {
                 )
             }
 
-            // Second preference: the main process only when its death happened
-            // immediately after an explicit reader launch attempt. This avoids
-            // blaming PDF opening for unrelated historical app crashes.
-            val launchTimestamp = readLaunchTimestamp(context)
-            if (launchTimestamp != null) {
+            // Second preference: any abnormal death of the main Flutter process
+            // immediately after the native crash gate explicitly launched it.
+            // This catches startup crashes too, rather than only failures that
+            // happened after opening a PDF.
+            val appLaunchTimestamp = readAppLaunchTimestamp(context)
+            if (appLaunchTimestamp != null) {
                 val mainExit =
                     exits.firstOrNull { info ->
                         info.processName == packageName &&
                             isAbnormal(info.reason) &&
-                            info.timestamp >= launchTimestamp &&
-                            info.timestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
+                            info.timestamp >= appLaunchTimestamp &&
+                            info.timestamp - appLaunchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
                     }
                 if (mainExit != null && !wasAlreadyShown(context, mainExit.timestamp)) {
                     rememberShown(context, mainExit.timestamp)
@@ -162,7 +170,8 @@ object PdfCrashDiagnostics {
     }
 
     private fun recentCapturedCrashReport(context: Context): String? {
-        val launchTimestamp = readLaunchTimestamp(context)
+        val appLaunchTimestamp = readAppLaunchTimestamp(context)
+        val readerLaunchTimestamp = readReaderLaunchTimestamp(context)
         val candidates =
             listOfNotNull(
                 readDiagnosticFile(context, READER_CRASH_FILE),
@@ -182,9 +191,12 @@ object PdfCrashDiagnostics {
                 } else if (payload.contains("processo=${context.packageName}:pdfreader")) {
                     true
                 } else {
-                    launchTimestamp != null &&
-                        timestamp >= launchTimestamp &&
-                        timestamp - launchTimestamp <= LAUNCH_CORRELATION_WINDOW_MS
+                    val correlatedLaunch =
+                        listOfNotNull(appLaunchTimestamp, readerLaunchTimestamp)
+                            .maxOrNull()
+                    correlatedLaunch != null &&
+                        timestamp >= correlatedLaunch &&
+                        timestamp - correlatedLaunch <= LAUNCH_CORRELATION_WINDOW_MS
                 }
             } ?: return null
 
@@ -195,8 +207,13 @@ object PdfCrashDiagnostics {
         }
     }
 
-    private fun readLaunchTimestamp(context: Context): Long? =
-        readDiagnosticFile(context, LAUNCH_FILE)
+    private fun readAppLaunchTimestamp(context: Context): Long? =
+        readDiagnosticFile(context, APP_LAUNCH_FILE)
+            ?.substringBefore('|')
+            ?.toLongOrNull()
+
+    private fun readReaderLaunchTimestamp(context: Context): Long? =
+        readDiagnosticFile(context, READER_LAUNCH_FILE)
             ?.substringBefore('|')
             ?.toLongOrNull()
 
@@ -252,8 +269,11 @@ object PdfCrashDiagnostics {
                 }.toString()
 
             val fileName =
-                if (processName.endsWith(":pdfreader")) READER_CRASH_FILE
-                else MAIN_CRASH_FILE
+                when {
+                    processName.endsWith(":pdfreader") -> READER_CRASH_FILE
+                    processName.endsWith(":crashguard") -> GUARD_CRASH_FILE
+                    else -> MAIN_CRASH_FILE
+                }
             val payload =
                 buildString {
                     append(System.currentTimeMillis())
