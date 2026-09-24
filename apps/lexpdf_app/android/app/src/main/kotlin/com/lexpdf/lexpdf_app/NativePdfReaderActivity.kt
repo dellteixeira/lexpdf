@@ -95,7 +95,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private data class OutlineEntry(
         val title: String,
         val page: Int?,
+        val pageLabel: String?,
         val depth: Int,
+        val source: String,
     )
 
     private data class PageMetrics(
@@ -133,7 +135,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private val redoEntries = ArrayDeque<InkEntry>()
     private val strokeStyles = mutableMapOf<InProgressStrokeId, InkStyle>()
     private val outlineEntries = mutableListOf<OutlineEntry>()
+    private val pageLabels = mutableListOf<String>()
     private var outlineLoaded = false
+    private var outlineSource = "none"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
@@ -234,6 +238,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         navigationRow.addView(button("›") { js("LexPDF.nextPage()") })
         navigationRow.addView(button("−") { js("LexPDF.zoomOut()") })
         navigationRow.addView(button("+") { js("LexPDF.zoomIn()") })
+        navigationRow.addView(
+            button("⛶ Página") { js("LexPDF.fitPage()") }.apply {
+                contentDescription = "Página inteira"
+            },
+        )
         navigationRow.addView(button("Índice") { showOutlineDialog() })
         navigationRow.addView(button("Fechar") { finish() })
 
