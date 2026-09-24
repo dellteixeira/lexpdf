@@ -57,5 +57,7 @@ void main() {
     expect(diagnostics, contains('REASON_LOW_MEMORY'));
     expect(diagnostics, contains('error.printStackTrace'));
     expect(diagnostics, contains('LAST_SHOWN_CAPTURE'));
+    expect(diagnostics, contains('|pid=${Process.myPid()}'));
+    expect(diagnostics, contains('launchPid == Process.myPid()'));
   });
 }
