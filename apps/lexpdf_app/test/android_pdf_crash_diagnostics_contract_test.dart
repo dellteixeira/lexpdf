@@ -47,6 +47,6 @@ void main() {
     expect(reader, contains('JS04_VIEWER_HTML_FINISHED'));
     expect(reader, contains('JS05_DOCUMENT_READY'));
     expect(reader, contains('JS06_PAGE_VISIBLE'));
-    expect(reader, contains('JSR_RANGE'));
+    expect(reader, contains('JSR_NATIVE_RANGE'));
   });
 }
