@@ -175,61 +175,81 @@ class MainActivity : FlutterActivity() {
         }
 
         val result = pendingPickerResult
-        pendingPickerResult = null
         if (result == null) return
 
         if (resultCode != RESULT_OK) {
+            pendingPickerResult = null
             result.success(null)
             return
         }
 
         val uri = data?.data
         if (uri == null) {
+            pendingPickerResult = null
             result.error("picker_missing_uri", "Android returned no PDF URI.", null)
             return
         }
 
         try {
-            try {
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            } catch (_: SecurityException) {
-                // Immediate streaming copy below does not depend on persistence.
-            }
-
-            val displayName = queryDisplayName(uri)
-            PdfCrashDiagnostics.mark(
-                this,
-                "PICKER_COPY_START",
-                "nameHash=${displayName.hashCode()}",
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
-            val path = materializePdf(uri)
-            if (path.isNullOrBlank()) {
-                result.error("picker_copy_failed", "Could not stream the selected PDF.", null)
-                return
-            }
-
-            PdfCrashDiagnostics.mark(
-                this,
-                "PICKER_COPY_DONE",
-                "size=${File(path).length()}",
-            )
-            result.success(
-                mapOf(
-                    "path" to path,
-                    "name" to displayName,
-                ),
-            )
-        } catch (error: Throwable) {
-            PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
-            result.error(
-                "picker_copy_failed",
-                "${error.javaClass.simpleName}: ${error.message}",
-                null,
-            )
+        } catch (_: SecurityException) {
+            // Immediate streaming copy below does not depend on persistence.
         }
+
+        val displayName = queryDisplayName(uri)
+        PdfCrashDiagnostics.mark(
+            this,
+            "PICKER_COPY_START",
+            "nameHash=${displayName.hashCode()}",
+        )
+
+        Thread(
+            {
+                try {
+                    val path = materializePdf(uri)
+                    if (path.isNullOrBlank()) {
+                        runOnUiThread {
+                            pendingPickerResult = null
+                            result.error(
+                                "picker_copy_failed",
+                                "Could not stream the selected PDF.",
+                                null,
+                            )
+                        }
+                        return@Thread
+                    }
+
+                    PdfCrashDiagnostics.mark(
+                        this,
+                        "PICKER_COPY_DONE",
+                        "size=${File(path).length()}",
+                    )
+                    runOnUiThread {
+                        pendingPickerResult = null
+                        result.success(
+                            mapOf(
+                                "path" to path,
+                                "name" to displayName,
+                            ),
+                        )
+                    }
+                } catch (error: Throwable) {
+                    PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
+                    runOnUiThread {
+                        pendingPickerResult = null
+                        result.error(
+                            "picker_copy_failed",
+                            "${error.javaClass.simpleName}: ${error.message}",
+                            null,
+                        )
+                    }
+                }
+            },
+            "LexPdfPickerCopy",
+        ).start()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -285,12 +305,19 @@ class MainActivity : FlutterActivity() {
             else -> null
         } ?: return
 
-        val path = materializePdf(uri) ?: return
-        if (flutterReady) {
-            channel?.invokeMethod("openPdfPath", path)
-        } else {
-            pendingPdfPath = path
-        }
+        Thread(
+            {
+                val path = materializePdf(uri) ?: return@Thread
+                runOnUiThread {
+                    if (flutterReady) {
+                        channel?.invokeMethod("openPdfPath", path)
+                    } else {
+                        pendingPdfPath = path
+                    }
+                }
+            },
+            "LexPdfIntentCopy",
+        ).start()
     }
 
     private fun materializePdf(uri: Uri): String? {
@@ -305,7 +332,12 @@ class MainActivity : FlutterActivity() {
 
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val uriKey = uri.toString().hashCode().toUInt().toString(16)
-        val targetDir = File(filesDir, "native_open").apply { mkdirs() }
+        val targetDir = File(filesDir, "native_open").apply {
+            mkdirs()
+            listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".part") }
+                ?.forEach { it.delete() }
+        }
         val target = File(targetDir, "${uriKey}_$safeName")
 
         if (target.isFile && target.length() > 0L) return target.absolutePath
@@ -314,7 +346,9 @@ class MainActivity : FlutterActivity() {
         return try {
             contentResolver.openInputStream(uri)?.use { input ->
                 temporary.outputStream().use { output ->
-                    input.copyTo(output)
+                    // Fixed-size streaming buffer: memory stays O(1) even for
+                    // multi-gigabyte PDFs and never mirrors the whole file in RAM.
+                    input.copyTo(output, bufferSize = 64 * 1024)
                     output.flush()
                 }
             } ?: run {
