@@ -14,7 +14,7 @@ import java.util.Date
 import java.util.Locale
 
 object PdfCrashDiagnostics {
-    private const val PREFIX = "LPDFDIAG3"
+    private const val PREFIX = "LPDFDIAG4"\n    private const val BUILD_MARKER = "rc4-picker-stream-v2"
     private const val BREADCRUMB_FILE = "pdfreader_breadcrumb.txt"
     private const val READER_LAUNCH_FILE = "pdfreader_launch.txt"
     private const val MAIN_LAUNCH_FILE = "main_startup_attempt.txt"
@@ -184,7 +184,7 @@ object PdfCrashDiagnostics {
         val breadcrumb = readBreadcrumb(context) ?: "(sem breadcrumb em arquivo)"
 
         return buildString {
-            appendLine("LexPDF diagnóstico de encerramento")
+            appendLine("LexPDF diagnóstico de encerramento")\n            appendLine("build: $BUILD_MARKER")
             appendLine("escopo: $scope")
             appendLine("processo: ${exit.processName}")
             appendLine("quando: $timestamp")
@@ -235,7 +235,7 @@ object PdfCrashDiagnostics {
 
         rememberCapturedShown(context, timestamp)
         return buildString {
-            appendLine("LexPDF diagnóstico local de exceção")
+            appendLine("LexPDF diagnóstico local de exceção")\n            appendLine("build: $BUILD_MARKER")
             append(payload)
         }
     }
@@ -248,7 +248,7 @@ object PdfCrashDiagnostics {
         val captured = readDiagnosticFile(context, MAIN_CRASH_FILE)
 
         return buildString {
-            appendLine("LexPDF detectou uma inicialização incompleta")
+            appendLine("LexPDF detectou uma inicialização incompleta")\n            appendLine("build: $BUILD_MARKER")
             appendLine("tentativa iniciada em: $timestamp")
             appendLine(
                 "A execução anterior não confirmou a primeira tela do Flutter. " +
