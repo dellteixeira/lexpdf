@@ -18,15 +18,22 @@ void main() {
     expect(activity, contains('PDFJS_VERSION = "6.3.289"'));
     expect(activity, contains('WebView.setDataDirectorySuffix("pdfreader")'));
     expect(activity, contains('shouldInterceptRequest'));
-    expect(activity, contains('RangeFileInputStream'));
-    expect(activity, contains('Content-Range'));
-    expect(activity, contains('rangeChunkSize: 131072'));
+    expect(activity, contains('PDFDataRangeTransport'));
+    expect(activity, contains('NativePdfRangeTransport'));
+    expect(activity, contains('LexPdfBridge.requestRange'));
+    expect(activity, contains('rangeTransport.onDataRange'));
+    expect(activity, contains('RANGE_CHUNK_SIZE = 64 * 1024'));
+    expect(activity, contains('rangeChunkSize: RANGE_CHUNK_SIZE'));
+    expect(activity, contains('JSR_NATIVE_RANGE'));
     expect(activity, contains('disableStream: true'));
     expect(activity, contains('disableAutoFetch: true'));
     expect(activity, contains('InProgressStrokesView'));
     expect(activity, contains('StockBrushes.pressurePen()'));
     expect(activity, contains('StockBrushes.highlighter()'));
 
+    expect(activity, isNot(contains('url: PDF_URL')));
+    expect(activity, isNot(contains('RangeFileInputStream')));
+    expect(activity, isNot(contains('Content-Range')));
     expect(activity, isNot(contains('android.graphics.pdf.PdfRenderer')));
     expect(activity, isNot(contains('com.pdftron')));
     expect(activity, isNot(contains('EditablePdfViewerFragment')));
