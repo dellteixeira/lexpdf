@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.util.Base64
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -27,6 +28,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.TextViewCompat
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
@@ -213,7 +215,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 text = label
                 isAllCaps = false
                 minWidth = 0
-                setPadding(10.dp, 0, 10.dp, 0)
+                setSingleLine(true)
+                maxLines = 1
+                TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    8,
+                    13,
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP,
+                )
+                setPadding(8.dp, 0, 8.dp, 0)
                 setOnClickListener { onClick() }
             }
 
