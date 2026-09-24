@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/documents/document_provider.dart';
+import '../core/documents/native_android_file_picker_service.dart';
 import '../core/pdf/large_pdf_manipulation_service.dart';
 import '../core/pdf/pdf_page_manipulation_service.dart';
 import '../core/pdf/safe_pdf_writer.dart';
@@ -204,13 +205,26 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             uniformTypeIdentifiers: ['com.adobe.pdf'],
           ),
         ];
-        final other = await openFile(acceptedTypeGroups: types);
+        late final String otherPath;
+        if (Platform.isAndroid) {
+          final other =
+              await const NativeAndroidFilePickerService().pickFile(
+            extensions: const ['pdf'],
+            mimeType: 'application/pdf',
+          );
+          if (other == null) return;
+          otherPath = other.path;
+        } else {
+          final other = await openFile(acceptedTypeGroups: types);
+          if (other == null) return;
+          otherPath = other.path;
+        }
         final source = _sourcePath;
-        if (other == null || source == null) return;
+        if (source == null) return;
         final destination = await _chooseOutputPath('lexpdf_combinado.pdf');
         if (destination == null) return;
         await _largeService.mergeToFile(
-          [source, other.path],
+          [source, otherPath],
           outputPath: destination,
         );
         await _showSaved('PDF combinado salvo', destination);
@@ -229,12 +243,26 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             ],
           ),
         ];
-        final files = await openFiles(acceptedTypeGroups: types);
-        if (files.isEmpty) return;
+        late final List<String> imagePaths;
+        if (Platform.isAndroid) {
+          final files =
+              await const NativeAndroidFilePickerService().pickFiles(
+            extensions: const ['jpg', 'jpeg', 'png', 'webp'],
+            mimeType: 'image/*',
+          );
+          if (files.isEmpty) return;
+          imagePaths =
+              files.map((file) => file.path).toList(growable: false);
+        } else {
+          final files = await openFiles(acceptedTypeGroups: types);
+          if (files.isEmpty) return;
+          imagePaths =
+              files.map((file) => file.path).toList(growable: false);
+        }
         final destination = await _chooseOutputPath('lexpdf_imagens.pdf');
         if (destination == null) return;
         await _largeService.imagesToPdfToFile(
-          files.map((file) => file.path).toList(growable: false),
+          imagePaths,
           outputPath: destination,
         );
         await _showSaved('PDF de imagens salvo', destination);
@@ -288,14 +316,26 @@ class _PdfPageToolsScreenState extends State<PdfPageToolsScreen> {
             ],
           ),
         ];
-        final image = await openFile(acceptedTypeGroups: types);
-        if (image == null) return;
+        late final String imagePath;
+        if (Platform.isAndroid) {
+          final image =
+              await const NativeAndroidFilePickerService().pickFile(
+            extensions: const ['jpg', 'jpeg', 'png', 'webp'],
+            mimeType: 'image/*',
+          );
+          if (image == null) return;
+          imagePath = image.path;
+        } else {
+          final image = await openFile(acceptedTypeGroups: types);
+          if (image == null) return;
+          imagePath = image.path;
+        }
         final destination = await _chooseOutputPath('lexpdf_com_imagem.pdf');
         if (destination == null) return;
         await _withCurrentPlanPath(
           (path) => _largeService.insertImageOnPageToFile(
             sourcePath: path,
-            imagePath: image.path,
+            imagePath: imagePath,
             pageNumber: selectedIndexes.single + 1,
             outputPath: destination,
           ),

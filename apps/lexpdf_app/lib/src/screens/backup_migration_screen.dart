@@ -10,6 +10,7 @@ import '../core/backup/lex_backup_streaming_restore_service.dart';
 import '../core/backup/lex_backup_streaming_service.dart';
 import '../core/backup/squid_import_service.dart';
 import '../core/storage/local_database.dart';
+import '../core/documents/native_android_file_picker_service.dart';
 
 class BackupMigrationScreen extends StatefulWidget {
   const BackupMigrationScreen({required this.db, super.key});
@@ -96,10 +97,22 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
       });
 
   Future<void> _restoreBackup() => _run(() async {
-        const type = XTypeGroup(label: 'LexPDF backup', extensions: ['lexbackup']);
-        final selected = await openFile(acceptedTypeGroups: const [type]);
-        if (selected == null) return;
-        final source = File(selected.path);
+        late final String selectedPath;
+        if (Platform.isAndroid) {
+          final selected =
+              await const NativeAndroidFilePickerService().pickFile(
+            extensions: const ['lexbackup'],
+          );
+          if (selected == null) return;
+          selectedPath = selected.path;
+        } else {
+          const type =
+              XTypeGroup(label: 'LexPDF backup', extensions: ['lexbackup']);
+          final selected = await openFile(acceptedTypeGroups: const [type]);
+          if (selected == null) return;
+          selectedPath = selected.path;
+        }
+        final source = File(selectedPath);
         final validation = await _streamingRestore.validateFile(source);
         if (!validation.valid) {
           throw FormatException(validation.error ?? 'Backup inválido.');
@@ -177,10 +190,22 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
       });
 
   Future<void> _importLexNote() => _run(() async {
-        const type = XTypeGroup(label: 'LexPDF notebook', extensions: ['lexnote']);
-        final file = await openFile(acceptedTypeGroups: const [type]);
-        if (file == null) return;
-        final bytes = await file.readAsBytes();
+        late final String selectedPath;
+        if (Platform.isAndroid) {
+          final selected =
+              await const NativeAndroidFilePickerService().pickFile(
+            extensions: const ['lexnote'],
+          );
+          if (selected == null) return;
+          selectedPath = selected.path;
+        } else {
+          const type =
+              XTypeGroup(label: 'LexPDF notebook', extensions: ['lexnote']);
+          final selected = await openFile(acceptedTypeGroups: const [type]);
+          if (selected == null) return;
+          selectedPath = selected.path;
+        }
+        final bytes = await File(selectedPath).readAsBytes();
         final validation = _backup.validateNotebook(bytes);
         if (!validation.valid) {
           throw FormatException(validation.error ?? '.lexnote inválido.');
@@ -222,18 +247,29 @@ class _BackupMigrationScreenState extends State<BackupMigrationScreen> {
       });
 
   Future<void> _importSquid() => _run(() async {
-        const type = XTypeGroup(
-          label: 'Squid/PDF',
-          extensions: ['squid', 'zip', 'pdf'],
-        );
-        final file = await openFile(acceptedTypeGroups: const [type]);
-        if (file == null) return;
+        late final String selectedPath;
+        if (Platform.isAndroid) {
+          final selected =
+              await const NativeAndroidFilePickerService().pickFile(
+            extensions: const ['squid', 'zip', 'pdf'],
+          );
+          if (selected == null) return;
+          selectedPath = selected.path;
+        } else {
+          const type = XTypeGroup(
+            label: 'Squid/PDF',
+            extensions: ['squid', 'zip', 'pdf'],
+          );
+          final selected = await openFile(acceptedTypeGroups: const [type]);
+          if (selected == null) return;
+          selectedPath = selected.path;
+        }
         final documents = await getApplicationDocumentsDirectory();
         final destination = Directory(
           '${documents.path}${Platform.pathSeparator}LexPDF${Platform.pathSeparator}imports',
         );
         final result = await _squid.importSafely(
-          file.path,
+          selectedPath,
           destination: destination,
         );
         if (mounted) {
