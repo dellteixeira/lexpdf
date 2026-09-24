@@ -1047,7 +1047,7 @@ async function inferOffsetFromTocTitles(candidates, contentStartPage) {
 }
 
 async function buildVisualIndex() {
-  const searchLimit = Math.min(pdf.numPages, 35);
+  const searchLimit = Math.min(pdf.numPages, 80);
   let tocStart = null;
   let tocRows = [];
 
@@ -1068,7 +1068,7 @@ async function buildVisualIndex() {
   if (tocStart === null) return [];
 
   const allRows = [...tocRows];
-  const tocEnd = Math.min(pdf.numPages, tocStart + 8);
+  const tocEnd = Math.min(pdf.numPages, tocStart + 14);
   for (let physical = tocStart + 1; physical <= tocEnd; physical++) {
     try {
       const page = await pdf.getPage(physical);
@@ -1076,9 +1076,6 @@ async function buildVisualIndex() {
       allRows.push(...textLinesFromContent(content));
     } catch (_) {}
   }
-
-  const inferredOffset =
-    pdfPageLabels ? null : await inferPrintedPageOffset(tocEnd + 1);
 
   const candidates = [];
   for (const row of allRows) {
@@ -1109,6 +1106,13 @@ async function buildVisualIndex() {
 
   if (candidates.length < 2) return [];
 
+  if (!pdfPageLabels) {
+    await buildPrintedPaginationModel(tocEnd + 1);
+    if (!Number.isInteger(inferredPrintedOffset)) {
+      await inferOffsetFromTocTitles(candidates, tocEnd + 1);
+    }
+  }
+
   const minX = Math.min(...candidates.map(item => item.x));
   const output = [];
   const seen = new Set();
@@ -1118,11 +1122,9 @@ async function buildVisualIndex() {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const page =
-      physicalPageForPrintedLabel(candidate.printedLabel, inferredOffset);
     output.push({
       title: candidate.title,
-      page,
+      page: physicalPageForPrintedLabel(candidate.printedLabel),
       pageLabel: candidate.printedLabel,
       depth: Math.max(
         0,
@@ -1135,28 +1137,42 @@ async function buildVisualIndex() {
   return output;
 }
 
+async function buildOutlineIndex() {
+  try {
+    if (!pdfPageLabels && !printedPaginationReady) {
+      await buildPrintedPaginationModel(1);
+    }
+
+    const raw = await pdf.getOutline();
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+
+    const output = [];
+    for (const item of raw) {
+      if (output.length >= 2000) break;
+      await resolveOutlineItem(item, 0, output);
+    }
+    return output;
+  } catch (_) {
+    return [];
+  }
+}
+
 async function loadNavigationMetadata() {
   await loadPageLabels();
 
+  // Prefer the table of contents printed inside the PDF because its page
+  // numbers are the ones the reader sees in the material.
   try {
-    const raw = await pdf.getOutline();
-    if (Array.isArray(raw) && raw.length > 0) {
-      const output = [];
-      for (const item of raw) {
-        if (output.length >= 2000) break;
-        await resolveOutlineItem(item, 0, output);
-      }
-      LexPdfBridge.outline(JSON.stringify(output));
+    const generated = await buildVisualIndex();
+    if (generated.length >= 2) {
+      LexPdfBridge.outline(JSON.stringify(generated));
       return;
     }
   } catch (_) {}
 
-  try {
-    const generated = await buildVisualIndex();
-    LexPdfBridge.outline(JSON.stringify(generated));
-  } catch (_) {
-    LexPdfBridge.outline('[]');
-  }
+  // Fallback to embedded PDF bookmarks when no usable printed TOC exists.
+  const outline = await buildOutlineIndex();
+  LexPdfBridge.outline(JSON.stringify(outline));
 }
 
 function reportMetrics() {
