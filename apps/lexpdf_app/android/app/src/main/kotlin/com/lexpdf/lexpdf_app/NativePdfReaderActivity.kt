@@ -1213,7 +1213,9 @@ function hypot(a,b) {
                     output.writeInt(SIDECAR_VERSION)
                     output.writeInt(snapshot.size)
                     snapshot.forEach { entry ->
-                        output.writeInt(entry.kind.ordinal)
+                        output.writeInt(entry.style.kind.ordinal)
+                        output.writeInt(entry.style.colorArgb)
+                        output.writeFloat(entry.style.size)
                         val encoded =
                             ByteArrayOutputStream().use { bytes ->
                                 entry.stroke.inputs.encode(bytes)
@@ -1245,19 +1247,46 @@ function hypot(a,b) {
             val loaded = mutableListOf<InkEntry>()
             try {
                 DataInputStream(source.inputStream().buffered()).use { input ->
-                    require(input.readInt() == SIDECAR_VERSION)
+                    val version = input.readInt()
+                    require(version in 2..SIDECAR_VERSION)
                     val count = input.readInt().coerceIn(0, 50_000)
                     repeat(count) {
                         val kind =
                             InkKind.entries.getOrElse(input.readInt()) { InkKind.PEN }
+                        val style =
+                            if (version >= 3) {
+                                InkStyle(
+                                    kind = kind,
+                                    colorArgb = input.readInt(),
+                                    size =
+                                        input
+                                            .readFloat()
+                                            .coerceIn(
+                                                if (kind == InkKind.PEN) 1f else 8f,
+                                                if (kind == InkKind.PEN) 12f else 32f,
+                                            ),
+                                )
+                            } else {
+                                if (kind == InkKind.PEN) {
+                                    InkStyle(
+                                        InkKind.PEN,
+                                        Color.rgb(20, 24, 30),
+                                        3.0f,
+                                    )
+                                } else {
+                                    InkStyle(
+                                        InkKind.HIGHLIGHTER,
+                                        Color.argb(92, 255, 224, 64),
+                                        18f,
+                                    )
+                                }
+                            }
                         val length = input.readInt().coerceIn(0, 16 * 1024 * 1024)
                         val bytes = ByteArray(length)
                         input.readFully(bytes)
                         val batch =
                             StrokeInputBatch.decode(ByteArrayInputStream(bytes))
-                        val brush =
-                            if (kind == InkKind.PEN) penBrush else highlighterBrush
-                        loaded += InkEntry(kind, Stroke(brush, batch))
+                        loaded += InkEntry(style, Stroke(brushFor(style), batch))
                     }
                 }
             } catch (_: Throwable) {
