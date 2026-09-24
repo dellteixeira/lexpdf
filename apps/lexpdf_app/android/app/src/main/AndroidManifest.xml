@@ -3,7 +3,6 @@
 
     <application
         android:label="LexPDF"
-        android:name=".LexPdfApplication"
         android:icon="@mipmap/ic_launcher">
         <!--
           Flutter 3.47 enables Impeller by default on Android. Some physical
