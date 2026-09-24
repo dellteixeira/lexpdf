@@ -618,7 +618,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 if (next != currentPageIndex) {
                     persistInkForPage(currentPageIndex)
                     currentPageIndex = next
-                    redoEntries.clear()
+                    undoHistory.clear()
+                    redoHistory.clear()
                     loadInkForPage(next)
                 }
                 updatePageLabel()
@@ -643,7 +644,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     if (incoming.pageIndex == currentPageIndex) {
                         pageMetrics = incoming
                         highlighterInkView.invalidate()
-        penInkView.invalidate()
+                        penInkView.invalidate()
                     }
                 }
             } catch (_: Throwable) {
@@ -2027,7 +2028,7 @@ function hypot(a,b) {
         val sx = metrics.canvasWidth / metrics.pageWidth.coerceAtLeast(1f)
         val sy = metrics.canvasHeight / metrics.pageHeight.coerceAtLeast(1f)
         val scale = ((sx + sy) / 2f).coerceAtLeast(0.1f)
-        return 18f.dp / scale
+        return (18.dp).toFloat() / scale
     }
 
     private fun squaredDistanceToSegment(
@@ -2235,7 +2236,8 @@ function hypot(a,b) {
     }
 
     private fun undoInk() {
-        val action = undoHistory.removeLastOrNull() ?: return
+        if (undoHistory.isEmpty()) return
+        val action = undoHistory.removeLast()
         when (action) {
             is InkHistoryAction.Added -> {
                 currentEntries.remove(action.entry)
@@ -2251,7 +2253,8 @@ function hypot(a,b) {
     }
 
     private fun redoInk() {
-        val action = redoHistory.removeLastOrNull() ?: return
+        if (redoHistory.isEmpty()) return
+        val action = redoHistory.removeLast()
         when (action) {
             is InkHistoryAction.Added -> {
                 currentEntries += action.entry
