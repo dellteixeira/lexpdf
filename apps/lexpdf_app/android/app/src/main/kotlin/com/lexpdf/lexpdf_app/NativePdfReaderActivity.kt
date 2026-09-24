@@ -660,6 +660,7 @@ let singleTouchActive = false;
 let metricsFrame = 0;
 let rangeTransport = null;
 let rangeFailed = false;
+let pdfPageLabels = null;
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -692,6 +693,60 @@ function decodeBase64(base64) {
   return bytes;
 }
 
+async function loadPageLabels() {
+  try {
+    const labels = await pdf.getPageLabels();
+    if (Array.isArray(labels) && labels.length === pdf.numPages) {
+      pdfPageLabels = labels.map((label, index) =>
+        String(label ?? (index + 1))
+      );
+      LexPdfBridge.pageLabels(JSON.stringify(pdfPageLabels));
+    } else {
+      pdfPageLabels = null;
+      LexPdfBridge.pageLabels('[]');
+    }
+  } catch (_) {
+    pdfPageLabels = null;
+    LexPdfBridge.pageLabels('[]');
+  }
+}
+
+function normalizedLabel(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/^p(?:ágina)?\.?\s*/i, '')
+    .toLowerCase();
+}
+
+function pageLabelForPhysical(page) {
+  if (pdfPageLabels && page >= 1 && page <= pdfPageLabels.length) {
+    return String(pdfPageLabels[page - 1]);
+  }
+  return String(page);
+}
+
+function physicalPageForPrintedLabel(label, inferredOffset = null) {
+  const normalized = normalizedLabel(label);
+  if (!normalized) return null;
+
+  if (pdfPageLabels) {
+    const match = pdfPageLabels.findIndex(
+      value => normalizedLabel(value) === normalized
+    );
+    if (match >= 0) return match + 1;
+  }
+
+  const numeric = Number.parseInt(normalized, 10);
+  if (Number.isInteger(numeric)) {
+    if (inferredOffset !== null) {
+      const candidate = numeric + inferredOffset;
+      if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
+    }
+    if (numeric >= 1 && numeric <= pdf.numPages) return numeric;
+  }
+  return null;
+}
+
 async function resolveOutlineItem(item, depth, output) {
   if (output.length >= 2000) return;
 
@@ -709,7 +764,9 @@ async function resolveOutlineItem(item, depth, output) {
   output.push({
     title: String(item.title || 'Sem título'),
     page,
-    depth
+    pageLabel: page ? pageLabelForPhysical(page) : null,
+    depth,
+    source: 'outline'
   });
 
   for (const child of (item.items || [])) {
@@ -718,15 +775,185 @@ async function resolveOutlineItem(item, depth, output) {
   }
 }
 
-async function loadOutline() {
+function textLinesFromContent(content) {
+  const rows = [];
+  for (const item of (content.items || [])) {
+    const text = String(item.str || '').trim();
+    if (!text || !Array.isArray(item.transform)) continue;
+    const x = Number(item.transform[4] || 0);
+    const y = Number(item.transform[5] || 0);
+
+    let row = rows.find(candidate => Math.abs(candidate.y - y) <= 2.5);
+    if (!row) {
+      row = { y, items: [] };
+      rows.push(row);
+    }
+    row.items.push({ x, text });
+  }
+
+  return rows
+    .sort((a, b) => b.y - a.y)
+    .map(row => {
+      row.items.sort((a, b) => a.x - b.x);
+      return {
+        x: row.items.length ? row.items[0].x : 0,
+        y: row.y,
+        text: row.items
+          .map(item => item.text)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      };
+    })
+    .filter(row => row.text.length > 0);
+}
+
+async function inferPrintedPageOffset(startPage) {
+  const votes = new Map();
+  const last = Math.min(pdf.numPages, startPage + 35);
+
+  for (let physical = Math.max(1, startPage); physical <= last; physical++) {
+    try {
+      const page = await pdf.getPage(physical);
+      const viewport = page.getViewport({ scale: 1.0 });
+      const content = await page.getTextContent();
+      const edgeItems = (content.items || []).filter(item => {
+        if (!Array.isArray(item.transform)) return false;
+        const text = String(item.str || '').trim();
+        if (!/^\d{1,4}$/.test(text)) return false;
+        const y = Number(item.transform[5] || 0);
+        return y <= viewport.height * 0.16 || y >= viewport.height * 0.84;
+      });
+
+      for (const item of edgeItems) {
+        const printed = Number.parseInt(String(item.str).trim(), 10);
+        if (!Number.isInteger(printed) || printed <= 0) continue;
+        const offset = physical - printed;
+        if (Math.abs(offset) > 120) continue;
+        votes.set(offset, (votes.get(offset) || 0) + 1);
+      }
+    } catch (_) {}
+  }
+
+  let bestOffset = null;
+  let bestVotes = 0;
+  for (const [offset, count] of votes.entries()) {
+    if (count > bestVotes) {
+      bestVotes = count;
+      bestOffset = offset;
+    }
+  }
+  return bestVotes >= 2 ? bestOffset : null;
+}
+
+async function buildVisualIndex() {
+  const searchLimit = Math.min(pdf.numPages, 35);
+  let tocStart = null;
+  let tocRows = [];
+
+  for (let physical = 1; physical <= searchLimit; physical++) {
+    try {
+      const page = await pdf.getPage(physical);
+      const content = await page.getTextContent();
+      const rows = textLinesFromContent(content);
+      const wholeText = rows.map(row => row.text).join(' ');
+      if (/\b(sum[aá]rio|índice|conte[uú]do)\b/i.test(wholeText)) {
+        tocStart = physical;
+        tocRows = rows;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  if (tocStart === null) return [];
+
+  const allRows = [...tocRows];
+  const tocEnd = Math.min(pdf.numPages, tocStart + 8);
+  for (let physical = tocStart + 1; physical <= tocEnd; physical++) {
+    try {
+      const page = await pdf.getPage(physical);
+      const content = await page.getTextContent();
+      allRows.push(...textLinesFromContent(content));
+    } catch (_) {}
+  }
+
+  const inferredOffset =
+    pdfPageLabels ? null : await inferPrintedPageOffset(tocEnd + 1);
+
+  const candidates = [];
+  for (const row of allRows) {
+    const line = row.text
+      .replace(/[·•]/g, '.')
+      .replace(/\.{4,}/g, ' ... ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (/^(sum[aá]rio|índice|conte[uú]do)$/i.test(line)) continue;
+
+    const match =
+      line.match(/^(.{3,}?)\s+(?:\.\.\.\s*)?([ivxlcdm]+|\d{1,4})$/i);
+    if (!match) continue;
+
+    const title = match[1]
+      .replace(/\s*\.\.\.\s*$/, '')
+      .trim();
+    const printedLabel = match[2].trim();
+    if (title.length < 3) continue;
+
+    candidates.push({
+      title,
+      printedLabel,
+      x: row.x
+    });
+  }
+
+  if (candidates.length < 2) return [];
+
+  const minX = Math.min(...candidates.map(item => item.x));
+  const output = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    const key = candidate.title.toLowerCase() + '|' + candidate.printedLabel;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const page =
+      physicalPageForPrintedLabel(candidate.printedLabel, inferredOffset);
+    output.push({
+      title: candidate.title,
+      page,
+      pageLabel: candidate.printedLabel,
+      depth: Math.max(
+        0,
+        Math.min(6, Math.round((candidate.x - minX) / 18))
+      ),
+      source: 'toc'
+    });
+    if (output.length >= 500) break;
+  }
+  return output;
+}
+
+async function loadNavigationMetadata() {
+  await loadPageLabels();
+
   try {
     const raw = await pdf.getOutline();
-    const output = [];
-    for (const item of (raw || [])) {
-      if (output.length >= 2000) break;
-      await resolveOutlineItem(item, 0, output);
+    if (Array.isArray(raw) && raw.length > 0) {
+      const output = [];
+      for (const item of raw) {
+        if (output.length >= 2000) break;
+        await resolveOutlineItem(item, 0, output);
+      }
+      LexPdfBridge.outline(JSON.stringify(output));
+      return;
     }
-    LexPdfBridge.outline(JSON.stringify(output));
+  } catch (_) {}
+
+  try {
+    const generated = await buildVisualIndex();
+    LexPdfBridge.outline(JSON.stringify(generated));
   } catch (_) {
     LexPdfBridge.outline('[]');
   }
@@ -848,6 +1075,14 @@ window.LexPDF = {
   zoomOut() {
     scale = Math.max(0.65, scale / 1.2);
     renderPage(pageNumber, true);
+  },
+  fitPage() {
+    const widthScale =
+      Math.max(0.4, (stage.clientWidth - 36) / Math.max(1, pageAtScaleOne.width));
+    const heightScale =
+      Math.max(0.4, (stage.clientHeight - 36) / Math.max(1, pageAtScaleOne.height));
+    scale = Math.max(0.4, Math.min(4.0, widthScale, heightScale));
+    renderPage(pageNumber, false);
   }
 };
 
@@ -942,8 +1177,8 @@ function hypot(a,b) {
     });
     pdf = await task.promise;
     LexPdfBridge.ready(pdf.numPages);
-    void loadOutline();
     await renderPage(pageNumber);
+    void loadNavigationMetadata();
   } catch (e) {
     loading.style.display = 'none';
     LexPdfBridge.error(String(e?.stack || e));
@@ -1301,7 +1536,7 @@ function hypot(a,b) {
                         pointerId,
                         brushFor(style),
                         viewToPageMatrix(),
-                        pageToViewMatrix(),
+                        Matrix(),
                     )
                 strokeStyles[strokeId] = style
                 true
