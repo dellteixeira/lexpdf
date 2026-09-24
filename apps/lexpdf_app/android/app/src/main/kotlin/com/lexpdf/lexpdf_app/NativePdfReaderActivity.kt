@@ -760,9 +760,6 @@ function physicalPageForPrintedLabel(label) {
     if (match >= 0) return match + 1;
   }
 
-  const direct = printedToPhysical.get(normalized);
-  if (direct) return direct;
-
   const numeric = Number.parseInt(normalized, 10);
   if (
     Number.isInteger(numeric) &&
@@ -771,6 +768,9 @@ function physicalPageForPrintedLabel(label) {
     const candidate = numeric + inferredPrintedOffset;
     if (candidate >= 1 && candidate <= pdf.numPages) return candidate;
   }
+
+  const direct = printedToPhysical.get(normalized);
+  if (direct) return direct;
 
   if (Number.isInteger(numeric) && numeric >= 1 && numeric <= pdf.numPages) {
     return numeric;
