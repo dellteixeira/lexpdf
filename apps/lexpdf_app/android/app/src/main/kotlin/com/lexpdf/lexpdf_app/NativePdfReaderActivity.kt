@@ -5,6 +5,9 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
@@ -116,7 +119,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var sourceFile: File
     private var rangeReader: RandomAccessFile? = null
     private lateinit var webView: WebView
-    private lateinit var dryInkView: DryInkView
+    private lateinit var highlighterInkView: DryInkView
+    private lateinit var penInkView: DryInkView
     private lateinit var wetInkView: InProgressStrokesView
     private lateinit var pageLabel: TextView
     private lateinit var statusLabel: TextView
@@ -132,7 +136,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var currentKind = InkKind.PEN
     private var penColor = Color.rgb(20, 24, 30)
     private var penSize = 3.0f
-    private var highlighterColor = Color.argb(92, 255, 224, 64)
+    private var highlighterColor = Color.argb(72, 255, 224, 64)
     private var highlighterSize = 18f
     private val currentEntries = mutableListOf<InkEntry>()
     private val redoEntries = ArrayDeque<InkEntry>()
@@ -328,9 +332,33 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
-        dryInkView = DryInkView(this) { pageToViewMatrix() }
+        // Highlighter has its own compositing layer. MULTIPLY preserves dark
+        // glyphs and prevents the marker from washing out PDF text.
+        highlighterInkView =
+            DryInkView(
+                this,
+                { pageToViewMatrix() },
+                InkKind.HIGHLIGHTER,
+                multiplyWithContent = true,
+            )
         readerFrame.addView(
-            dryInkView,
+            highlighterInkView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        // Pen stays on a normal alpha-composited layer above the highlighter.
+        penInkView =
+            DryInkView(
+                this,
+                { pageToViewMatrix() },
+                InkKind.PEN,
+                multiplyWithContent = false,
+            )
+        readerFrame.addView(
+            penInkView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -594,7 +622,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 runOnUiThread {
                     if (incoming.pageIndex == currentPageIndex) {
                         pageMetrics = incoming
-                        dryInkView.invalidate()
+                        highlighterInkView.invalidate()
+        penInkView.invalidate()
                     }
                 }
             } catch (_: Throwable) {
@@ -1718,11 +1747,18 @@ function hypot(a,b) {
     private fun loadInkPreferences() {
         val prefs = getSharedPreferences(INK_PREFS, Context.MODE_PRIVATE)
         penColor = prefs.getInt(PREF_PEN_COLOR, Color.rgb(20, 24, 30))
-        penSize = prefs.getFloat(PREF_PEN_SIZE, 3.0f).coerceIn(1f, 12f)
+        penSize = prefs.getFloat(PREF_PEN_SIZE, 3.0f).coerceIn(1f, 16f)
         highlighterColor =
-            prefs.getInt(PREF_HIGHLIGHT_COLOR, Color.argb(92, 255, 224, 64))
+            prefs.getInt(PREF_HIGHLIGHT_COLOR, Color.argb(72, 255, 224, 64))
+        highlighterColor =
+            Color.argb(
+                72,
+                Color.red(highlighterColor),
+                Color.green(highlighterColor),
+                Color.blue(highlighterColor),
+            )
         highlighterSize =
-            prefs.getFloat(PREF_HIGHLIGHT_SIZE, 18f).coerceIn(8f, 32f)
+            prefs.getFloat(PREF_HIGHLIGHT_SIZE, 18f).coerceIn(6f, 40f)
     }
 
     private fun saveInkPreferences() {
@@ -1758,21 +1794,31 @@ function hypot(a,b) {
         val palette =
             if (kind == InkKind.PEN) {
                 intArrayOf(
-                    Color.rgb(20, 24, 30),
-                    Color.rgb(25, 92, 190),
-                    Color.rgb(210, 45, 45),
-                    Color.rgb(25, 135, 75),
-                    Color.rgb(125, 65, 180),
-                    Color.rgb(120, 75, 45),
+                    Color.rgb(20, 24, 30),      // preto
+                    Color.rgb(70, 74, 82),      // grafite
+                    Color.rgb(25, 92, 190),     // azul
+                    Color.rgb(35, 135, 220),    // azul claro
+                    Color.rgb(210, 45, 45),     // vermelho
+                    Color.rgb(235, 95, 45),     // laranja
+                    Color.rgb(25, 135, 75),     // verde
+                    Color.rgb(20, 155, 130),    // turquesa
+                    Color.rgb(125, 65, 180),    // roxo
+                    Color.rgb(210, 65, 145),    // rosa
+                    Color.rgb(120, 75, 45),     // marrom
+                    Color.rgb(215, 165, 30),    // ocre
                 )
             } else {
                 intArrayOf(
-                    Color.argb(92, 255, 224, 64),
-                    Color.argb(92, 115, 225, 120),
-                    Color.argb(92, 75, 200, 235),
-                    Color.argb(92, 245, 105, 175),
-                    Color.argb(92, 255, 155, 70),
-                    Color.argb(92, 175, 120, 235),
+                    Color.argb(72, 255, 224, 64),   // amarelo
+                    Color.argb(72, 255, 188, 70),   // âmbar
+                    Color.argb(72, 255, 140, 80),   // laranja
+                    Color.argb(72, 115, 225, 120),  // verde
+                    Color.argb(72, 80, 220, 175),   // menta
+                    Color.argb(72, 75, 200, 235),   // azul
+                    Color.argb(72, 105, 150, 245),  // azul royal
+                    Color.argb(72, 175, 120, 235),  // violeta
+                    Color.argb(72, 245, 105, 175),  // rosa
+                    Color.argb(72, 240, 105, 105),  // coral
                 )
             }
 
@@ -1807,8 +1853,8 @@ function hypot(a,b) {
         }
         container.addView(colorRow)
 
-        val minSize = if (kind == InkKind.PEN) 1 else 8
-        val maxSize = if (kind == InkKind.PEN) 12 else 32
+        val minSize = if (kind == InkKind.PEN) 1 else 6
+        val maxSize = if (kind == InkKind.PEN) 16 else 40
         val sizeLabel =
             TextView(this).apply {
                 text = "Espessura: ${selectedSize.roundToInt()}"
@@ -1840,6 +1886,17 @@ function hypot(a,b) {
         )
         container.addView(seek)
 
+        if (kind == InkKind.HIGHLIGHTER) {
+            container.addView(
+                TextView(this).apply {
+                    text = "O marca-texto usa transparência baixa e composição MULTIPLY para manter o texto legível."
+                    textSize = 12f
+                    alpha = 0.72f
+                    setPadding(0, 8.dp, 0, 0)
+                },
+            )
+        }
+
         AlertDialog.Builder(this)
             .setTitle(
                 if (kind == InkKind.PEN) {
@@ -1855,7 +1912,15 @@ function hypot(a,b) {
                     penColor = selectedColor
                     penSize = selectedSize
                 } else {
-                    highlighterColor = selectedColor
+                    // Enforce a readable marker alpha regardless of legacy
+                    // preference values or palette migrations.
+                    highlighterColor =
+                        Color.argb(
+                            72,
+                            Color.red(selectedColor),
+                            Color.green(selectedColor),
+                            Color.blue(selectedColor),
+                        )
                     highlighterSize = selectedSize
                 }
                 saveInkPreferences()
@@ -1909,6 +1974,15 @@ function hypot(a,b) {
 
     private fun currentBrush(): Brush = brushFor(currentInkStyle())
 
+    private fun refreshInkLayers() {
+        if (::highlighterInkView.isInitialized) {
+            highlighterInkView.setEntries(currentEntries)
+        }
+        if (::penInkView.isInitialized) {
+            penInkView.setEntries(currentEntries)
+        }
+    }
+
     private fun handleStylusEvent(event: MotionEvent): Boolean {
         val metrics = pageMetrics ?: return false
         if (metrics.pageIndex != currentPageIndex) return false
@@ -1959,7 +2033,7 @@ function hypot(a,b) {
             currentEntries += InkEntry(style, stroke)
         }
         redoEntries.clear()
-        dryInkView.setEntries(currentEntries)
+        refreshInkLayers()
         wetInkView.removeFinishedStrokes(strokes.keys)
         persistInkForPage(currentPageIndex)
     }
@@ -1967,7 +2041,7 @@ function hypot(a,b) {
     private fun undoInk() {
         val entry = currentEntries.removeLastOrNull() ?: return
         redoEntries.addLast(entry)
-        dryInkView.setEntries(currentEntries)
+        refreshInkLayers()
         persistInkForPage(currentPageIndex)
     }
 
@@ -1975,7 +2049,7 @@ function hypot(a,b) {
         if (redoEntries.isEmpty()) return
         val entry = redoEntries.removeLast()
         currentEntries += entry
-        dryInkView.setEntries(currentEntries)
+        refreshInkLayers()
         persistInkForPage(currentPageIndex)
     }
 
@@ -2099,7 +2173,7 @@ function hypot(a,b) {
                 if (pageIndex != currentPageIndex || isFinishing) return@runOnUiThread
                 currentEntries.clear()
                 currentEntries += loaded
-                dryInkView.setEntries(currentEntries)
+                refreshInkLayers()
             }
         }
     }
@@ -2153,6 +2227,8 @@ function hypot(a,b) {
     private class DryInkView(
         context: Context,
         private val matrixProvider: () -> Matrix,
+        private val kind: InkKind,
+        multiplyWithContent: Boolean,
     ) : View(context) {
         private val entries = mutableListOf<InkEntry>()
         private val renderer =
@@ -2163,11 +2239,24 @@ function hypot(a,b) {
 
         init {
             setWillNotDraw(false)
+            isClickable = false
+            isFocusable = false
+
+            if (multiplyWithContent) {
+                // The marker is composited with MULTIPLY instead of ordinary
+                // source-over alpha. Dark PDF text therefore remains dark,
+                // producing the visual effect of ink placed behind the glyphs.
+                val layerPaint =
+                    Paint().apply {
+                        xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+                    }
+                setLayerType(LAYER_TYPE_HARDWARE, layerPaint)
+            }
         }
 
         fun setEntries(values: List<InkEntry>) {
             entries.clear()
-            entries.addAll(values)
+            entries.addAll(values.filter { it.style.kind == kind })
             invalidate()
         }
 
@@ -2184,5 +2273,4 @@ function hypot(a,b) {
             }
         }
     }
-
 }
