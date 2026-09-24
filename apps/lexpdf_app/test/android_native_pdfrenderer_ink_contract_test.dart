@@ -22,9 +22,13 @@ void main() {
     expect(activity, contains('NativePdfRangeTransport'));
     expect(activity, contains('LexPdfBridge.requestRange'));
     expect(activity, contains('rangeTransport.onDataRange'));
-    expect(activity, contains('RANGE_CHUNK_SIZE = 64 * 1024'));
+    expect(activity, contains('RANGE_CHUNK_SIZE = 512 * 1024'));
     expect(activity, contains('rangeChunkSize: RANGE_CHUNK_SIZE'));
     expect(activity, contains('JSR_NATIVE_RANGE'));
+    expect(activity, contains('for (let cursor = begin; cursor < end;'));
+    expect(activity, contains('rangeReader'));
+    expect(activity, contains('file.seek(begin)'));
+    expect(activity, contains('file.readFully(bytes)'));
     expect(activity, contains('disableStream: true'));
     expect(activity, contains('disableAutoFetch: true'));
     expect(activity, contains('InProgressStrokesView'));
