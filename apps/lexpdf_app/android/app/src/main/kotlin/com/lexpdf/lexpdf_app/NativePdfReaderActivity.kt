@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -122,6 +123,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         PdfCrashDiagnostics.installUncaughtExceptionCapture(this)
+
+        // This activity runs in :pdfreader. Android 9+ requires every
+        // additional process that uses WebView to have its own data directory.
+        // This MUST execute before WebView is initialized in this process.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WebView.setDataDirectorySuffix("pdfreader")
+        }
+
         super.onCreate(savedInstanceState)
         PdfCrashDiagnostics.mark(this, "JS01_ACTIVITY_CREATED")
 
