@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('LexPDF is versioned as the fourth 1.0.0 release candidate', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.0-rc.4+4'));
+    expect(pubspec, contains('version: 1.0.0-rc.5+5'));
   });
 
   test('release candidate distribution validates Android and Windows policy', () {
