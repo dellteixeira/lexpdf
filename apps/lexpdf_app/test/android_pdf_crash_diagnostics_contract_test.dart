@@ -16,7 +16,7 @@ void main() {
     expect(diagnostics, contains('getHistoricalProcessExitReasons'));
     expect(diagnostics, contains('info.processName == readerProcessName'));
     expect(diagnostics, contains('info.processName == packageName'));
-    expect(diagnostics, contains('LAUNCH_CORRELATION_WINDOW_MS'));
+    expect(diagnostics, contains('READER_CORRELATION_WINDOW_MS'));
     expect(diagnostics, contains('REASON_CRASH_NATIVE'));
     expect(diagnostics, contains('REASON_CRASH'));
     expect(diagnostics, contains('setProcessStateSummary'));
@@ -34,7 +34,8 @@ void main() {
       contains('PdfCrashDiagnostics.recordControlledLaunchFailure('),
     );
     expect(mainActivity, contains('native_reader_launch_failed'));
-    expect(manifest, contains('android:name=".LexPdfApplication"'));
+    expect(manifest, isNot(contains('android:name=".LexPdfApplication"')));
+    expect(mainActivity, contains('PdfCrashDiagnostics.markMainUiReady(this)'));
   });
 
   test('PDF.js lifecycle breadcrumbs survive reader process death', () {
