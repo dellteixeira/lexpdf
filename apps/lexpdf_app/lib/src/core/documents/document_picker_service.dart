@@ -26,7 +26,7 @@ class DocumentPickerService {
       final path = result['path'] as String?;
       final name = result['name'] as String?;
       if (path == null || path.trim().isEmpty) {
-        throw const PlatformException(
+        throw PlatformException(
           code: 'picker_missing_path',
           message: 'Android picker returned no local PDF path.',
         );
