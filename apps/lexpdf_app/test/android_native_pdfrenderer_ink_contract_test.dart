@@ -179,6 +179,27 @@ void main() {
     );
   });
 
+  test('underline shapes and partial eraser are available in Android reader', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('button("Sublinhar")'));
+    expect(activity, contains('button("Formas")'));
+    expect(activity, contains('ShapeTool.ARROW'));
+    expect(activity, contains('ShapeTool.CIRCLE'));
+    expect(activity, contains('ShapeTool.RECTANGLE'));
+    expect(activity, contains('ShapeTool.LINE'));
+    expect(activity, contains('ShapeTool.STAR'));
+    expect(activity, contains('showShapeToolDialog'));
+    expect(activity, contains('snapFinishedStroke'));
+    expect(activity, contains('syntheticStrokeFromPoints'));
+    expect(activity, contains('EraserMode.PARTIAL'));
+    expect(activity, contains('partialEraseEntry'));
+    expect(activity, contains('sampledPointsForPartialErase'));
+    expect(activity, contains('InkHistoryAction.Replaced'));
+  });
+
   test('stylus eraser removes pen and highlighter strokes with undo redo history', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
