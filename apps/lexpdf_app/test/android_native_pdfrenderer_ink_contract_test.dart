@@ -159,22 +159,24 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
-  test('printed TOC pagination is preferred over physical PDF numbering', () {
+  test('PDF index uses embedded outline destinations from PDF.js', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(activity, contains('Prefer the table of contents printed inside the PDF'));
-    expect(activity, contains('buildVisualIndex()'));
-    expect(activity, contains('buildPrintedPaginationModel(tocEnd + 1)'));
-    expect(activity, contains('resolveTocCandidatePage(candidate)'));
-    expect(activity, contains('findTitleNearPhysicalPage'));
-    expect(activity, contains('numericPaginationSegments'));
-    expect(activity, contains('buildNumericPaginationSegments'));
-    expect(activity, contains('Exact visual-page detections always win'));
-    expect(activity, contains('Never assume printed page N == physical PDF page N'));
-    expect(activity, contains('pageLabel: candidate.printedLabel'));
-    expect(activity, contains('source: \'toc\''));
+    expect(activity, contains('const raw = await pdf.getOutline()'));
+    expect(activity, contains('await pdf.getDestination(dest)'));
+    expect(activity, contains('await pdf.getPageIndex(dest[0])'));
+    expect(activity, contains('await resolveOutlineItem(item, 0, output)'));
+    expect(activity, contains("source: 'outline'"));
+    expect(
+      activity,
+      contains('Use the outline/bookmarks embedded in the PDF itself'),
+    );
+    expect(
+      activity,
+      isNot(contains('Prefer the table of contents printed inside the PDF')),
+    );
   });
 
   test('stylus eraser removes pen and highlighter strokes with undo redo history', () {
