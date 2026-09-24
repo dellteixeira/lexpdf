@@ -41,6 +41,7 @@ import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInputBatch
+import androidx.ink.strokes.MutableStrokeInputBatch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -52,6 +53,11 @@ import java.io.RandomAccessFile
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import kotlin.math.hypot
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.math.PI
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /**
@@ -84,11 +90,35 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private enum class InkKind { PEN, HIGHLIGHTER }
 
-    private enum class InkTool { PEN, HIGHLIGHTER, ERASER }
+    private enum class InkTool {
+        PEN,
+        HIGHLIGHTER,
+        UNDERLINE,
+        SHAPE,
+        ERASER,
+    }
+
+    private enum class ShapeTool(val label: String) {
+        ARROW("Seta"),
+        CIRCLE("Círculo"),
+        RECTANGLE("Retângulo"),
+        LINE("Linha"),
+        STAR("Estrela"),
+    }
+
+    private enum class EraserMode(val label: String) {
+        WHOLE_STROKE("Traço inteiro"),
+        PARTIAL("Apagar parte"),
+    }
 
     private sealed interface InkHistoryAction {
         data class Added(val entry: InkEntry) : InkHistoryAction
         data class Removed(val index: Int, val entry: InkEntry) : InkHistoryAction
+        data class Replaced(
+            val index: Int,
+            val original: InkEntry,
+            val replacements: List<InkEntry>,
+        ) : InkHistoryAction
     }
 
     private data class InkStyle(
@@ -130,6 +160,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var statusLabel: TextView
     private lateinit var penButton: Button
     private lateinit var highlighterButton: Button
+    private lateinit var underlineButton: Button
+    private lateinit var shapesButton: Button
     private lateinit var eraserButton: Button
     private lateinit var readerFrame: StylusRouterLayout
 
@@ -140,6 +172,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private var currentKind = InkKind.PEN
     private var currentTool = InkTool.PEN
+    private var currentShape = ShapeTool.LINE
+    private var eraserMode = EraserMode.WHOLE_STROKE
     private var penColor = Color.rgb(20, 24, 30)
     private var penSize = 3.0f
     private var highlighterColor = Color.argb(72, 255, 224, 64)
@@ -150,6 +184,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var eraserGestureActive = false
     private val erasedThisGesture = mutableSetOf<InkEntry>()
     private val strokeStyles = mutableMapOf<InProgressStrokeId, InkStyle>()
+    private val strokeTools = mutableMapOf<InProgressStrokeId, InkTool>()
+    private val strokeShapeTools = mutableMapOf<InProgressStrokeId, ShapeTool>()
     private val outlineEntries = mutableListOf<OutlineEntry>()
     private val pageLabels = mutableListOf<String>()
     private var outlineLoaded = false
@@ -306,15 +342,31 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     true
                 }
             }
+        underlineButton =
+            button("Sublinhar") {
+                selectUnderline()
+            }.apply {
+                contentDescription = "Sublinhar palavras com uma linha reta"
+            }
+
+        shapesButton =
+            button("Formas") {
+                showShapeToolDialog()
+            }.apply {
+                contentDescription = "Seta, círculo, retângulo, linha e estrela"
+            }
+
         eraserButton =
             button("Borracha") {
-                selectEraser()
+                showEraserModeDialog()
             }.apply {
-                contentDescription = "Apagar traços da caneta e do marca-texto"
+                contentDescription = "Apagar traço inteiro ou somente parte do desenho"
             }
 
         inkRow.addView(penButton)
         inkRow.addView(highlighterButton)
+        inkRow.addView(underlineButton)
+        inkRow.addView(shapesButton)
         inkRow.addView(eraserButton)
         inkRow.addView(button("Desfazer") { undoInk() })
         inkRow.addView(button("Refazer") { redoInk() })
