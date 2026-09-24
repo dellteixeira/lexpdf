@@ -756,8 +756,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildPdfEditorSurface() {
     if (Platform.isAndroid) {
-      // Android delegates PDF rendering to the platform PdfRenderer in a
-      // dedicated native process. Flutter never mounts pdfrx/PDFium here.
+      // Android delegates PDF rendering to Mozilla PDF.js in an isolated
+      // WebView process. Flutter never mounts pdfrx/PDFium here.
       return _buildEditorForTab(_tabs[_activeIndex]);
     }
 
