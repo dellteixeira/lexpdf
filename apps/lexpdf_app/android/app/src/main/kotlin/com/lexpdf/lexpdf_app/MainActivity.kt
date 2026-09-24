@@ -219,22 +219,21 @@ class MainActivity : FlutterActivity() {
                                 null,
                             )
                         }
-                        return@Thread
-                    }
-
-                    PdfCrashDiagnostics.mark(
-                        this,
-                        "PICKER_COPY_DONE",
-                        "size=${File(path).length()}",
-                    )
-                    runOnUiThread {
-                        pendingPickerResult = null
-                        result.success(
-                            mapOf(
-                                "path" to path,
-                                "name" to displayName,
-                            ),
+                    } else {
+                        PdfCrashDiagnostics.mark(
+                            this,
+                            "PICKER_COPY_DONE",
+                            "size=${File(path).length()}",
                         )
+                        runOnUiThread {
+                            pendingPickerResult = null
+                            result.success(
+                                mapOf(
+                                    "path" to path,
+                                    "name" to displayName,
+                                ),
+                            )
+                        }
                     }
                 } catch (error: Throwable) {
                     PdfCrashDiagnostics.recordControlledLaunchFailure(this, error)
@@ -334,8 +333,13 @@ class MainActivity : FlutterActivity() {
         val uriKey = uri.toString().hashCode().toUInt().toString(16)
         val targetDir = File(filesDir, "native_open").apply {
             mkdirs()
+            val staleBefore = System.currentTimeMillis() - 30L * 60L * 1000L
             listFiles()
-                ?.filter { it.isFile && it.name.endsWith(".part") }
+                ?.filter {
+                    it.isFile &&
+                        it.name.endsWith(".part") &&
+                        it.lastModified() < staleBefore
+                }
                 ?.forEach { it.delete() }
         }
         val target = File(targetDir, "${uriKey}_$safeName")
