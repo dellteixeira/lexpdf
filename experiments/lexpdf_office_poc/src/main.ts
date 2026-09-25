@@ -1,5 +1,4 @@
 import './styles.css'
-import { buildBlankDocx } from '@genoffice/docx-engine'
 import { OfficeSession } from './office-session'
 
 const editorElement = document.querySelector<HTMLElement>('#editor')!
@@ -16,7 +15,7 @@ function notifyNative(payload: Record<string, unknown>) {
 }
 
 const session = new OfficeSession(editorElement, () => {
-  if (initializing || !session.hasDocument) return
+  if (initializing) return
   dirty = true
   notifyNative({ type: 'documentChanged', name: currentName })
 })
@@ -34,9 +33,14 @@ async function openBytes(bytes: Uint8Array, name = 'documento.docx') {
   }
 }
 
-async function newDocument(name = 'Sem título.docx') {
-  const bytes = await buildBlankDocx()
-  await openBytes(bytes, name)
+function newDocument(name = 'Sem título.docx') {
+  initializing = true
+  session.newDocument()
+  currentName = name
+  dirty = false
+  initializing = false
+  queueMicrotask(() => session.editor.commands.focus('start'))
+  notifyNative({ type: 'documentOpened', name })
   return { ok: true, name }
 }
 
@@ -67,8 +71,14 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes
 }
 
+let warmPromise: Promise<unknown> | null = null
+function warmEngine() {
+  warmPromise ??= import('@genoffice/docx-engine')
+  return warmPromise
+}
+
 ;(window as any).LexPdfOffice = {
-  newDocument: async (name?: string) => newDocument(name ?? 'Sem título.docx'),
+  newDocument: (name?: string) => newDocument(name ?? 'Sem título.docx'),
   openBase64: async (base64: string, name?: string) => {
     await openBytes(base64ToBytes(base64), name ?? 'documento.docx')
     return { ok: true, name: currentName }
@@ -77,6 +87,7 @@ function base64ToBytes(base64: string): Uint8Array {
     const bytes = await saveBytes()
     return { ok: true, base64: bytesToBase64(bytes), name: currentName }
   },
+  warmEngine,
   isDirty: () => dirty,
   undo: () => session.editor.chain().focus().undo().run(),
   redo: () => session.editor.chain().focus().redo().run(),
@@ -87,15 +98,27 @@ function base64ToBytes(base64: string): Uint8Array {
   focus: () => session.editor.commands.focus(),
 }
 
-async function initialize() {
+function scheduleIdleWarmup() {
+  const run = () => void warmEngine().catch(() => {})
+  const win = window as any
+  if (typeof win.requestIdleCallback === 'function') {
+    win.requestIdleCallback(run, { timeout: 1800 })
+  } else {
+    setTimeout(run, 900)
+  }
+}
+
+function initialize() {
   try {
-    await newDocument()
+    newDocument()
     notifyNative({
       type: 'ready',
       bridge: 'LexPdfOffice',
-      version: 2,
+      version: 3,
       name: currentName,
+      startup: 'instant-blank',
     })
+    scheduleIdleWarmup()
   } catch (error) {
     console.error(error)
     notifyNative({
@@ -105,4 +128,4 @@ async function initialize() {
   }
 }
 
-void initialize()
+initialize()
