@@ -387,7 +387,7 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
                       }
                     },
                   ),
-                  if (_busy || !_runtimeLoaded)
+                  if (_busy)
                     Positioned.fill(
                       child: ColoredBox(
                         color: Theme.of(context)
