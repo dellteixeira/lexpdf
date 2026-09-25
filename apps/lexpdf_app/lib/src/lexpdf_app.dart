@@ -16,6 +16,7 @@ import 'screens/account_screen.dart';
 import 'screens/library_workspace_home_screen.dart';
 import 'screens/pdf_print_screen.dart';
 import 'screens/pdf_workspace_screen.dart';
+import 'widgets/office_runtime_prewarmer.dart';
 
 class LexPdfApp extends StatefulWidget {
   const LexPdfApp({
@@ -157,12 +158,21 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => LibraryWorkspaceHomeScreen(
-          catalog: _catalog,
-          annotations: _annotations,
-          inkStore: _inkStore,
-          onOpenAccount: () => _openAccount(context),
-          onOpenPrint: () => _openPrint(context),
+        builder: (context) => Stack(
+          children: [
+            LibraryWorkspaceHomeScreen(
+              catalog: _catalog,
+              annotations: _annotations,
+              inkStore: _inkStore,
+              onOpenAccount: () => _openAccount(context),
+              onOpenPrint: () => _openPrint(context),
+            ),
+            const Positioned(
+              right: 0,
+              bottom: 0,
+              child: OfficeRuntimePrewarmer(),
+            ),
+          ],
         ),
       ),
     );
