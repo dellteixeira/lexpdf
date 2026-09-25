@@ -24,7 +24,8 @@
     "@tiptap/extension-italic": "3.31.0",
     "@tiptap/extension-strike": "3.31.0",
     "@tiptap/extension-text": "3.31.0",
-    "@tiptap/extensions": "3.31.0"
+    "@tiptap/extensions": "3.31.0",
+    "@tiptap/pm": "3.31.0"
   },
   "devDependencies": {
     "jsdom": "^28.0.0",
