@@ -22,7 +22,7 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
   bool _runtimeLoaded = false;
   bool _busy = false;
   bool _dirty = false;
-  String? _documentName;
+  String _documentName = 'Sem título.docx';
 
   XTypeGroup get _docxType => Platform.isAndroid
       ? const XTypeGroup(
@@ -35,8 +35,55 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
           extensions: <String>['docx'],
         );
 
+  Future<bool> _confirmReplaceIfNeeded() async {
+    if (!_dirty) return true;
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Descartar alterações?'),
+            content: const Text(
+              'O documento atual possui alterações que ainda não foram salvas.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Descartar'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _newDocument() async {
+    if (_busy || !_runtimeLoaded || _controller == null) return;
+    if (!await _confirmReplaceIfNeeded()) return;
+
+    setState(() => _busy = true);
+    try {
+      await _controller!.evaluateJavascript(
+        source: 'window.LexPdfOffice.newDocument("Sem título.docx")',
+      );
+      if (!mounted) return;
+      setState(() {
+        _documentName = 'Sem título.docx';
+        _dirty = false;
+      });
+    } catch (error) {
+      _show('Não foi possível criar o documento: ' + error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _pickAndOpen() async {
-    if (_busy || !_runtimeLoaded) return;
+    if (_busy || !_runtimeLoaded || _controller == null) return;
+    if (!await _confirmReplaceIfNeeded()) return;
+
     final file = await openFile(
       acceptedTypeGroups: <XTypeGroup>[_docxType],
       confirmButtonText: 'Abrir',
@@ -61,17 +108,23 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
         _dirty = false;
       });
     } catch (error) {
-      _show('Não foi possível abrir o DOCX: $error');
+      _show('Não foi possível abrir o DOCX: ' + error.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<Uint8List> _savedBytes() async {
-    final result = await _controller!.evaluateJavascript(
+    final controller = _controller;
+    if (controller == null || !_runtimeLoaded) {
+      throw StateError('O editor Office ainda não está pronto.');
+    }
+
+    final result = await controller.evaluateJavascript(
       source: 'JSON.stringify(await window.LexPdfOffice.saveBase64())',
     );
     if (result == null) throw StateError('O editor não retornou o DOCX.');
+
     final decoded = jsonDecode(result is String ? result : result.toString());
     if (decoded is! Map || decoded['base64'] is! String) {
       throw StateError('Resposta inválida do editor DOCX.');
@@ -80,10 +133,11 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
   }
 
   Future<void> _save() async {
-    if (_busy || _documentName == null) return;
+    if (_busy || !_runtimeLoaded) return;
     setState(() => _busy = true);
     try {
       final bytes = await _savedBytes();
+
       if (Platform.isWindows) {
         final target = await getSaveLocation(
           acceptedTypeGroups: <XTypeGroup>[_docxType],
@@ -100,22 +154,22 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
           directory.path + Platform.pathSeparator + _outputName,
         );
         await target.writeAsBytes(bytes, flush: true);
-        _show('Cópia salva em: ' + target.path);
+        _show('DOCX salvo com sucesso.');
       }
+
       if (mounted) setState(() => _dirty = false);
     } catch (error) {
-      _show('Não foi possível salvar o DOCX: $error');
+      _show('Não foi possível salvar o DOCX: ' + error.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   String get _outputName {
-    final name = _documentName ?? 'documento.docx';
-    final base = name.toLowerCase().endsWith('.docx')
-        ? name.substring(0, name.length - 5)
-        : name;
-    return base + '-lexpdf.docx';
+    final base = _documentName.toLowerCase().endsWith('.docx')
+        ? _documentName.substring(0, _documentName.length - 5)
+        : _documentName;
+    return base + '.docx';
   }
 
   Future<void> _command(String command) async {
@@ -127,6 +181,7 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
 
   void _runtimeEvent(List<dynamic> args) {
     if (args.isEmpty) return;
+
     dynamic event = args.first;
     if (event is String) {
       try {
@@ -135,13 +190,43 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
         return;
       }
     }
-    if (event is! Map) return;
+    if (event is! Map || !mounted) return;
+
     final type = event['type'];
-    if (!mounted) return;
-    if (type == 'ready') setState(() => _runtimeLoaded = true);
-    if (type == 'documentChanged') setState(() => _dirty = true);
-    if (type == 'documentOpened' || type == 'documentSaved') {
+    final name = event['name'];
+
+    if (type == 'ready') {
+      setState(() {
+        _runtimeLoaded = true;
+        if (name is String && name.isNotEmpty) _documentName = name;
+        _dirty = false;
+      });
+      return;
+    }
+
+    if (type == 'documentOpened') {
+      setState(() {
+        if (name is String && name.isNotEmpty) _documentName = name;
+        _dirty = false;
+      });
+      return;
+    }
+
+    if (type == 'documentChanged') {
+      setState(() => _dirty = true);
+      return;
+    }
+
+    if (type == 'documentSaved') {
       setState(() => _dirty = false);
+      return;
+    }
+
+    if (type == 'runtimeError') {
+      _show(
+        'Falha no editor Office: ' +
+            (event['message']?.toString() ?? 'erro desconhecido'),
+      );
     }
   }
 
@@ -151,28 +236,17 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<bool> _confirmClose() async {
-    if (!_dirty) return true;
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Descartar alterações?'),
-            content: const Text(
-              'Este DOCX possui alterações que ainda não foram salvas.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Continuar editando'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Descartar'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+  Widget _formatButton({
+    required String tooltip,
+    required Widget child,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: _runtimeLoaded && !_busy ? onPressed : null,
+      icon: child,
+      visualDensity: VisualDensity.compact,
+    );
   }
 
   @override
@@ -181,15 +255,35 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop || !_dirty) return;
-        final discard = await _confirmClose();
+        final discard = await _confirmReplaceIfNeeded();
         if (!discard || !mounted) return;
         setState(() => _dirty = false);
         Navigator.of(context).pop();
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_documentName ?? 'Documentos Office'),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  _documentName,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (_dirty)
+                const Padding(
+                  padding: EdgeInsets.only(left: 6),
+                  child: Text('•'),
+                ),
+            ],
+          ),
           actions: [
+            IconButton(
+              tooltip: 'Novo documento',
+              onPressed: _busy || !_runtimeLoaded ? null : _newDocument,
+              icon: const Icon(Icons.note_add_outlined),
+            ),
             IconButton(
               tooltip: 'Abrir DOCX',
               onPressed: _busy || !_runtimeLoaded ? null : _pickAndOpen,
@@ -207,84 +301,107 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
             ),
             IconButton(
               tooltip: 'Salvar DOCX',
-              onPressed: _busy || _documentName == null ? null : _save,
+              onPressed: _busy || !_runtimeLoaded ? null : _save,
               icon: const Icon(Icons.save_outlined),
             ),
             const SizedBox(width: 8),
           ],
         ),
-        body: Stack(
+        body: Column(
           children: [
-            InAppWebView(
-              initialFile: 'assets/office_runtime/index.html',
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                supportZoom: true,
-              ),
-              onWebViewCreated: (controller) {
-                _controller = controller;
-                controller.addJavaScriptHandler(
-                  handlerName: 'LexPdfOfficeEvent',
-                  callback: (args) {
-                    _runtimeEvent(args);
-                    return <String, Object?>{'ok': true};
-                  },
-                );
-              },
-              onLoadStop: (controller, url) {
-                if (mounted) setState(() => _runtimeLoaded = true);
-              },
-              onReceivedError: (controller, request, error) {
-                if (request.isForMainFrame == true) {
-                  _show('Falha ao carregar o editor Office.');
-                }
-              },
-            ),
-            if (_busy || !_runtimeLoaded)
-              Positioned.fill(
-                child: ColoredBox(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surface
-                      .withValues(alpha: 0.72),
-                  child: const Center(child: CircularProgressIndicator()),
+            Material(
+              elevation: 1,
+              child: SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 8),
+                    _formatButton(
+                      tooltip: 'Negrito',
+                      child: const Text(
+                        'B',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: () => _command('toggleBold'),
+                    ),
+                    _formatButton(
+                      tooltip: 'Itálico',
+                      child: const Text(
+                        'I',
+                        style: TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                      onPressed: () => _command('toggleItalic'),
+                    ),
+                    _formatButton(
+                      tooltip: 'Sublinhado',
+                      child: const Text(
+                        'U',
+                        style: TextStyle(
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      onPressed: () => _command('toggleUnderline'),
+                    ),
+                    _formatButton(
+                      tooltip: 'Tachado',
+                      child: const Text(
+                        'S',
+                        style: TextStyle(
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+                      onPressed: () => _command('toggleStrike'),
+                    ),
+                    const VerticalDivider(width: 24, indent: 9, endIndent: 9),
+                    Text(
+                      _runtimeLoaded ? 'DOCX' : 'Carregando editor…',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
                 ),
               ),
-            if (_runtimeLoaded && _documentName == null && !_busy)
-              Positioned.fill(
-                child: Center(
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.description_outlined, size: 48),
-                            const SizedBox(height: 14),
-                            Text(
-                              'Editor DOCX profissional',
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Abra um arquivo .docx para editar localmente com o motor GenOffice.',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 18),
-                            FilledButton.icon(
-                              onPressed: _pickAndOpen,
-                              icon: const Icon(Icons.file_open_outlined),
-                              label: const Text('Abrir DOCX'),
-                            ),
-                          ],
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  InAppWebView(
+                    initialFile: 'assets/office_runtime/index.html',
+                    initialSettings: InAppWebViewSettings(
+                      javaScriptEnabled: true,
+                      supportZoom: true,
+                      transparentBackground: false,
+                    ),
+                    onWebViewCreated: (controller) {
+                      _controller = controller;
+                      controller.addJavaScriptHandler(
+                        handlerName: 'LexPdfOfficeEvent',
+                        callback: (args) {
+                          _runtimeEvent(args);
+                          return <String, Object?>{'ok': true};
+                        },
+                      );
+                    },
+                    onReceivedError: (controller, request, error) {
+                      if (request.isForMainFrame == true) {
+                        _show('Falha ao carregar o editor Office.');
+                      }
+                    },
+                  ),
+                  if (_busy || !_runtimeLoaded)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surface
+                            .withValues(alpha: 0.72),
+                        child: const Center(
+                          child: CircularProgressIndicator(),
                         ),
                       ),
                     ),
-                  ),
-                ),
+                ],
               ),
+            ),
           ],
         ),
       ),
