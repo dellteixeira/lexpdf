@@ -17,6 +17,7 @@ jobs:
           test -f apps/lexpdf_app/pubspec.lock
           test -d apps/lexpdf_app/android
           test -d apps/lexpdf_app/windows
+          test -f apps/lexpdf_app/windows/installer/LexPDF.iss
           test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
           bash apps/lexpdf_app/tool/verify_release_platform_scope.sh
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
@@ -180,10 +181,63 @@ jobs:
           if (-not (Test-Path $flutterDll -PathType Leaf)) { throw 'Missing flutter_windows.dll.' }
           if (-not (Test-Path $assets -PathType Container)) { throw 'Missing Flutter assets directory.' }
           Get-FileHash $exe -Algorithm SHA256
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $versionLine = Select-String -Path 'pubspec.yaml' -Pattern '^version:\s*(.+)
+
+  backend-hardening:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Cloudflare typecheck
+        working-directory: backend/cloudflare
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+      - name: Verify Supabase security invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='backend/supabase/migrations/20260907020000_complete_phase12_backend_security.sql'
+          test -s "$file"
+          grep -q 'enable row level security' "$file"
+          grep -q 'revoke all on public.backend_events from anon, authenticated' "$file"
+          grep -q 'to authenticated' "$file"
+          grep -q 'as restrictive' "$file"
+          grep -q 'security definer' "$file"
+          grep -q 'revoke execute on function private.handle_new_user()' "$file"
+          if grep -Eqi '(sb_secret_|postgres://)[[:space:]]*=' "$file"; then
+            echo 'Potential credential material found in migration.' >&2
+            exit 1
+          fi
+
+          if ($null -eq $versionLine) { throw 'Could not read app version from pubspec.yaml.' }
+          $version = $versionLine.Matches[0].Groups[1].Value.Trim()
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc -PathType Leaf)) { throw 'Inno Setup compiler not found.' }
+          & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
+      - name: Smoke-check Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'windows/installer/output/LexPDF-Setup-*-x64.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Missing LexPDF Windows installer.' }
+          if ($installer.Length -le 0) { throw 'LexPDF Windows installer is empty.' }
+          Get-FileHash $installer.FullName -Algorithm SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-windows-release
           path: apps/lexpdf_app/build/windows/x64/runner/Release/**
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-windows-installer
+          path: apps/lexpdf_app/windows/installer/output/LexPDF-Setup-*-x64.exe
           if-no-files-found: error
 
   backend-hardening:
