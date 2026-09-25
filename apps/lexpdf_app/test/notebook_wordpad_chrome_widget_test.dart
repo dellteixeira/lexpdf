@@ -12,6 +12,7 @@ void main() {
           child: NotebookWordPadScaffold(
             title: 'Caderno de teste',
             homeRibbon: const Center(child: Text('HOME-RIBBON')),
+            insertRibbon: const Center(child: Text('INSERT-RIBBON')),
             drawingRibbon: const Center(child: Text('DRAWING-RIBBON')),
             viewRibbon: const Center(child: Text('VIEW-RIBBON')),
             document: const ColoredBox(color: Colors.white),
@@ -55,6 +56,7 @@ void main() {
 
       expect(find.text('Arquivo'), findsOneWidget);
       expect(find.text('Início'), findsOneWidget);
+      expect(find.text('Inserir'), findsOneWidget);
       expect(find.text('Desenho'), findsOneWidget);
       expect(find.text('Exibir'), findsOneWidget);
       expect(find.text('Caderno de teste — LexPDF'), findsOneWidget);
@@ -73,9 +75,14 @@ void main() {
   ) async {
     await tester.pumpWidget(buildSubject());
 
-    await tester.tap(find.text('Desenho'));
+    await tester.tap(find.text('Inserir'));
     await tester.pump();
     expect(find.text('HOME-RIBBON'), findsNothing);
+    expect(find.text('INSERT-RIBBON'), findsOneWidget);
+
+    await tester.tap(find.text('Desenho'));
+    await tester.pump();
+    expect(find.text('INSERT-RIBBON'), findsNothing);
     expect(find.text('DRAWING-RIBBON'), findsOneWidget);
 
     await tester.tap(find.text('Exibir'));
