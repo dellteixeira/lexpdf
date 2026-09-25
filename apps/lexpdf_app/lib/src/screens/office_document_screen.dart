@@ -177,8 +177,15 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _confirmClose,
+    return PopScope<void>(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop || !_dirty) return;
+        final discard = await _confirmClose();
+        if (!discard || !mounted) return;
+        setState(() => _dirty = false);
+        Navigator.of(context).pop();
+      },
       child: Scaffold(
         appBar: AppBar(
           title: Text(_documentName ?? 'Documentos Office'),
