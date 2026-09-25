@@ -114,16 +114,11 @@ class OfficeRuntimePrewarmer extends StatelessWidget {
                   transparentBackground: false,
                 ),
                 onWebViewCreated: runtime.registerController,
-                onLoadStop: (controller, url) async {
+                onLoadStop: (controller, url) {
+                  // Não carregamos o docx-engine aqui. O objetivo do prewarm é
+                  // deixar apenas WebView + Tiptap prontos. O motor DOCX pesado
+                  // entra sob demanda ao abrir ou salvar um arquivo.
                   runtime.registerController(controller);
-                  try {
-                    await controller.evaluateJavascript(
-                      source:
-                          'window.LexPdfOffice?.warmEngine?.().catch?.(() => {})',
-                    );
-                  } catch (_) {
-                    // Prewarm é oportunista e nunca deve bloquear o app.
-                  }
                 },
               ),
             ),
