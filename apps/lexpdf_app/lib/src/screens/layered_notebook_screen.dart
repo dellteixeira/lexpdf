@@ -5,6 +5,8 @@ import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_editor/fluent_document.dart';
+import 'package:fluent_editor/handlers/handle_clipboard.dart';
+import 'package:fluent_editor/handlers/handle_select_all.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
@@ -547,6 +549,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
           return NotebookWordPadScaffold(
             title: _currentNotebook?.title ?? 'Cadernos',
             homeRibbon: _buildTextFormattingToolbar(),
+            insertRibbon: _buildInsertRibbon(),
             drawingRibbon: _buildToolbar(),
             viewRibbon: _buildViewRibbon(),
             document: _buildPageViewport(page),
@@ -565,7 +568,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
             legacyDocAvailable: _legacyDocAvailable,
             onIndexImagesAi: () => unawaited(_indexNotebookImagesWithAi()),
             onRibbonTabChanged: (tab) {
-              if (tab == NotebookRibbonTab.home) _activateTextMode();
+              if (tab == NotebookRibbonTab.home ||
+                  tab == NotebookRibbonTab.insert) {
+                _activateTextMode();
+              }
               if (tab == NotebookRibbonTab.drawing) {
                 setState(() => _textMode = false);
               }
@@ -1695,6 +1701,40 @@ class _NotebookScreenState extends State<NotebookScreen> {
     });
   }
 
+  Future<void> _copyRichSelection() async {
+    final document = _richDocument;
+    if (document == null) return;
+    _activateTextMode();
+    await executeHandleCopy(document);
+    document.requestEditorFocus();
+  }
+
+  Future<void> _cutRichSelection() async {
+    final document = _richDocument;
+    if (document == null) return;
+    _activateTextMode();
+    document.saveState(description: 'Cut', forceNewAction: true);
+    await executeHandleCut(document);
+    document.requestEditorFocus();
+  }
+
+  Future<void> _pasteRichSelection() async {
+    final document = _richDocument;
+    if (document == null) return;
+    _activateTextMode();
+    document.saveState(description: 'Paste', forceNewAction: true);
+    await executeHandlePaste(document);
+    document.requestEditorFocus();
+  }
+
+  void _selectAllRichText() {
+    final document = _richDocument;
+    if (document == null) return;
+    _activateTextMode();
+    handleSelectAll(document);
+    document.requestEditorFocus();
+  }
+
   void _setSelectedTextStyle({
     bool? bold,
     bool? italic,
@@ -1770,6 +1810,41 @@ class _NotebookScreenState extends State<NotebookScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          WordPadRibbonGroup(
+            label: 'Área de transferência',
+            minWidth: 178,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: 'Colar',
+                  icon: Icons.content_paste,
+                  onPressed: _richDocument == null
+                      ? null
+                      : () => unawaited(_pasteRichSelection()),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    WordPadCompactIconButton(
+                      tooltip: 'Recortar',
+                      icon: Icons.content_cut,
+                      onPressed: _richDocument == null
+                          ? null
+                          : () => unawaited(_cutRichSelection()),
+                    ),
+                    WordPadCompactIconButton(
+                      tooltip: 'Copiar',
+                      icon: Icons.content_copy,
+                      onPressed: _richDocument == null
+                          ? null
+                          : () => unawaited(_copyRichSelection()),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           WordPadRibbonGroup(
             label: 'Fonte',
             minWidth: 265,
@@ -1977,46 +2052,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
             ),
           ),
           WordPadRibbonGroup(
-            label: 'Inserir',
-            minWidth: 220,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                WordPadLabeledCommand(
-                  label: object == null ? 'Texto' : 'Editar',
-                  icon: Icons.text_fields,
-                  onPressed: _canEditActiveLayer
-                      ? () => unawaited(_addText())
-                      : null,
-                ),
-                WordPadLabeledCommand(
-                  label: 'Imagem',
-                  icon: Icons.image_outlined,
-                  onPressed: _canEditActiveLayer
-                      ? () => unawaited(_addImage())
-                      : null,
-                ),
-                WordPadLabeledCommand(
-                  label: 'Página',
-                  icon: Icons.note_add_outlined,
-                  onPressed: () => unawaited(_addPage()),
-                ),
-                WordPadLabeledCommand(
-                  label: 'Objeto',
-                  icon: Icons.crop_square_outlined,
-                  onPressed: _canEditActiveLayer
-                      ? () => unawaited(_addShape(NotebookObjectType.rectangle))
-                      : null,
-                ),
-              ],
-            ),
-          ),
-          WordPadRibbonGroup(
             label: 'Edição',
-            minWidth: 125,
+            minWidth: 190,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                WordPadLabeledCommand(
+                  label: 'Selecionar',
+                  icon: Icons.select_all,
+                  onPressed: _richDocument == null ? null : _selectAllRichText,
+                ),
                 WordPadLabeledCommand(
                   label: 'Desfazer',
                   icon: Icons.undo,
@@ -2030,6 +2075,72 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   onPressed: _richDocument == null
                       ? null
                       : () => _richDocument!.redo(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsertRibbon() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WordPadRibbonGroup(
+            label: 'Páginas',
+            minWidth: 120,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: 'Nova página',
+                  icon: Icons.note_add_outlined,
+                  onPressed: () => unawaited(_addPage()),
+                ),
+              ],
+            ),
+          ),
+          WordPadRibbonGroup(
+            label: 'Conteúdo',
+            minWidth: 190,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: 'Texto',
+                  icon: Icons.text_fields,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(_addText())
+                      : null,
+                ),
+                WordPadLabeledCommand(
+                  label: 'Imagem',
+                  icon: Icons.image_outlined,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(_addImage())
+                      : null,
+                ),
+              ],
+            ),
+          ),
+          WordPadRibbonGroup(
+            label: 'Ilustrações',
+            minWidth: 155,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WordPadLabeledCommand(
+                  label: 'Forma',
+                  icon: Icons.crop_square_outlined,
+                  onPressed: _canEditActiveLayer
+                      ? () => unawaited(
+                            _addShape(NotebookObjectType.rectangle),
+                          )
+                      : null,
                 ),
               ],
             ),
