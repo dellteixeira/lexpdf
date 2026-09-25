@@ -1,0 +1,29 @@
+name: Office Lock Refresh
+
+on:
+  push:
+    branches:
+      - poc/genoffice-docx
+    paths:
+      - 'apps/lexpdf_app/pubspec.yaml'
+      - '.github/workflows/office-lock-refresh.yml'
+  workflow_dispatch:
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Refresh lockfile
+        working-directory: apps/lexpdf_app
+        run: flutter pub get
+      - uses: actions/upload-artifact@v4
+        with:
+          name: office-pubspec-lock
+          path: apps/lexpdf_app/pubspec.lock
+          if-no-files-found: error
