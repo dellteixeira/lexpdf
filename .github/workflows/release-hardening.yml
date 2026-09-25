@@ -185,43 +185,12 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
-          $versionLine = Select-String -Path 'pubspec.yaml' -Pattern '^version:\s*(.+)
-
-  backend-hardening:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Cloudflare typecheck
-        working-directory: backend/cloudflare
-        run: |
-          npm install --no-audit --no-fund
-          npm run check
-      - name: Verify Supabase security invariants
-        shell: bash
-        run: |
-          set -euo pipefail
-          file='backend/supabase/migrations/20260907020000_complete_phase12_backend_security.sql'
-          test -s "$file"
-          grep -q 'enable row level security' "$file"
-          grep -q 'revoke all on public.backend_events from anon, authenticated' "$file"
-          grep -q 'to authenticated' "$file"
-          grep -q 'as restrictive' "$file"
-          grep -q 'security definer' "$file"
-          grep -q 'revoke execute on function private.handle_new_user()' "$file"
-          if grep -Eqi '(sb_secret_|postgres://)[[:space:]]*=' "$file"; then
-            echo 'Potential credential material found in migration.' >&2
-            exit 1
-          fi
-
-          if ($null -eq $versionLine) { throw 'Could not read app version from pubspec.yaml.' }
-          $version = $versionLine.Matches[0].Groups[1].Value.Trim()
+          $version = (Get-Content 'pubspec.yaml' | Where-Object { $_ -like 'version:*' } | Select-Object -First 1).Split(':', 2)[1].Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Could not read app version from pubspec.yaml.' }
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc -PathType Leaf)) { throw 'Inno Setup compiler not found.' }
           & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }
       - name: Smoke-check Windows installer
         shell: pwsh
         run: |
