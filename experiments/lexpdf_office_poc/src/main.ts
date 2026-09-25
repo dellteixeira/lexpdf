@@ -39,7 +39,6 @@ function newDocument(name = 'Sem título.docx') {
   currentName = name
   dirty = false
   initializing = false
-  queueMicrotask(() => session.editor.commands.focus('start'))
   notifyNative({ type: 'documentOpened', name })
   return { ok: true, name }
 }
@@ -95,30 +94,27 @@ function warmEngine() {
   toggleItalic: () => session.editor.chain().focus().toggleItalic().run(),
   toggleUnderline: () => session.editor.chain().focus().toggleUnderline().run(),
   toggleStrike: () => session.editor.chain().focus().toggleStrike().run(),
-  focus: () => session.editor.commands.focus(),
-}
-
-function scheduleIdleWarmup() {
-  const run = () => void warmEngine().catch(() => {})
-  const win = window as any
-  if (typeof win.requestIdleCallback === 'function') {
-    win.requestIdleCallback(run, { timeout: 1800 })
-  } else {
-    setTimeout(run, 900)
-  }
+  focus: () => session.editor.commands.focus('start'),
+  getStartupMetrics: () => ({
+    ready: true,
+    bootMs: Math.round(performance.now()),
+    docxEngineLoaded: warmPromise !== null,
+  }),
 }
 
 function initialize() {
   try {
-    newDocument()
+    // OfficeSession já nasce com um documento vazio. Não repetimos setContent
+    // nem carregamos o docx-engine durante o startup.
+    initializing = false
     notifyNative({
       type: 'ready',
       bridge: 'LexPdfOffice',
-      version: 3,
+      version: 4,
       name: currentName,
-      startup: 'instant-blank',
+      startup: 'persistent-webview-minimal',
+      bootMs: Math.round(performance.now()),
     })
-    scheduleIdleWarmup()
   } catch (error) {
     console.error(error)
     notifyNative({
