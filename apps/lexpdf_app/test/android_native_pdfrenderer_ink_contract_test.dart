@@ -179,6 +179,28 @@ void main() {
     );
   });
 
+  test('landscape collapses reader controls into one compact top toolbar', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(
+      activity,
+      contains(
+        'resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE',
+      ),
+    );
+    expect(activity, contains('HorizontalScrollView(this)'));
+    expect(activity, contains('moveChildren(navigationRow)'));
+    expect(activity, contains('moveChildren(inkRow)'));
+    expect(activity, contains('statusLabel.visibility = View.GONE'));
+    expect(
+      activity,
+      contains('collapse navigation + annotation'),
+    );
+    expect(activity, contains('if (isLandscape) 96.dp else 110.dp'));
+  });
+
   test('underline shapes and partial eraser are available in Android reader', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
