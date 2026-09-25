@@ -12,13 +12,16 @@ void main() {
     expect(screen, contains("import '../widgets/notebook_wordpad_chrome.dart';"));
     expect(screen, contains('NotebookWordPadScaffold('));
     expect(screen, contains('homeRibbon: _buildTextFormattingToolbar()'));
+    expect(screen, contains('insertRibbon: _buildInsertRibbon()'));
     expect(screen, contains('drawingRibbon: _buildToolbar()'));
     expect(screen, contains('viewRibbon: _buildViewRibbon()'));
 
     expect(chrome, contains('class NotebookWordPadScaffold'));
     expect(chrome, contains('class NotebookWordPadStatusBar'));
+    expect(chrome, contains('NotebookRibbonTab.insert'));
+    expect(chrome, contains("label: 'Inserir'"));
     expect(chrome, contains('class NotebookDocumentRuler'));
-    expect(chrome, contains('height: 96'));
+    expect(chrome, contains('height: 108'));
     expect(chrome, contains('height: 29'));
   });
 

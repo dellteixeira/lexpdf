@@ -17,6 +17,7 @@ jobs:
           test -f apps/lexpdf_app/pubspec.lock
           test -d apps/lexpdf_app/android
           test -d apps/lexpdf_app/windows
+          test -f apps/lexpdf_app/windows/installer/LexPDF.iss
           test -f apps/lexpdf_app/tool/verify_android_target_sdk.sh
           bash apps/lexpdf_app/tool/verify_release_platform_scope.sh
           grep -q '^name: lexpdf_app$' apps/lexpdf_app/pubspec.yaml
@@ -180,10 +181,32 @@ jobs:
           if (-not (Test-Path $flutterDll -PathType Leaf)) { throw 'Missing flutter_windows.dll.' }
           if (-not (Test-Path $assets -PathType Container)) { throw 'Missing Flutter assets directory.' }
           Get-FileHash $exe -Algorithm SHA256
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $version = (Get-Content 'pubspec.yaml' | Where-Object { $_ -like 'version:*' } | Select-Object -First 1).Split(':', 2)[1].Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Could not read app version from pubspec.yaml.' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc -PathType Leaf)) { throw 'Inno Setup compiler not found.' }
+          & $iscc "/DMyAppVersion=$version" 'windows\installer\LexPDF.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }
+      - name: Smoke-check Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'windows/installer/output/LexPDF-Setup-*-x64.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Missing LexPDF Windows installer.' }
+          if ($installer.Length -le 0) { throw 'LexPDF Windows installer is empty.' }
+          Get-FileHash $installer.FullName -Algorithm SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: lexpdf-windows-release
           path: apps/lexpdf_app/build/windows/x64/runner/Release/**
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-windows-installer
+          path: apps/lexpdf_app/windows/installer/output/LexPDF-Setup-*-x64.exe
           if-no-files-found: error
 
   backend-hardening:

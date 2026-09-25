@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum NotebookRibbonTab { home, drawing, view }
+enum NotebookRibbonTab { home, insert, drawing, view }
 
 enum _NotebookFileAction {
   openDocument,
@@ -22,6 +22,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
   const NotebookWordPadScaffold({
     required this.title,
     required this.homeRibbon,
+    required this.insertRibbon,
     required this.drawingRibbon,
     required this.viewRibbon,
     required this.document,
@@ -58,6 +59,7 @@ class NotebookWordPadScaffold extends StatefulWidget {
 
   final String title;
   final Widget homeRibbon;
+  final Widget insertRibbon;
   final Widget drawingRibbon;
   final Widget viewRibbon;
   final Widget document;
@@ -123,13 +125,14 @@ class _NotebookWordPadScaffoldState extends State<NotebookWordPadScaffold> {
             legacyDocAvailable: widget.legacyDocAvailable,
           ),
           Container(
-            height: 96,
+            height: 108,
             decoration: const BoxDecoration(
               color: Color(0xFFF9FAFC),
               border: Border(bottom: BorderSide(color: Color(0xFFC9CDD4))),
             ),
             child: switch (_tab) {
               NotebookRibbonTab.home => widget.homeRibbon,
+              NotebookRibbonTab.insert => widget.insertRibbon,
               NotebookRibbonTab.drawing => widget.drawingRibbon,
               NotebookRibbonTab.view => widget.viewRibbon,
             },
@@ -200,20 +203,29 @@ class _WordPadTitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: const BoxDecoration(
-        color: Color(0xFFF3F5F8),
-        border: Border(bottom: BorderSide(color: Color(0xFFD7DAE0))),
+        color: Color(0xFFF6F7F9),
+        border: Border(bottom: BorderSide(color: Color(0xFFD2D6DC))),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.description_outlined,
-            size: 17,
-            color: Color(0xFF3465A4),
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF185ABD),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Icon(
+              Icons.description_outlined,
+              size: 16,
+              color: Colors.white,
+            ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 6),
           WordPadCompactIconButton(
             tooltip: 'Desfazer',
             icon: Icons.undo,
@@ -232,8 +244,8 @@ class _WordPadTitleBar extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
                 color: Color(0xFF25272A),
               ),
             ),
@@ -271,7 +283,7 @@ class _WordPadTabStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 31,
+      height: 34,
       decoration: const BoxDecoration(
         color: Color(0xFFF7F8FA),
         border: Border(bottom: BorderSide(color: Color(0xFFD7DAE0))),
@@ -392,9 +404,9 @@ class _WordPadTabStrip extends StatelessWidget {
               ),
             ],
             child: Container(
-              width: 72,
+              width: 78,
               alignment: Alignment.center,
-              color: const Color(0xFF2F66B3),
+              color: const Color(0xFF185ABD),
               child: const Text(
                 'Arquivo',
                 style: TextStyle(color: Colors.white, fontSize: 12),
@@ -405,6 +417,11 @@ class _WordPadTabStrip extends StatelessWidget {
             label: 'Início',
             selected: activeTab == NotebookRibbonTab.home,
             onPressed: () => onTabChanged(NotebookRibbonTab.home),
+          ),
+          _RibbonTabButton(
+            label: 'Inserir',
+            selected: activeTab == NotebookRibbonTab.insert,
+            onPressed: () => onTabChanged(NotebookRibbonTab.insert),
           ),
           _RibbonTabButton(
             label: 'Desenho',
@@ -439,8 +456,8 @@ class _RibbonTabButton extends StatelessWidget {
     return InkWell(
       onTap: onPressed,
       child: Container(
-        constraints: const BoxConstraints(minWidth: 74),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        constraints: const BoxConstraints(minWidth: 78),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFF9FAFC) : Colors.transparent,
@@ -448,7 +465,7 @@ class _RibbonTabButton extends StatelessWidget {
               ? const Border(
                   left: BorderSide(color: Color(0xFFD7DAE0)),
                   right: BorderSide(color: Color(0xFFD7DAE0)),
-                  top: BorderSide(color: Color(0xFF6B8FBE), width: 2),
+                  bottom: BorderSide(color: Color(0xFF185ABD), width: 2),
                 )
               : null,
         ),
@@ -456,7 +473,7 @@ class _RibbonTabButton extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: selected ? const Color(0xFF1F3656) : const Color(0xFF34373B),
+            color: selected ? const Color(0xFF185ABD) : const Color(0xFF34373B),
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
           ),
         ),
@@ -481,21 +498,21 @@ class WordPadRibbonGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(minWidth: minWidth ?? 0),
-      padding: const EdgeInsets.fromLTRB(6, 5, 6, 2),
+      padding: const EdgeInsets.fromLTRB(8, 7, 8, 3),
       decoration: const BoxDecoration(
-        border: Border(right: BorderSide(color: Color(0xFFD5D8DE))),
+        border: Border(right: BorderSide(color: Color(0xFFD9DDE3))),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.max,
         children: [
           Expanded(child: Center(child: child)),
           SizedBox(
-            height: 15,
+            height: 17,
             child: Center(
               child: Text(
                 label,
                 maxLines: 1,
-                style: const TextStyle(fontSize: 9.5, color: Color(0xFF676B72)),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF61656C)),
               ),
             ),
           ),
@@ -511,7 +528,7 @@ class WordPadCompactIconButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.selected = false,
-    this.size = 27,
+    this.size = 30,
     super.key,
   });
 
@@ -528,21 +545,21 @@ class WordPadCompactIconButton extends StatelessWidget {
       child: InkWell(
         onTap: onPressed,
         canRequestFocus: onPressed != null,
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: BorderRadius.circular(4),
         child: Container(
           width: size,
           height: size,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? const Color(0xFFDCEAFB) : Colors.transparent,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(4),
             border: selected
                 ? Border.all(color: const Color(0xFF8CB3E0))
                 : null,
           ),
           child: Icon(
             icon,
-            size: 17,
+            size: 18,
             color: onPressed == null
                 ? const Color(0xFFA7AAB0)
                 : const Color(0xFF34373B),
@@ -573,7 +590,7 @@ class WordPadLabeledCommand extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(2),
       child: Container(
-        width: 54,
+        width: 60,
         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFDCEAFB) : Colors.transparent,
