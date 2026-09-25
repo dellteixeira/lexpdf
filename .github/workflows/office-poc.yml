@@ -27,4 +27,9 @@ jobs:
 
       - run: npm install --legacy-peer-deps
       - run: npm test
-      - run: npm run build
+      - run: npm run bundle:flutter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexpdf-office-runtime
+          path: apps/lexpdf_app/assets/office_runtime/**
+          if-no-files-found: error
