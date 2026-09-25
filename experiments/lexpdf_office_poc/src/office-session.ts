@@ -1,14 +1,12 @@
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
-import {
-  parseDocx,
-  saveDocx,
-  type Block,
-  type GeneratedBlock,
-  type ParsedDocFull,
-  type Run,
-  type SaveBlock,
+import type {
+  Block,
+  GeneratedBlock,
+  ParsedDocFull,
+  Run,
+  SaveBlock,
 } from '@genoffice/docx-engine'
 import { LexBlock, PreservedBlock, SourceRun } from './editor-extensions'
 
@@ -19,6 +17,14 @@ type JsonNode = {
   text?: string
   marks?: JsonMark[]
   content?: JsonNode[]
+}
+
+type DocxEngineModule = typeof import('@genoffice/docx-engine')
+let enginePromise: Promise<DocxEngineModule> | null = null
+
+function loadDocxEngine(): Promise<DocxEngineModule> {
+  enginePromise ??= import('@genoffice/docx-engine')
+  return enginePromise
 }
 
 function runMarks(run: Run): JsonMark[] {
@@ -165,7 +171,16 @@ export class OfficeSession {
     })
   }
 
+  newDocument(): void {
+    this.parsed = null
+    this.editor.commands.setContent({
+      type: 'doc',
+      content: [{ type: 'lexBlock' }],
+    })
+  }
+
   async open(bytes: Uint8Array): Promise<void> {
+    const { parseDocx } = await loadDocxEngine()
     this.parsed = await parseDocx(bytes)
     const content = this.parsed.blocks
       .map(blockToEditorNode)
@@ -178,7 +193,12 @@ export class OfficeSession {
   }
 
   async save(): Promise<Uint8Array> {
-    if (!this.parsed) throw new Error('Nenhum DOCX está aberto.')
+    const engine = await loadDocxEngine()
+
+    if (!this.parsed) {
+      const blank = await engine.buildBlankDocx()
+      this.parsed = await engine.parseDocx(blank)
+    }
 
     const json = this.editor.getJSON() as JsonNode
     const originals = new Map(
@@ -194,7 +214,7 @@ export class OfficeSession {
 
       if (node.type === 'preservedBlock') {
         if (typeof docxIndex !== 'number') {
-          throw new Error('A POC não permite criar novos blocos preservados.')
+          throw new Error('Não foi possível preservar este bloco DOCX.')
         }
         finalBlocks.push({ kind: 'original', docxIndex })
         continue
@@ -212,11 +232,11 @@ export class OfficeSession {
       }
     }
 
-    return saveDocx(this.parsed, finalBlocks)
+    return engine.saveDocx(this.parsed, finalBlocks)
   }
 
   get hasDocument(): boolean {
-    return this.parsed !== null
+    return true
   }
 
   destroy(): void {
