@@ -15,6 +15,7 @@ function setStatus(text: string) {
 
 function notifyNative(payload: Record<string, unknown>) {
   const win = window as any
+  try { win.flutter_inappwebview?.callHandler('LexPdfOfficeEvent', payload) } catch {}
   try { win.chrome?.webview?.postMessage(payload) } catch {}
   try { win.LexPdfAndroid?.postMessage(JSON.stringify(payload)) } catch {}
 }
