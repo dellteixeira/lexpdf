@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../widgets/office_runtime_prewarmer.dart';
+
 class OfficeDocumentScreen extends StatefulWidget {
   const OfficeDocumentScreen({super.key});
 
@@ -18,11 +20,32 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
   static const _mime =
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
+  final OfficeWebViewRuntime _runtime = OfficeWebViewRuntime.instance;
+  StreamSubscription<Map<String, dynamic>>? _runtimeSubscription;
+
   InAppWebViewController? _controller;
   bool _runtimeLoaded = false;
   bool _busy = false;
   bool _dirty = false;
   String _documentName = 'Sem título.docx';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = _runtime.controller;
+    _runtimeLoaded = _runtime.ready;
+    _dirty = _runtime.dirty;
+    _documentName = _runtime.documentName;
+    _runtimeSubscription = _runtime.events.listen(
+      (event) => _runtimeEvent(<dynamic>[event]),
+    );
+  }
+
+  @override
+  void dispose() {
+    _runtimeSubscription?.cancel();
+    super.dispose();
+  }
 
   XTypeGroup get _docxType => Platform.isAndroid
       ? const XTypeGroup(
@@ -365,6 +388,7 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
               child: Stack(
                 children: [
                   InAppWebView(
+                    keepAlive: _runtime.keepAlive,
                     initialFile: 'assets/office_runtime/index.html',
                     initialSettings: InAppWebViewSettings(
                       javaScriptEnabled: true,
@@ -373,13 +397,14 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
                     ),
                     onWebViewCreated: (controller) {
                       _controller = controller;
-                      controller.addJavaScriptHandler(
-                        handlerName: 'LexPdfOfficeEvent',
-                        callback: (args) {
-                          _runtimeEvent(args);
-                          return <String, Object?>{'ok': true};
-                        },
-                      );
+                      _runtime.registerController(controller);
+                      if (mounted && _runtime.ready && !_runtimeLoaded) {
+                        setState(() {
+                          _runtimeLoaded = true;
+                          _dirty = _runtime.dirty;
+                          _documentName = _runtime.documentName;
+                        });
+                      }
                     },
                     onReceivedError: (controller, request, error) {
                       if (request.isForMainFrame == true) {
