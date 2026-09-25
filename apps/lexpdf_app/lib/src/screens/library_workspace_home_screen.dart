@@ -424,8 +424,11 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
 
     try {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const OfficeDocumentScreen(),
+        PageRouteBuilder<void>(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              const OfficeDocumentScreen(),
         ),
       );
     } finally {
