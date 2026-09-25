@@ -10,7 +10,8 @@
     "prebuild": "npm run bootstrap",
     "build": "tsc --noEmit && vite build",
     "pretest": "npm run bootstrap",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bundle:flutter": "npm run build && node scripts/copy-flutter-assets.mjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.0",
