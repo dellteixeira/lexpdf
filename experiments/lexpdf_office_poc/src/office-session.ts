@@ -1,6 +1,11 @@
 import { Editor } from '@tiptap/core'
-import StarterKit from '@tiptap/starter-kit'
+import Bold from '@tiptap/extension-bold'
+import Document from '@tiptap/extension-document'
+import Italic from '@tiptap/extension-italic'
+import Strike from '@tiptap/extension-strike'
+import Text from '@tiptap/extension-text'
 import Underline from '@tiptap/extension-underline'
+import { UndoRedo } from '@tiptap/extensions'
 import type {
   Block,
   GeneratedBlock,
@@ -154,14 +159,13 @@ export class OfficeSession {
     this.editor = new Editor({
       element,
       extensions: [
-        StarterKit.configure({
-          paragraph: false,
-          heading: false,
-          bulletList: false,
-          orderedList: false,
-          listItem: false,
-        }),
+        Document,
+        Text,
+        Bold,
+        Italic,
         Underline,
+        Strike,
+        UndoRedo,
         SourceRun,
         LexBlock,
         PreservedBlock,
