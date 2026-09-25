@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LexPDF Office POC</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <strong>LexPDF Office POC</strong>
+      <span id="status">Nenhum DOCX aberto</span>
+      <div class="spacer"></div>
+      <label class="button">
+        Abrir DOCX
+        <input id="fileInput" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+      </label>
+      <button id="saveButton" disabled>Salvar DOCX</button>
+    </header>
+
+    <nav class="toolbar" aria-label="Formatação">
+      <button data-command="bold"><strong>B</strong></button>
+      <button data-command="italic"><em>I</em></button>
+      <button data-command="underline"><u>U</u></button>
+      <button data-command="strike"><s>S</s></button>
+      <button data-command="undo">Desfazer</button>
+      <button data-command="redo">Refazer</button>
+    </nav>
+
+    <main class="workspace">
+      <section class="page-shell">
+        <div id="editor"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
