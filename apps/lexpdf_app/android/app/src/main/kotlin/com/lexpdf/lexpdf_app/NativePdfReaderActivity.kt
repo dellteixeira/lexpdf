@@ -16,6 +16,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -174,6 +175,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var wetInkView: InProgressStrokesView
     private lateinit var pageLabel: TextView
     private lateinit var statusLabel: TextView
+    private lateinit var toolbarHost: LinearLayout
+    private lateinit var navigationRow: LinearLayout
+    private lateinit var inkRow: LinearLayout
     private lateinit var penButton: Button
     private lateinit var highlighterButton: Button
     private lateinit var underlineButton: Button
@@ -324,7 +328,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 setOnClickListener { onClick() }
             }
 
-        val navigationRow = toolRow()
+        navigationRow = toolRow()
         navigationRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
         pageLabel = TextView(this).apply {
@@ -356,7 +360,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         navigationRow.addView(button("Índice") { showOutlineDialog() })
         navigationRow.addView(button("Fechar") { finish() })
 
-        val inkRow = toolRow()
+        inkRow = toolRow()
         penButton =
             button("Caneta") {
                 selectInk(InkKind.PEN)
@@ -416,67 +420,20 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
         )
 
-        if (isLandscape) {
-            // Landscape is height-constrained: collapse navigation + annotation
-            // controls into one compact, horizontally scrollable toolbar. This
-            // recovers an entire 48dp row for the PDF while keeping every tool
-            // available without wrapping or shrinking labels into unreadability.
-            statusLabel.visibility = View.GONE
-
-            val landscapeToolbar = toolRow().apply {
-                setPadding(4.dp, 2.dp, 4.dp, 2.dp)
+        toolbarHost =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.rgb(242, 244, 247))
             }
+        root.addView(
+            toolbarHost,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
 
-            fun moveChildren(from: LinearLayout) {
-                while (from.childCount > 0) {
-                    val child = from.getChildAt(0)
-                    from.removeViewAt(0)
-                    val params = child.layoutParams
-                    if (child === statusLabel) continue
-                    landscapeToolbar.addView(child, params)
-                }
-            }
-
-            moveChildren(navigationRow)
-            moveChildren(inkRow)
-
-            val toolbarScroll =
-                HorizontalScrollView(this).apply {
-                    isHorizontalScrollBarEnabled = false
-                    isFillViewport = true
-                    overScrollMode = View.OVER_SCROLL_NEVER
-                    addView(
-                        landscapeToolbar,
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.WRAP_CONTENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                        ),
-                    )
-                }
-
-            root.addView(
-                toolbarScroll,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
-                ),
-            )
-        } else {
-            root.addView(
-                navigationRow,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
-                ),
-            )
-            root.addView(
-                inkRow,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
-                ),
-            )
-        }
+        applyAdaptiveToolbarLayout(isLandscape)
 
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
@@ -549,6 +506,108 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         setContentView(root)
         selectInk(currentKind)
+    }
+
+    private fun detachFromParent(view: View) {
+        (view.parent as? ViewGroup)?.removeView(view)
+    }
+
+    private fun applyAdaptiveToolbarLayout(isLandscape: Boolean) {
+        if (!::toolbarHost.isInitialized ||
+            !::navigationRow.isInitialized ||
+            !::inkRow.isInitialized
+        ) {
+            return
+        }
+
+        detachFromParent(navigationRow)
+        detachFromParent(inkRow)
+        toolbarHost.removeAllViews()
+
+        if (isLandscape) {
+            // One physical toolbar row in landscape. Navigation and annotation
+            // rows remain logically separate but are placed side by side inside
+            // one horizontal scrolling strip, so rotation never needs to rebuild
+            // the PDF/WebView or lose the current page.
+            statusLabel.visibility = View.GONE
+
+            val mergedRow =
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setBackgroundColor(Color.rgb(242, 244, 247))
+                }
+
+            mergedRow.addView(
+                navigationRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    48.dp,
+                ),
+            )
+            mergedRow.addView(
+                inkRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    48.dp,
+                ),
+            )
+
+            val scroll =
+                HorizontalScrollView(this).apply {
+                    isHorizontalScrollBarEnabled = false
+                    isFillViewport = true
+                    overScrollMode = View.OVER_SCROLL_NEVER
+                    addView(
+                        mergedRow,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            48.dp,
+                        ),
+                    )
+                }
+
+            toolbarHost.addView(
+                scroll,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        } else {
+            statusLabel.visibility = View.VISIBLE
+
+            toolbarHost.addView(
+                navigationRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+            toolbarHost.addView(
+                inkRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        val landscape =
+            newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ||
+                newConfig.screenWidthDp > newConfig.screenHeightDp
+
+        applyAdaptiveToolbarLayout(landscape)
+
+        if (::webView.isInitialized) {
+            webView.post {
+                js("window.dispatchEvent(new Event('resize'))")
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
