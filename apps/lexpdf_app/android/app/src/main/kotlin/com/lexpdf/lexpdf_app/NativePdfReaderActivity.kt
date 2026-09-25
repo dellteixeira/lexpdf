@@ -2653,10 +2653,20 @@ function hypot(a,b) {
             val style = strokeStyles.remove(id) ?: currentInkStyle()
             val tool = strokeTools.remove(id) ?: currentTool
             val shape = strokeShapeTools.remove(id) ?: currentShape
-            val stroke = snapFinishedStroke(tool, shape, rawStroke)
-            val entry = InkEntry(style, stroke)
-            currentEntries += entry
-            undoHistory.addLast(InkHistoryAction.Added(entry))
+            val snapped = snapFinishedStrokes(tool, shape, rawStroke, style)
+            val entryStyle =
+                if (tool == InkTool.UNDERLINE || tool == InkTool.SHAPE) {
+                    style.copy(brushRole = BrushRole.VECTOR)
+                } else {
+                    style
+                }
+            val entries = snapped.map { stroke -> InkEntry(entryStyle, stroke) }
+            currentEntries += entries
+            if (entries.size == 1) {
+                undoHistory.addLast(InkHistoryAction.Added(entries.single()))
+            } else if (entries.isNotEmpty()) {
+                undoHistory.addLast(InkHistoryAction.AddedBatch(entries))
+            }
         }
         redoHistory.clear()
         refreshInkLayers()
@@ -2670,6 +2680,10 @@ function hypot(a,b) {
         when (action) {
             is InkHistoryAction.Added -> {
                 currentEntries.remove(action.entry)
+            }
+
+            is InkHistoryAction.AddedBatch -> {
+                action.entries.forEach { currentEntries.remove(it) }
             }
 
             is InkHistoryAction.Removed -> {
@@ -2694,6 +2708,10 @@ function hypot(a,b) {
         when (action) {
             is InkHistoryAction.Added -> {
                 currentEntries += action.entry
+            }
+
+            is InkHistoryAction.AddedBatch -> {
+                currentEntries += action.entries
             }
 
             is InkHistoryAction.Removed -> {
@@ -2752,6 +2770,7 @@ function hypot(a,b) {
                         output.writeInt(entry.style.kind.ordinal)
                         output.writeInt(entry.style.colorArgb)
                         output.writeFloat(entry.style.size)
+                        output.writeInt(entry.style.brushRole.ordinal)
                         val encoded =
                             ByteArrayOutputStream().use { bytes ->
                                 entry.stroke.inputs.encode(bytes)
@@ -2810,16 +2829,34 @@ function hypot(a,b) {
                                         } else {
                                             savedColor
                                         }
+                                    val savedSize =
+                                        input
+                                            .readFloat()
+                                            .coerceIn(
+                                                if (kind == InkKind.PEN) 1f else 6f,
+                                                if (kind == InkKind.PEN) 16f else 40f,
+                                            )
+                                    val role =
+                                        if (version >= 4) {
+                                            BrushRole.entries.getOrElse(input.readInt()) {
+                                                if (kind == InkKind.HIGHLIGHTER) {
+                                                    BrushRole.HIGHLIGHTER
+                                                } else {
+                                                    BrushRole.HANDWRITING
+                                                }
+                                            }
+                                        } else {
+                                            if (kind == InkKind.HIGHLIGHTER) {
+                                                BrushRole.HIGHLIGHTER
+                                            } else {
+                                                BrushRole.HANDWRITING
+                                            }
+                                        }
                                     InkStyle(
                                         kind = kind,
                                         colorArgb = normalizedColor,
-                                        size =
-                                            input
-                                                .readFloat()
-                                                .coerceIn(
-                                                    if (kind == InkKind.PEN) 1f else 6f,
-                                                    if (kind == InkKind.PEN) 16f else 40f,
-                                                ),
+                                        size = savedSize,
+                                        brushRole = role,
                                     )
                                 }
                             } else {
@@ -2828,12 +2865,14 @@ function hypot(a,b) {
                                         InkKind.PEN,
                                         Color.rgb(20, 24, 30),
                                         3.0f,
+                                        BrushRole.HANDWRITING,
                                     )
                                 } else {
                                     InkStyle(
                                         InkKind.HIGHLIGHTER,
                                         Color.argb(72, 255, 224, 64),
                                         18f,
+                                        BrushRole.HIGHLIGHTER,
                                     )
                                 }
                             }
