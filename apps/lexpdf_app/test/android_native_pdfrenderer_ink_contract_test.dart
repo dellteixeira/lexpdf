@@ -192,12 +192,15 @@ void main() {
     expect(activity, contains('ShapeTool.LINE'));
     expect(activity, contains('ShapeTool.STAR'));
     expect(activity, contains('showShapeToolDialog'));
-    expect(activity, contains('snapFinishedStroke'));
+    expect(activity, contains('snapFinishedStrokes'));
     expect(activity, contains('syntheticStrokeFromPoints'));
     expect(activity, contains('EraserMode.PARTIAL'));
     expect(activity, contains('partialEraseEntry'));
     expect(activity, contains('sampledPointsForPartialErase'));
     expect(activity, contains('InkHistoryAction.Replaced'));
+    expect(activity, contains('BrushRole.VECTOR'));
+    expect(activity, contains('StockBrushes.marker()'));
+    expect(activity, contains('InkHistoryAction.AddedBatch'));
   });
 
   test('stylus eraser removes pen and highlighter strokes with undo redo history', () {
