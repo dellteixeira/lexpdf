@@ -1,0 +1,45 @@
+name: Office Lock Refresh
+
+on:
+  push:
+    branches:
+      - poc/genoffice-docx
+    paths:
+      - 'apps/lexpdf_app/pubspec.yaml'
+      - '.github/workflows/office-lock-refresh.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: poc/genoffice-docx
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Refresh lockfile
+        working-directory: apps/lexpdf_app
+        run: flutter pub get
+      - name: Commit refreshed lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- apps/lexpdf_app/pubspec.lock; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/lexpdf_app/pubspec.lock
+          git commit -m "chore(office): refresh Flutter lockfile"
+          git reset --hard HEAD
+          git clean -fd
+          git fetch origin poc/genoffice-docx
+          git rebase origin/poc/genoffice-docx
+          git push origin HEAD:poc/genoffice-docx
