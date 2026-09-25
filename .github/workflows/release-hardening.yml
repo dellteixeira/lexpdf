@@ -58,6 +58,14 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Bundle embedded Office runtime
+        working-directory: experiments/lexpdf_office_poc
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run bundle:flutter
       - run: flutter pub get
       - name: Verify lockfile is stable
         run: git diff --exit-code -- pubspec.lock
@@ -154,6 +162,21 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify Windows WebView build prerequisite
+        shell: pwsh
+        run: |
+          if (-not (Get-Command nuget -ErrorAction SilentlyContinue)) {
+            throw 'NuGet CLI is required by flutter_inappwebview_windows.'
+          }
+      - name: Bundle embedded Office runtime
+        working-directory: experiments/lexpdf_office_poc
+        shell: pwsh
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run bundle:flutter
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - name: Verify lockfile is stable
