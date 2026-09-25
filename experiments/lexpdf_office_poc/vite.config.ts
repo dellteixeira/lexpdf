@@ -8,8 +8,22 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: [
-      { find: '@genoffice/docx-engine', replacement: path.resolve(root, 'vendor/genoffice/packages/docx-engine/src/index.ts') },
-      { find: '@genoffice/pptx-engine', replacement: path.resolve(root, 'vendor/genoffice/packages/pptx-engine/src/index.ts') }
+      {
+        find: /^@genoffice\/docx-engine\/(.+)$/,
+        replacement: path.resolve(root, 'vendor/genoffice/packages/docx-engine/src/$1.ts'),
+      },
+      {
+        find: /^@genoffice\/pptx-engine\/(.+)$/,
+        replacement: path.resolve(root, 'vendor/genoffice/packages/pptx-engine/src/$1.ts'),
+      },
+      {
+        find: '@genoffice/docx-engine',
+        replacement: path.resolve(root, 'vendor/genoffice/packages/docx-engine/src/index.ts'),
+      },
+      {
+        find: '@genoffice/pptx-engine',
+        replacement: path.resolve(root, 'vendor/genoffice/packages/pptx-engine/src/index.ts'),
+      }
     ]
   },
   build: {
