@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@genoffice/docx-engine": ["vendor/genoffice/packages/docx-engine/src/index.ts"],
+      "@genoffice/docx-engine/*": ["vendor/genoffice/packages/docx-engine/src/*"],
+      "@genoffice/pptx-engine": ["vendor/genoffice/packages/pptx-engine/src/index.ts"],
+      "@genoffice/pptx-engine/*": ["vendor/genoffice/packages/pptx-engine/src/*"]
+    }
+  },
+  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts"]
+}
