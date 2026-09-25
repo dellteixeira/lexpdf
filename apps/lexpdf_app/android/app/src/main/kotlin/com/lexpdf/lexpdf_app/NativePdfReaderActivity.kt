@@ -2,6 +2,7 @@ package com.lexpdf.lexpdf_app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
@@ -24,6 +25,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -261,6 +263,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun buildUi() {
+        val isLandscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(18, 20, 24))
@@ -280,13 +285,24 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 isAllCaps = false
 
                 val targetWidthDp =
-                    when {
-                        label.length <= 1 -> 42
-                        label == "Ir" -> 48
-                        label.contains("Página") -> 86
-                        label.length <= 5 -> 64
-                        label.length <= 7 -> 72
-                        else -> 80
+                    if (isLandscape) {
+                        when {
+                            label.length <= 1 -> 36
+                            label == "Ir" -> 40
+                            label.contains("Página") -> 72
+                            label.length <= 5 -> 52
+                            label.length <= 7 -> 60
+                            else -> 68
+                        }
+                    } else {
+                        when {
+                            label.length <= 1 -> 42
+                            label == "Ir" -> 48
+                            label.contains("Página") -> 86
+                            label.length <= 5 -> 64
+                            label.length <= 7 -> 72
+                            else -> 80
+                        }
                     }
                 minWidth = targetWidthDp.dp
                 minimumWidth = targetWidthDp.dp
@@ -322,7 +338,10 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
         navigationRow.addView(
             pageLabel,
-            LinearLayout.LayoutParams(110.dp, LinearLayout.LayoutParams.MATCH_PARENT),
+            LinearLayout.LayoutParams(
+                if (isLandscape) 96.dp else 110.dp,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+            ),
         )
 
         navigationRow.addView(button("Ir") { showPageJumpDialog() })
@@ -397,20 +416,67 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
         )
 
-        root.addView(
-            navigationRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp,
-            ),
-        )
-        root.addView(
-            inkRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp,
-            ),
-        )
+        if (isLandscape) {
+            // Landscape is height-constrained: collapse navigation + annotation
+            // controls into one compact, horizontally scrollable toolbar. This
+            // recovers an entire 48dp row for the PDF while keeping every tool
+            // available without wrapping or shrinking labels into unreadability.
+            statusLabel.visibility = View.GONE
+
+            val landscapeToolbar = toolRow().apply {
+                setPadding(4.dp, 2.dp, 4.dp, 2.dp)
+            }
+
+            fun moveChildren(from: LinearLayout) {
+                while (from.childCount > 0) {
+                    val child = from.getChildAt(0)
+                    from.removeViewAt(0)
+                    val params = child.layoutParams
+                    if (child === statusLabel) continue
+                    landscapeToolbar.addView(child, params)
+                }
+            }
+
+            moveChildren(navigationRow)
+            moveChildren(inkRow)
+
+            val toolbarScroll =
+                HorizontalScrollView(this).apply {
+                    isHorizontalScrollBarEnabled = false
+                    isFillViewport = true
+                    overScrollMode = View.OVER_SCROLL_NEVER
+                    addView(
+                        landscapeToolbar,
+                        HorizontalScrollView.LayoutParams(
+                            HorizontalScrollView.LayoutParams.WRAP_CONTENT,
+                            HorizontalScrollView.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                }
+
+            root.addView(
+                toolbarScroll,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        } else {
+            root.addView(
+                navigationRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+            root.addView(
+                inkRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        }
 
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
