@@ -72,7 +72,7 @@ void main() {
     expect(activity, contains('PREF_PEN_SIZE'));
     expect(activity, contains('PREF_HIGHLIGHT_COLOR'));
     expect(activity, contains('PREF_HIGHLIGHT_SIZE'));
-    expect(activity, contains('SIDECAR_VERSION = 3'));
+    expect(activity, contains('SIDECAR_VERSION = 4'));
     expect(activity, contains('output.writeInt(entry.style.colorArgb)'));
     expect(activity, contains('output.writeFloat(entry.style.size)'));
     expect(activity, contains('require(version in 2..SIDECAR_VERSION)'));
