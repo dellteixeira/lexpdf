@@ -179,7 +179,7 @@ void main() {
     );
   });
 
-  test('landscape collapses reader controls into one compact top toolbar', () {
+  test('landscape toolbar relayouts live when tablet rotates', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
@@ -190,14 +190,14 @@ void main() {
         'resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE',
       ),
     );
+    expect(activity, contains('override fun onConfigurationChanged'));
+    expect(activity, contains('applyAdaptiveToolbarLayout(landscape)'));
+    expect(activity, contains('newConfig.screenWidthDp > newConfig.screenHeightDp'));
     expect(activity, contains('HorizontalScrollView(this)'));
-    expect(activity, contains('moveChildren(navigationRow)'));
-    expect(activity, contains('moveChildren(inkRow)'));
+    expect(activity, contains('mergedRow.addView'));
     expect(activity, contains('statusLabel.visibility = View.GONE'));
-    expect(
-      activity,
-      contains('collapse navigation + annotation'),
-    );
+    expect(activity, contains('statusLabel.visibility = View.VISIBLE'));
+    expect(activity, contains("window.dispatchEvent(new Event('resize'))"));
     expect(activity, contains('if (isLandscape) 96.dp else 110.dp'));
   });
 
