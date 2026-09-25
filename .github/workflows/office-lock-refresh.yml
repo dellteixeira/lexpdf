@@ -39,6 +39,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps/lexpdf_app/pubspec.lock
           git commit -m "chore(office): refresh Flutter lockfile"
+          git fetch origin poc/genoffice-docx
+          git rebase origin/poc/genoffice-docx
           git push origin HEAD:poc/genoffice-docx
       - uses: actions/upload-artifact@v4
         with:
