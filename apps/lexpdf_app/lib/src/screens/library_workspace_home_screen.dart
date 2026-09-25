@@ -14,6 +14,7 @@ import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
 import 'notebook_screen.dart';
 import 'office_document_screen.dart';
+import '../widgets/office_runtime_prewarmer.dart';
 import 'pdf_workspace_screen.dart';
 
 enum _HomeSection {
@@ -408,11 +409,29 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
-  Future<void> _openOffice() => Navigator.of(context).push(
+  Future<void> _openOffice() async {
+    final runtime = OfficeWebViewRuntime.instance;
+
+    // A mesma WebView nativa não pode estar visível em dois widgets ao mesmo
+    // tempo. Removemos o prewarm por um frame e então reapresentamos exatamente
+    // aquela instância já aquecida na tela do editor.
+    runtime.setBackgroundAttached(false);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      runtime.setBackgroundAttached(true);
+      return;
+    }
+
+    try {
+      await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => const OfficeDocumentScreen(),
         ),
       );
+    } finally {
+      runtime.setBackgroundAttached(true);
+    }
+  }
 
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
