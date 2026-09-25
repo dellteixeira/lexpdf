@@ -79,7 +79,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
         private const val PDFJS_VERSION = "6.3.289"
         private const val RANGE_CHUNK_SIZE = 512 * 1024
-        private const val SIDECAR_VERSION = 3
+        private const val SIDECAR_VERSION = 4
         private const val INK_PREFS = "native_reader_ink"
         private const val PREF_PEN_COLOR = "pen_color"
         private const val PREF_PEN_SIZE = "pen_size"
@@ -90,6 +90,12 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private enum class InkKind { PEN, HIGHLIGHTER }
+
+    private enum class BrushRole {
+        HANDWRITING,
+        HIGHLIGHTER,
+        VECTOR,
+    }
 
     private enum class InkTool {
         PEN,
@@ -114,6 +120,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private sealed interface InkHistoryAction {
         data class Added(val entry: InkEntry) : InkHistoryAction
+        data class AddedBatch(val entries: List<InkEntry>) : InkHistoryAction
         data class Removed(val index: Int, val entry: InkEntry) : InkHistoryAction
         data class Replaced(
             val index: Int,
@@ -126,6 +133,12 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         val kind: InkKind,
         val colorArgb: Int,
         val size: Float,
+        val brushRole: BrushRole =
+            if (kind == InkKind.HIGHLIGHTER) {
+                BrushRole.HIGHLIGHTER
+            } else {
+                BrushRole.HANDWRITING
+            },
     )
 
     private data class InkEntry(
