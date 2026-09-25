@@ -2257,110 +2257,161 @@ function hypot(a,b) {
         return Stroke(template.brush, batch)
     }
 
-    private fun shapePoints(
+    private fun denseSegment(
+        from: PointF,
+        to: PointF,
+        samples: Int = 10,
+    ): List<PointF> {
+        val count = samples.coerceAtLeast(2)
+        return (0 until count).map { index ->
+            val t = index.toFloat() / (count - 1).toFloat()
+            PointF(
+                from.x + (to.x - from.x) * t,
+                from.y + (to.y - from.y) * t,
+            )
+        }
+    }
+
+    private fun shapeSegments(
         tool: InkTool,
         shape: ShapeTool,
         stroke: Stroke,
-    ): List<PointF> {
+    ): List<List<PointF>> {
         val inputs = stroke.inputs
         if (inputs.size < 2) return emptyList()
 
-        val start = inputs[0]
-        val end = inputs[inputs.size - 1]
-        val x0 = start.x
-        val y0 = start.y
-        val x1 = end.x
-        val y1 = end.y
-        val dx = x1 - x0
-        val dy = y1 - y0
+        val start = PointF(inputs[0].x, inputs[0].y)
+        val end = PointF(inputs[inputs.size - 1].x, inputs[inputs.size - 1].y)
+        val dx = end.x - start.x
+        val dy = end.y - start.y
         val distance = sqrt(dx * dx + dy * dy)
-        if (distance < 2f) return emptyList()
+        if (distance < 4f) return emptyList()
 
         if (tool == InkTool.UNDERLINE) {
-            val y = (y0 + y1) / 2f
-            return listOf(PointF(x0, y), PointF(x1, y))
+            val y = (start.y + end.y) / 2f
+            return listOf(
+                denseSegment(PointF(start.x, y), PointF(end.x, y), 16),
+            )
         }
 
         return when (shape) {
-            ShapeTool.LINE -> listOf(PointF(x0, y0), PointF(x1, y1))
+            ShapeTool.LINE ->
+                listOf(denseSegment(start, end, 18))
 
-            ShapeTool.RECTANGLE ->
+            ShapeTool.RECTANGLE -> {
+                val topLeft = PointF(start.x, start.y)
+                val topRight = PointF(end.x, start.y)
+                val bottomRight = PointF(end.x, end.y)
+                val bottomLeft = PointF(start.x, end.y)
                 listOf(
-                    PointF(x0, y0),
-                    PointF(x1, y0),
-                    PointF(x1, y1),
-                    PointF(x0, y1),
-                    PointF(x0, y0),
+                    denseSegment(topLeft, topRight, 12),
+                    denseSegment(topRight, bottomRight, 12),
+                    denseSegment(bottomRight, bottomLeft, 12),
+                    denseSegment(bottomLeft, topLeft, 12),
                 )
+            }
 
             ShapeTool.CIRCLE -> {
-                val cx = (x0 + x1) / 2f
-                val cy = (y0 + y1) / 2f
-                val rx = kotlin.math.abs(x1 - x0) / 2f
-                val ry = kotlin.math.abs(y1 - y0) / 2f
-                val output = mutableListOf<PointF>()
-                val count = 48
-                for (i in 0..count) {
-                    val angle = 2.0 * PI * i / count
-                    output +=
-                        PointF(
-                            cx + (cos(angle) * rx).toFloat(),
-                            cy + (sin(angle) * ry).toFloat(),
-                        )
+                val cx = (start.x + end.x) / 2f
+                val cy = (start.y + end.y) / 2f
+                val rx = kotlin.math.abs(end.x - start.x) / 2f
+                val ry = kotlin.math.abs(end.y - start.y) / 2f
+                if (rx < 2f || ry < 2f) {
+                    listOf(denseSegment(start, end, 18))
+                } else {
+                    val points = mutableListOf<PointF>()
+                    val count = 96
+                    for (i in 0..count) {
+                        val angle = 2.0 * PI * i / count
+                        points +=
+                            PointF(
+                                cx + (cos(angle) * rx).toFloat(),
+                                cy + (sin(angle) * ry).toFloat(),
+                            )
+                    }
+                    listOf(points)
                 }
-                output
             }
 
             ShapeTool.STAR -> {
-                val cx = (x0 + x1) / 2f
-                val cy = (y0 + y1) / 2f
-                val rx = kotlin.math.abs(x1 - x0) / 2f
-                val ry = kotlin.math.abs(y1 - y0) / 2f
-                val output = mutableListOf<PointF>()
+                val cx = (start.x + end.x) / 2f
+                val cy = (start.y + end.y) / 2f
+                val rx = kotlin.math.abs(end.x - start.x) / 2f
+                val ry = kotlin.math.abs(end.y - start.y) / 2f
+                val vertices = mutableListOf<PointF>()
                 for (i in 0..10) {
                     val vertex = i % 10
                     val outer = vertex % 2 == 0
                     val radiusScale = if (outer) 1f else 0.42f
                     val angle = -PI / 2.0 + vertex * PI / 5.0
-                    output +=
+                    vertices +=
                         PointF(
                             cx + (cos(angle) * rx * radiusScale).toFloat(),
                             cy + (sin(angle) * ry * radiusScale).toFloat(),
                         )
                 }
-                output
+                val points = mutableListOf<PointF>()
+                for (i in 1 until vertices.size) {
+                    val segment = denseSegment(vertices[i - 1], vertices[i], 8)
+                    if (points.isNotEmpty()) points.removeLast()
+                    points += segment
+                }
+                listOf(points)
             }
 
             ShapeTool.ARROW -> {
                 val ux = dx / distance
                 val uy = dy / distance
-                val px = -uy
-                val py = ux
-                val headLength = kotlin.math.min(34f, kotlin.math.max(12f, distance * 0.24f))
-                val headWidth = headLength * 0.55f
-                val baseX = x1 - ux * headLength
-                val baseY = y1 - uy * headLength
-                val left = PointF(baseX + px * headWidth, baseY + py * headWidth)
-                val right = PointF(baseX - px * headWidth, baseY - py * headWidth)
+                val headLength =
+                    kotlin.math.min(
+                        48f,
+                        kotlin.math.max(18f, distance * 0.28f),
+                    )
+                val angle = Math.toRadians(32.0)
+                val cosA = kotlin.math.cos(angle).toFloat()
+                val sinA = kotlin.math.sin(angle).toFloat()
+
+                val backX = -ux
+                val backY = -uy
+                val leftX = backX * cosA - backY * sinA
+                val leftY = backX * sinA + backY * cosA
+                val rightX = backX * cosA + backY * sinA
+                val rightY = -backX * sinA + backY * cosA
+
+                val left = PointF(
+                    end.x + leftX * headLength,
+                    end.y + leftY * headLength,
+                )
+                val right = PointF(
+                    end.x + rightX * headLength,
+                    end.y + rightY * headLength,
+                )
+
                 listOf(
-                    PointF(x0, y0),
-                    PointF(x1, y1),
-                    left,
-                    PointF(x1, y1),
-                    right,
+                    denseSegment(start, end, 20),
+                    denseSegment(end, left, 10),
+                    denseSegment(end, right, 10),
                 )
             }
         }
     }
 
-    private fun snapFinishedStroke(
+    private fun snapFinishedStrokes(
         tool: InkTool,
         shape: ShapeTool,
         stroke: Stroke,
-    ): Stroke {
-        if (tool != InkTool.UNDERLINE && tool != InkTool.SHAPE) return stroke
-        val points = shapePoints(tool, shape, stroke)
-        return if (points.size >= 2) syntheticStrokeFromPoints(stroke, points) else stroke
+        style: InkStyle,
+    ): List<Stroke> {
+        if (tool != InkTool.UNDERLINE && tool != InkTool.SHAPE) {
+            return listOf(stroke)
+        }
+
+        val vectorStyle = style.copy(brushRole = BrushRole.VECTOR)
+        val vectorTemplate = Stroke(brushFor(vectorStyle), stroke.inputs)
+        return shapeSegments(tool, shape, stroke)
+            .filter { it.size >= 2 }
+            .map { points -> syntheticStrokeFromPoints(vectorTemplate, points) }
+            .ifEmpty { listOf(vectorTemplate) }
     }
 
     private fun sampledPointsForPartialErase(
@@ -2472,21 +2523,38 @@ function hypot(a,b) {
 
     private fun currentInkStyle(): InkStyle =
         when (currentKind) {
-            InkKind.PEN -> InkStyle(InkKind.PEN, penColor, penSize)
+            InkKind.PEN ->
+                InkStyle(
+                    kind = InkKind.PEN,
+                    colorArgb = penColor,
+                    size = penSize,
+                    brushRole =
+                        if (currentTool == InkTool.UNDERLINE || currentTool == InkTool.SHAPE) {
+                            BrushRole.VECTOR
+                        } else {
+                            BrushRole.HANDWRITING
+                        },
+                )
+
             InkKind.HIGHLIGHTER ->
-                InkStyle(InkKind.HIGHLIGHTER, highlighterColor, highlighterSize)
+                InkStyle(
+                    kind = InkKind.HIGHLIGHTER,
+                    colorArgb = highlighterColor,
+                    size = highlighterSize,
+                    brushRole = BrushRole.HIGHLIGHTER,
+                )
         }
 
     private fun brushFor(style: InkStyle): Brush =
         Brush.createWithColorIntArgb(
-            if (style.kind == InkKind.PEN) {
-                StockBrushes.pressurePen()
-            } else {
-                StockBrushes.highlighter()
+            when (style.brushRole) {
+                BrushRole.HANDWRITING -> StockBrushes.pressurePen()
+                BrushRole.HIGHLIGHTER -> StockBrushes.highlighter()
+                BrushRole.VECTOR -> StockBrushes.marker()
             },
             style.colorArgb,
             style.size,
-            if (style.kind == InkKind.PEN) 0.1f else 0.2f,
+            if (style.brushRole == BrushRole.HIGHLIGHTER) 0.2f else 0.1f,
         )
 
     private fun currentBrush(): Brush = brushFor(currentInkStyle())
