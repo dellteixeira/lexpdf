@@ -62,7 +62,9 @@ fileInput.addEventListener('change', async () => {
 saveButton.addEventListener('click', async () => {
   try {
     const bytes = await saveBytes()
-    const blob = new Blob([bytes], {
+    const copy = new Uint8Array(bytes.byteLength)
+    copy.set(bytes)
+    const blob = new Blob([copy.buffer], {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })
     const url = URL.createObjectURL(blob)
