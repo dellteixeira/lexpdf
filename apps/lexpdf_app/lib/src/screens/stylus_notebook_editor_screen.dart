@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ink/ink_models.dart';
 import '../core/notebook/notebook_paper.dart';
+import '../core/notebook/notebook_pdf_exporter.dart';
 import '../core/storage/local_ink_store.dart';
 import '../widgets/ink_canvas.dart';
 import '../widgets/notebook_page_background.dart';
@@ -173,6 +176,41 @@ class _StylusNotebookEditorScreenState
       _tool = tool;
       if (tool != _NotebookTool.lasso) _selectionCount = 0;
     });
+  }
+
+  Future<void> _exportPdf() async {
+    if (_pages.isEmpty) return;
+    final safeName = widget.notebook.title
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .trim();
+    final location = await getSaveLocation(
+      suggestedName: '${safeName.isEmpty ? 'caderno' : safeName}.pdf',
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'PDF', extensions: ['pdf']),
+      ],
+      confirmButtonText: 'Exportar',
+    );
+    if (location == null) return;
+
+    final data = <NotebookExportPageData>[];
+    for (final page in _pages) {
+      data.add(
+        NotebookExportPageData(
+          page: page,
+          strokes: await widget.inkStore.listStrokes(page.id),
+          objects: const [],
+        ),
+      );
+    }
+    final bytes = await const NotebookPdfExporter().export(
+      title: widget.notebook.title,
+      pages: data,
+    );
+    await File(location.path).writeAsBytes(bytes, flush: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Caderno exportado para PDF.')),
+    );
   }
 
   Future<void> _organizePages() async {
@@ -487,12 +525,17 @@ class _StylusNotebookEditorScreenState
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
+              if (value == 'export') unawaited(_exportPdf());
               if (value == 'organize') unawaited(_organizePages());
               if (value == 'duplicate') unawaited(_duplicatePage());
               if (value == 'clear') unawaited(_clearPage());
               if (value == 'delete') unawaited(_deletePage());
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Text('Exportar caderno para PDF'),
+              ),
               const PopupMenuItem(
                 value: 'organize',
                 child: Text('Organizar páginas'),
