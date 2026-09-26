@@ -7,6 +7,8 @@ import '../core/ink/ink_lasso.dart';
 import '../core/ink/ink_models.dart';
 import 'notebook_two_finger_navigation_region.dart';
 
+enum _SelectionGesture { none, move, resize }
+
 class InkCanvas extends StatefulWidget {
   const InkCanvas({
     required this.initialStrokes,
@@ -22,6 +24,8 @@ class InkCanvas extends StatefulWidget {
     this.stylusOnly = true,
     this.eraserMode = false,
     this.lassoMode = false,
+    this.brush = InkBrush.round,
+    this.strokeOpacity = 1.0,
     this.eraserRadius = 18,
     super.key,
   });
@@ -34,6 +38,8 @@ class InkCanvas extends StatefulWidget {
   final bool stylusOnly;
   final bool eraserMode;
   final bool lassoMode;
+  final InkBrush brush;
+  final double strokeOpacity;
   final double eraserRadius;
   final ValueChanged<InkStroke> onStrokeCompleted;
   final ValueChanged<InkStroke>? onStrokeUpdated;
@@ -58,6 +64,10 @@ class InkCanvasState extends State<InkCanvas> {
   int? _activePointer;
   bool _stylusActive = false;
   bool _twoFingerNavigating = false;
+  _SelectionGesture _selectionGesture = _SelectionGesture.none;
+  Offset? _lastSelectionPosition;
+  Offset? _selectionScaleCenter;
+  double? _selectionLastDistance;
 
   List<InkStroke> get strokes => List.unmodifiable(_strokes);
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
@@ -166,6 +176,7 @@ class InkCanvasState extends State<InkCanvas> {
         colorValue: original.colorValue,
         opacity: original.opacity,
         width: original.width,
+        brush: original.brush,
         points: List<InkPoint>.unmodifiable(
           original.points.map(
             (point) => _copyPoint(
@@ -256,6 +267,28 @@ class InkCanvasState extends State<InkCanvas> {
       .where((stroke) => _selectedStrokeIds.contains(stroke.id))
       .toList(growable: false);
 
+  Rect? _selectionBounds() {
+    final points = _selectedStrokes().expand((stroke) => stroke.points).toList();
+    if (points.isEmpty) return null;
+    var minX = points.first.x;
+    var minY = points.first.y;
+    var maxX = minX;
+    var maxY = minY;
+    for (final point in points.skip(1)) {
+      minX = math.min(minX, point.x);
+      minY = math.min(minY, point.y);
+      maxX = math.max(maxX, point.x);
+      maxY = math.max(maxY, point.y);
+    }
+    return Rect.fromLTRB(minX, minY, maxX, maxY).inflate(8);
+  }
+
+  Rect _resizeHandleRect(Rect bounds) => Rect.fromCenter(
+        center: bounds.bottomRight,
+        width: 32,
+        height: 32,
+      );
+
   Offset? _selectionCenter() {
     final points = _selectedStrokes().expand((stroke) => stroke.points).toList();
     if (points.isEmpty) return null;
@@ -295,6 +328,7 @@ class InkCanvasState extends State<InkCanvas> {
         colorValue: stroke.colorValue,
         opacity: stroke.opacity,
         width: stroke.width,
+        brush: stroke.brush,
         points: List<InkPoint>.unmodifiable(stroke.points),
         createdAt: stroke.createdAt,
       );
@@ -312,6 +346,7 @@ class InkCanvasState extends State<InkCanvas> {
       colorValue: colorValue ?? stroke.colorValue,
       opacity: stroke.opacity,
       width: width ?? stroke.width,
+      brush: stroke.brush,
       points: List<InkPoint>.unmodifiable(points ?? stroke.points),
       createdAt: stroke.createdAt,
     );
@@ -338,6 +373,10 @@ class InkCanvasState extends State<InkCanvas> {
     _clipboard = const [];
     _activePointer = null;
     _stylusActive = false;
+    _selectionGesture = _SelectionGesture.none;
+    _lastSelectionPosition = null;
+    _selectionScaleCenter = null;
+    _selectionLastDistance = null;
     _notifySelection();
     setState(() {});
   }
@@ -360,6 +399,10 @@ class InkCanvasState extends State<InkCanvas> {
       _activePoints.clear();
       _lassoPoints.clear();
       _activePointer = null;
+      _selectionGesture = _SelectionGesture.none;
+      _lastSelectionPosition = null;
+      _selectionScaleCenter = null;
+      _selectionLastDistance = null;
       _ignoredTouchPointers.clear();
     }
     if (mounted) {
@@ -379,6 +422,24 @@ class InkCanvasState extends State<InkCanvas> {
     if (_activePointer != null || !_accept(event)) return;
     _activePointer = event.pointer;
     if (widget.lassoMode) {
+      final bounds = _selectionBounds();
+      if (bounds != null && _selectedStrokeIds.isNotEmpty) {
+        final resizeHandle = _resizeHandleRect(bounds);
+        if (resizeHandle.contains(event.localPosition)) {
+          _selectionGesture = _SelectionGesture.resize;
+          _selectionScaleCenter = bounds.center;
+          _selectionLastDistance =
+              (event.localPosition - bounds.center).distance.clamp(1.0, 100000.0);
+          setState(() {});
+          return;
+        }
+        if (bounds.inflate(14).contains(event.localPosition)) {
+          _selectionGesture = _SelectionGesture.move;
+          _lastSelectionPosition = event.localPosition;
+          setState(() {});
+          return;
+        }
+      }
       _lassoPoints
         ..clear()
         ..add(event.localPosition);
@@ -401,6 +462,27 @@ class InkCanvasState extends State<InkCanvas> {
     if (_ignoredTouchPointers.contains(event.pointer)) return;
     if (_activePointer != event.pointer) return;
     if (widget.lassoMode) {
+      if (_selectionGesture == _SelectionGesture.move) {
+        final previous = _lastSelectionPosition;
+        if (previous != null) {
+          final delta = event.localPosition - previous;
+          moveSelected(delta.dx, delta.dy);
+        }
+        _lastSelectionPosition = event.localPosition;
+        return;
+      }
+      if (_selectionGesture == _SelectionGesture.resize) {
+        final center = _selectionScaleCenter;
+        final previousDistance = _selectionLastDistance;
+        if (center != null && previousDistance != null && previousDistance > 0) {
+          final currentDistance =
+              (event.localPosition - center).distance.clamp(1.0, 100000.0);
+          final factor = (currentDistance / previousDistance).clamp(0.15, 6.0);
+          scaleSelected(factor.toDouble());
+          _selectionLastDistance = currentDistance;
+        }
+        return;
+      }
       _lassoPoints.add(event.localPosition);
       setState(() {});
       return;
@@ -424,6 +506,16 @@ class InkCanvasState extends State<InkCanvas> {
       return;
     }
     if (widget.lassoMode) {
+      if (_selectionGesture != _SelectionGesture.none) {
+        _selectionGesture = _SelectionGesture.none;
+        _lastSelectionPosition = null;
+        _selectionScaleCenter = null;
+        _selectionLastDistance = null;
+        _activePointer = null;
+        if (_isStylus(event)) _stylusActive = false;
+        setState(() {});
+        return;
+      }
       _lassoPoints.add(event.localPosition);
       final selected = _lasso.selectStrokes(
         strokes: _strokes,
@@ -548,8 +640,9 @@ class InkCanvasState extends State<InkCanvas> {
         pageId: widget.pageId,
         tool: widget.tool,
         colorValue: widget.colorValue,
-        opacity: widget.tool == InkTool.highlighter ? 0.28 : 1.0,
+        opacity: widget.strokeOpacity.clamp(0.05, 1.0).toDouble(),
         width: widget.strokeWidth,
+        brush: widget.brush,
         points: List<InkPoint>.unmodifiable(_activePoints),
         createdAt: now,
       );
@@ -597,6 +690,8 @@ class InkCanvasState extends State<InkCanvas> {
             activeTool: widget.tool,
             activeColorValue: widget.colorValue,
             activeWidth: widget.strokeWidth,
+            activeBrush: widget.brush,
+            activeOpacity: widget.strokeOpacity,
           ),
           child: const SizedBox.expand(),
         ),
@@ -614,6 +709,8 @@ class _InkPainter extends CustomPainter {
     required this.activeTool,
     required this.activeColorValue,
     required this.activeWidth,
+    required this.activeBrush,
+    required this.activeOpacity,
   });
 
   final List<InkStroke> strokes;
@@ -623,6 +720,8 @@ class _InkPainter extends CustomPainter {
   final InkTool activeTool;
   final int activeColorValue;
   final double activeWidth;
+  final InkBrush activeBrush;
+  final double activeOpacity;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -634,6 +733,7 @@ class _InkPainter extends CustomPainter {
         stroke.colorValue,
         stroke.width,
         stroke.opacity,
+        stroke.brush,
       );
     }
     _paintSelectionBounds(canvas);
@@ -644,7 +744,8 @@ class _InkPainter extends CustomPainter {
         activeTool,
         activeColorValue,
         activeWidth,
-        activeTool == InkTool.highlighter ? 0.28 : 1.0,
+        activeOpacity,
+        activeBrush,
       );
     }
     if (lassoPoints.length >= 2) {
@@ -678,12 +779,29 @@ class _InkPainter extends CustomPainter {
       maxX = math.max(maxX, point.x);
       maxY = math.max(maxY, point.y);
     }
-    canvas.drawRect(
-      Rect.fromLTRB(minX, minY, maxX, maxY).inflate(6),
+    final bounds = Rect.fromLTRB(minX, minY, maxX, maxY).inflate(8);
+    final outline = Paint()
+      ..color = Colors.blueGrey.withValues(alpha: 0.9)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawRect(bounds, outline);
+    canvas.drawCircle(
+      bounds.bottomRight,
+      8,
       Paint()
-        ..color = Colors.blueGrey.withValues(alpha: 0.9)
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke,
+        ..color = Colors.white
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(bounds.bottomRight, 8, outline);
+    canvas.drawLine(
+      bounds.topLeft + const Offset(8, 8),
+      bounds.topLeft + const Offset(20, 8),
+      outline,
+    );
+    canvas.drawLine(
+      bounds.topLeft + const Offset(8, 8),
+      bounds.topLeft + const Offset(8, 20),
+      outline,
     );
   }
 
@@ -694,24 +812,32 @@ class _InkPainter extends CustomPainter {
     int colorValue,
     double baseWidth,
     double opacity,
+    InkBrush brush,
   ) {
     if (points.length < 2) return;
-    final color = Color(colorValue).withValues(alpha: opacity);
+    final color = Color(colorValue).withValues(alpha: opacity.clamp(0.05, 1.0));
     for (var index = 1; index < points.length; index++) {
       final previous = points[index - 1];
       final current = points[index];
       final pressure = ((previous.pressure + current.pressure) / 2)
-          .clamp(0.15, 1.0)
+          .clamp(0.08, 1.0)
           .toDouble();
-      final width = tool == InkTool.highlighter
-          ? baseWidth
-          : baseWidth * (0.45 + pressure * 0.75);
+      final width = switch (brush) {
+        InkBrush.round => tool == InkTool.highlighter
+            ? baseWidth
+            : baseWidth * (0.45 + pressure * 0.75),
+        InkBrush.fountain => baseWidth * (0.22 + pressure * 1.15),
+        InkBrush.chisel => tool == InkTool.highlighter
+            ? baseWidth
+            : baseWidth * (0.72 + pressure * 0.28),
+      };
+      final cap = brush == InkBrush.chisel ? StrokeCap.square : StrokeCap.round;
       canvas.drawLine(
         Offset(previous.x, previous.y),
         Offset(current.x, current.y),
         Paint()
           ..color = color
-          ..strokeCap = StrokeCap.round
+          ..strokeCap = cap
           ..strokeJoin = StrokeJoin.round
           ..strokeWidth = width
           ..style = PaintingStyle.stroke,
