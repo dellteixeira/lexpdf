@@ -285,13 +285,15 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   void _select(_HomeSection section) {
     final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
 
-    if (section == _HomeSection.office) {
+    if (section == _HomeSection.notebooks ||
+        section == _HomeSection.office) {
+      final open = section == _HomeSection.notebooks ? _openNotebook : _openOffice;
       if (hasDrawer) {
         Navigator.of(context).maybePop().then((_) {
-          if (mounted) unawaited(_openOffice());
+          if (mounted) unawaited(open());
         });
       } else {
-        unawaited(_openOffice());
+        unawaited(open());
       }
       return;
     }
