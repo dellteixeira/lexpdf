@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,10 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../widgets/office_runtime_prewarmer.dart';
 
 class OfficeDocumentScreen extends StatefulWidget {
-  const OfficeDocumentScreen({super.key});
+  const OfficeDocumentScreen({
+    this.active = true,
+    this.onClose,
+    super.key,
+  });
+
+  final bool active;
+  final VoidCallback? onClose;
 
   @override
   State<OfficeDocumentScreen> createState() => _OfficeDocumentScreenState();
@@ -21,32 +26,11 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
   static const _mime =
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-  final OfficeWebViewRuntime _runtime = OfficeWebViewRuntime.instance;
-  StreamSubscription<Map<String, dynamic>>? _runtimeSubscription;
-
   InAppWebViewController? _controller;
   bool _runtimeLoaded = false;
   bool _busy = false;
   bool _dirty = false;
   String _documentName = 'Sem título.docx';
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = _runtime.controller;
-    _runtimeLoaded = _runtime.ready;
-    _dirty = _runtime.dirty;
-    _documentName = _runtime.documentName;
-    _runtimeSubscription = _runtime.events.listen(
-      (event) => _runtimeEvent(<dynamic>[event]),
-    );
-  }
-
-  @override
-  void dispose() {
-    _runtimeSubscription?.cancel();
-    super.dispose();
-  }
 
   XTypeGroup get _docxType => Platform.isAndroid
       ? const XTypeGroup(
@@ -58,6 +42,17 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
           label: 'Documento Word',
           extensions: <String>['docx'],
         );
+
+  Future<void> _close() async {
+    if (_dirty && !await _confirmReplaceIfNeeded()) return;
+    if (!mounted) return;
+
+    if (widget.onClose != null) {
+      widget.onClose!.call();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
 
   Future<bool> _confirmReplaceIfNeeded() async {
     if (!_dirty) return true;
@@ -276,9 +271,16 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope<void>(
-      canPop: !_dirty,
+      canPop: widget.onClose == null ? !_dirty : !widget.active,
       onPopInvokedWithResult: (didPop, result) async {
-        if (didPop || !_dirty) return;
+        if (didPop) return;
+
+        if (widget.onClose != null && widget.active) {
+          await _close();
+          return;
+        }
+
+        if (!_dirty) return;
         final discard = await _confirmReplaceIfNeeded();
         if (!discard || !mounted) return;
         setState(() => _dirty = false);
@@ -286,6 +288,14 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: widget.onClose == null,
+          leading: widget.onClose != null
+              ? IconButton(
+                  tooltip: 'Voltar',
+                  onPressed: _close,
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -389,7 +399,6 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
               child: Stack(
                 children: [
                   InAppWebView(
-                    keepAlive: _runtime.keepAlive,
                     initialFile: 'assets/office_runtime/index.html',
                     initialSettings: InAppWebViewSettings(
                       javaScriptEnabled: true,
@@ -398,14 +407,13 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
                     ),
                     onWebViewCreated: (controller) {
                       _controller = controller;
-                      _runtime.registerController(controller);
-                      if (mounted && _runtime.ready && !_runtimeLoaded) {
-                        setState(() {
-                          _runtimeLoaded = true;
-                          _dirty = _runtime.dirty;
-                          _documentName = _runtime.documentName;
-                        });
-                      }
+                      controller.addJavaScriptHandler(
+                        handlerName: 'LexPdfOfficeEvent',
+                        callback: (args) {
+                          _runtimeEvent(args);
+                          return <String, Object?>{'ok': true};
+                        },
+                      );
                     },
                     onReceivedError: (controller, request, error) {
                       if (request.isForMainFrame == true) {
