@@ -25,75 +25,22 @@ void main() {
     );
   });
 
-  test('notebook select exposes direct object editing actions', () {
-    final screen = File('lib/src/screens/layered_notebook_screen.dart')
-        .readAsStringSync();
-    final toolbar = File('lib/src/widgets/notebook_editor_toolbar.dart')
-        .readAsStringSync();
-    final objectControls = File('lib/src/widgets/notebook_object_controls.dart')
-        .readAsStringSync();
-    final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
-        .readAsStringSync();
-    final styleControls = File(
-      'lib/src/widgets/notebook_editor_toolbar_groups.dart',
+  test('Cadernos abre diretamente a nova galeria stylus-first', () {
+    final home = File(
+      'lib/src/screens/library_workspace_home_screen.dart',
+    ).readAsStringSync();
+    final hub = File('lib/src/screens/notebook_screen.dart').readAsStringSync();
+    final editor = File(
+      'lib/src/screens/stylus_notebook_editor_screen.dart',
     ).readAsStringSync();
 
-    expect(screen, contains('onScaleObjectDown:'));
-    expect(screen, contains('onScaleObjectUp:'));
-    expect(screen, contains('onDuplicateObject:'));
-    expect(screen, contains('_setSelectedObjectWidth(value)'));
-    expect(screen, contains('_setSelectedObjectColor(value)'));
-    expect(screen, contains('_deleteSelectedObject()'));
-    expect(screen, contains('onEditTextObject: _activateTextMode'));
-    expect(screen, contains('_buildTextFormattingToolbar()'));
-    expect(screen, contains('NotebookRichDocumentSurface('));
-    expect(toolbar, contains('objectSelected: selectedObject != null'));
-    expect(toolbar, contains('onPointerModeChanged(true)'));
-    expect(
-      objectControls,
-      contains("tooltip: 'Duplicar \${_selectionLabel(selected.type)}'"),
-    );
-    expect(
-      objectControls,
-      contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"),
-    );
-    expect(objectLayer, contains('onTapDown: (_) {'));
-    expect(objectLayer, contains('if (!_twoFingerNavigating) {'));
-    expect(objectLayer, contains('widget.onSelectionChanged(object.id);'));
-    expect(objectLayer, isNot(contains('_InlineNotebookTextEditor')));
-    expect(objectLayer, contains('enum _ResizeHandle'));
-    expect(styleControls, contains('width.toStringAsFixed(1)'));
-  });
-
-  test('notebook inserted lines are horizontal until explicitly rotated', () {
-    final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
-        .readAsStringSync();
-
-    expect(objectLayer, contains('final y = size.height / 2;'));
-    expect(
-      objectLayer,
-      contains('canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke)'),
-    );
-    expect(
-      objectLayer,
-      isNot(
-        contains(
-          'canvas.drawLine(Offset.zero, Offset(size.width, size.height), stroke)',
-        ),
-      ),
-    );
-  });
-
-  test('notebook numeric zoom preserves the viewport center', () {
-    final screen = File('lib/src/screens/layered_notebook_screen.dart')
-        .readAsStringSync();
-
-    expect(screen, contains('final GlobalKey _pageViewportKey = GlobalKey();'));
-    expect(
-      screen,
-      contains('_pageTransformController.toScene(viewportCenter)'),
-    );
-    expect(screen, contains('Matrix4.translationValues('));
-    expect(screen, contains('Matrix4.diagonal3Values(next, next, 1)'));
+    expect(home, contains('section == _HomeSection.notebooks'));
+    expect(home, contains('_openNotebook'));
+    expect(home, isNot(contains("action: 'Abrir cadernos'")));
+    expect(hub, contains('StylusNotebookEditorScreen'));
+    expect(editor, contains('TransformationController'));
+    expect(editor, contains('InkCanvas'));
+    expect(editor, contains('panEnabled: _hand'));
+    expect(editor, contains('scaleEnabled: true'));
   });
 }
