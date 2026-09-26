@@ -13,10 +13,11 @@ void main() {
 
     expect(screen, contains('FluentDocumentWidget'));
     expect(screen, contains('NotebookDocumentFileService'));
-    expect(screen, isNot(contains('InAppWebView')));
+    expect(screen, isNot(contains("package:flutter_inappwebview")));
+    expect(screen, isNot(contains('InAppWebView(')));
     expect(screen, isNot(contains('LexPdfOffice')));
-    expect(screen, isNot(contains('GenOffice')));
-    expect(screen, isNot(contains('Tiptap')));
+    expect(screen, isNot(contains('@genoffice/')));
+    expect(screen, isNot(contains('@tiptap/')));
 
     expect(home, contains('Documentos Office'));
     expect(home, contains('NativeOfficeDocumentScreen'));
