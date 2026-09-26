@@ -43,17 +43,14 @@ class _LexPdfAppState extends State<LexPdfApp> {
   final NativePdfOpenService _nativeOpen = NativePdfOpenService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _openingPrint = false;
-  bool _officePrepared = false;
+  bool _officePrepared = true;
   bool _officeVisible = false;
   String? _lastNativePath;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _officePrepared = true);
-      _bootstrapNativeOpen();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapNativeOpen());
   }
 
   Future<void> _bootstrapNativeOpen() async {
