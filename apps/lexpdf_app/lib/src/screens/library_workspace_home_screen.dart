@@ -409,6 +409,8 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
+  void _openOffice() => widget.onOpenOffice?.call();
+
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
       case _HomeMoreAction.account:
