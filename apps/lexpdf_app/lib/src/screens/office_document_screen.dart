@@ -44,14 +44,17 @@ class _OfficeDocumentScreenState extends State<OfficeDocumentScreen> {
         );
 
   Future<void> _close() async {
-    if (_dirty && !await _confirmReplaceIfNeeded()) return;
     if (!mounted) return;
 
+    // No shell persistente, voltar apenas oculta o editor. O documento e a
+    // WebView continuam vivos em memória para a próxima abertura ser imediata.
     if (widget.onClose != null) {
       widget.onClose!.call();
-    } else {
-      Navigator.of(context).maybePop();
+      return;
     }
+
+    if (_dirty && !await _confirmReplaceIfNeeded()) return;
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<bool> _confirmReplaceIfNeeded() async {
