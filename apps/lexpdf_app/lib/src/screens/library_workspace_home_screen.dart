@@ -196,15 +196,6 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   Widget _buildContent() {
-    if (_section == _HomeSection.notebooks) {
-      return _ActionPanel(
-        icon: Icons.edit_note_outlined,
-        title: 'Cadernos',
-        subtitle: 'Escrita, desenhos, formas, texto e imagens.',
-        action: 'Abrir cadernos',
-        onTap: _openNotebook,
-      );
-    }
     if (_section == _HomeSection.office) {
       return _ActionPanel(
         icon: Icons.description_outlined,
@@ -285,11 +276,19 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   void _select(_HomeSection section) {
     final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
 
-    if (section == _HomeSection.office) {
+    if (section == _HomeSection.notebooks ||
+        section == _HomeSection.office) {
       if (hasDrawer) {
         Navigator.of(context).maybePop().then((_) {
-          if (mounted) unawaited(_openOffice());
+          if (!mounted) return;
+          if (section == _HomeSection.notebooks) {
+            unawaited(_openNotebook());
+          } else {
+            unawaited(_openOffice());
+          }
         });
+      } else if (section == _HomeSection.notebooks) {
+        unawaited(_openNotebook());
       } else {
         unawaited(_openOffice());
       }
@@ -505,7 +504,8 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.library => 'Clique em um documento para abrir diretamente em Trabalhar com PDF.',
       _HomeSection.recent => 'Documentos realmente abertos por você.',
       _HomeSection.favorites => 'Documentos mantidos por perto.',
-      _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.notebooks =>
+        'Cadernos manuscritos com stylus, capas, A4, A3 e página infinita.',
       _HomeSection.office => 'Editor de documentos nativo, rápido e local-first.',
       _HomeSection.flashcards =>
         'Todos os cartões, organizados por matéria e assunto.',
