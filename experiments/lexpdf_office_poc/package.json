@@ -1,0 +1,37 @@
+{
+  "name": "lexpdf-office-poc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "bootstrap": "node scripts/bootstrap-genoffice.mjs",
+    "predev": "npm run bootstrap",
+    "dev": "vite",
+    "prebuild": "npm run bootstrap",
+    "build": "tsc --noEmit && vite build",
+    "pretest": "npm run bootstrap",
+    "test": "vitest run",
+    "bundle:flutter": "npm run build && node scripts/copy-flutter-assets.mjs"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/extension-underline": "3.31.0",
+    "fast-xml-parser": "^5.3.4",
+    "jszip": "^3.10.1",
+    "utif2": "^4.1.0",
+    "@tiptap/extension-bold": "3.31.0",
+    "@tiptap/extension-document": "3.31.0",
+    "@tiptap/extension-italic": "3.31.0",
+    "@tiptap/extension-strike": "3.31.0",
+    "@tiptap/extension-text": "3.31.0",
+    "@tiptap/extensions": "3.31.0",
+    "@tiptap/pm": "3.31.0"
+  },
+  "devDependencies": {
+    "jsdom": "^28.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.1.11",
+    "@types/node": "^24.10.1"
+  }
+}

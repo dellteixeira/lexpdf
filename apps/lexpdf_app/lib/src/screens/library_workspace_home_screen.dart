@@ -20,6 +20,7 @@ enum _HomeSection {
   recent,
   favorites,
   notebooks,
+  office,
   flashcards,
   offline,
   cloud,
@@ -33,6 +34,7 @@ class LibraryWorkspaceHomeScreen extends StatefulWidget {
     required this.inkStore,
     required this.onOpenAccount,
     required this.onOpenPrint,
+    this.onOpenOffice,
     super.key,
   });
 
@@ -41,6 +43,7 @@ class LibraryWorkspaceHomeScreen extends StatefulWidget {
   final LocalInkStore inkStore;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenPrint;
+  final VoidCallback? onOpenOffice;
 
   @override
   State<LibraryWorkspaceHomeScreen> createState() =>
@@ -53,6 +56,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     (_HomeSection.recent, Icons.history, 'Recentes'),
     (_HomeSection.favorites, Icons.star_border, 'Favoritos'),
     (_HomeSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
+    (_HomeSection.office, Icons.description_outlined, 'Documentos Office'),
     (_HomeSection.flashcards, Icons.style_outlined, 'Flashcards'),
     (_HomeSection.offline, Icons.offline_pin_outlined, 'Offline'),
     (_HomeSection.cloud, Icons.cloud_outlined, 'Nuvem'),
@@ -202,6 +206,15 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         onTap: _openNotebook,
       );
     }
+    if (_section == _HomeSection.office) {
+      return _ActionPanel(
+        icon: Icons.description_outlined,
+        title: 'Documentos Office',
+        subtitle: 'Abra e edite arquivos DOCX localmente com o motor GenOffice.',
+        action: 'Abrir editor DOCX',
+        onTap: _openOffice,
+      );
+    }
     if (_section == _HomeSection.flashcards) {
       return FlashcardCenterScreen(
         store: _studyStore,
@@ -233,6 +246,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         final documents = await widget.catalog.list(limit: 500);
         return documents.where((document) => document.hasLocalPath).toList(growable: false);
       case _HomeSection.notebooks:
+      case _HomeSection.office:
       case _HomeSection.flashcards:
       case _HomeSection.cloud:
         return const [];
@@ -270,8 +284,21 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   void _select(_HomeSection section) {
+    final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
+
+    if (section == _HomeSection.office && widget.onOpenOffice != null) {
+      if (hasDrawer) {
+        Navigator.of(context).maybePop().then((_) {
+          if (mounted) widget.onOpenOffice!.call();
+        });
+      } else {
+        widget.onOpenOffice!.call();
+      }
+      return;
+    }
+
     if (_section != section) setState(() => _section = section);
-    if (Scaffold.maybeOf(context)?.hasDrawer ?? false) {
+    if (hasDrawer) {
       Navigator.of(context).maybePop();
     }
   }
@@ -382,6 +409,8 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
+  void _openOffice() => widget.onOpenOffice?.call();
+
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
       case _HomeMoreAction.account:
@@ -464,6 +493,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Recentes',
       _HomeSection.favorites => 'Favoritos',
       _HomeSection.notebooks => 'Cadernos',
+      _HomeSection.office => 'Documentos Office',
       _HomeSection.flashcards => 'Flashcards',
       _HomeSection.offline => 'Offline',
       _HomeSection.cloud => 'Nuvem',
@@ -473,6 +503,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Documentos realmente abertos por você.',
       _HomeSection.favorites => 'Documentos mantidos por perto.',
       _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.office => 'Editor DOCX local-first integrado ao LexPDF.',
       _HomeSection.flashcards =>
         'Todos os cartões, organizados por matéria e assunto.',
       _HomeSection.offline => 'Arquivos locais prontos para abrir.',

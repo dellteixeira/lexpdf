@@ -14,6 +14,7 @@ import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
 import 'screens/library_workspace_home_screen.dart';
+import 'screens/office_document_screen.dart';
 import 'screens/pdf_print_screen.dart';
 import 'screens/pdf_workspace_screen.dart';
 
@@ -42,6 +43,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
   final NativePdfOpenService _nativeOpen = NativePdfOpenService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _openingPrint = false;
+  bool _officePrepared = true;
+  bool _officeVisible = false;
   String? _lastNativePath;
 
   @override
@@ -157,12 +160,35 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => LibraryWorkspaceHomeScreen(
-          catalog: _catalog,
-          annotations: _annotations,
-          inkStore: _inkStore,
-          onOpenAccount: () => _openAccount(context),
-          onOpenPrint: () => _openPrint(context),
+        builder: (context) => IndexedStack(
+          index: _officeVisible ? 1 : 0,
+          children: [
+            LibraryWorkspaceHomeScreen(
+              catalog: _catalog,
+              annotations: _annotations,
+              inkStore: _inkStore,
+              onOpenAccount: () => _openAccount(context),
+              onOpenPrint: () => _openPrint(context),
+              onOpenOffice: () {
+                if (!_officePrepared || !_officeVisible) {
+                  setState(() {
+                    _officePrepared = true;
+                    _officeVisible = true;
+                  });
+                }
+              },
+            ),
+            _officePrepared
+                ? OfficeDocumentScreen(
+                    active: _officeVisible,
+                    onClose: () {
+                      if (_officeVisible) {
+                        setState(() => _officeVisible = false);
+                      }
+                    },
+                  )
+                : const SizedBox.shrink(),
+          ],
         ),
       ),
     );
