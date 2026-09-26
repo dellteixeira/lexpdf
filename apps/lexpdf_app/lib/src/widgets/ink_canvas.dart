@@ -429,7 +429,10 @@ class InkCanvasState extends State<InkCanvas> {
           _selectionGesture = _SelectionGesture.resize;
           _selectionScaleCenter = bounds.center;
           _selectionLastDistance =
-              (event.localPosition - bounds.center).distance.clamp(1.0, 100000.0);
+              (event.localPosition - bounds.center)
+                  .distance
+                  .clamp(1.0, 100000.0)
+                  .toDouble();
           setState(() {});
           return;
         }
@@ -475,8 +478,10 @@ class InkCanvasState extends State<InkCanvas> {
         final center = _selectionScaleCenter;
         final previousDistance = _selectionLastDistance;
         if (center != null && previousDistance != null && previousDistance > 0) {
-          final currentDistance =
-              (event.localPosition - center).distance.clamp(1.0, 100000.0);
+          final currentDistance = (event.localPosition - center)
+              .distance
+              .clamp(1.0, 100000.0)
+              .toDouble();
           final factor = (currentDistance / previousDistance).clamp(0.15, 6.0);
           scaleSelected(factor.toDouble());
           _selectionLastDistance = currentDistance;
@@ -815,7 +820,9 @@ class _InkPainter extends CustomPainter {
     InkBrush brush,
   ) {
     if (points.length < 2) return;
-    final color = Color(colorValue).withValues(alpha: opacity.clamp(0.05, 1.0));
+    final color = Color(colorValue).withValues(
+      alpha: opacity.clamp(0.05, 1.0).toDouble(),
+    );
     for (var index = 1; index < points.length; index++) {
       final previous = points[index - 1];
       final current = points[index];
