@@ -175,6 +175,80 @@ class _StylusNotebookEditorScreenState
     });
   }
 
+  Future<void> _organizePages() async {
+    final ordered = [..._pages];
+    final changed = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (context) => StatefulBuilder(
+            builder: (context, setSheetState) => SafeArea(
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.72,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Organizar páginas',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Concluir'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ReorderableListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: ordered.length,
+                        onReorder: (oldIndex, newIndex) {
+                          setSheetState(() {
+                            if (newIndex > oldIndex) newIndex--;
+                            final item = ordered.removeAt(oldIndex);
+                            ordered.insert(newIndex, item);
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final page = ordered[index];
+                          return ListTile(
+                            key: ValueKey(page.id),
+                            leading: CircleAvatar(
+                              child: Text('${index + 1}'),
+                            ),
+                            title: Text(
+                              'Página ${page.pageNumber} · ${_backgroundLabel(page.background)}',
+                            ),
+                            subtitle: Text(
+                              NotebookPaperSize.infer(page.width, page.height).label,
+                            ),
+                            trailing: const Icon(Icons.drag_handle),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ) ??
+        false;
+    if (!changed) return;
+    await widget.inkStore.reorderPages(
+      widget.notebook.id,
+      ordered.map((page) => page.id).toList(growable: false),
+    );
+    await _load(selectPageId: _page?.id);
+  }
+
   Future<void> _showPenSettings() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -413,11 +487,16 @@ class _StylusNotebookEditorScreenState
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
+              if (value == 'organize') unawaited(_organizePages());
               if (value == 'duplicate') unawaited(_duplicatePage());
               if (value == 'clear') unawaited(_clearPage());
               if (value == 'delete') unawaited(_deletePage());
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'organize',
+                child: Text('Organizar páginas'),
+              ),
               const PopupMenuItem(
                 value: 'duplicate',
                 child: Text('Duplicar página'),
