@@ -14,9 +14,9 @@ import 'core/storage/local_text_annotation_store.dart';
 import 'core/theme/lexpdf_theme.dart';
 import 'screens/account_screen.dart';
 import 'screens/library_workspace_home_screen.dart';
+import 'screens/office_document_screen.dart';
 import 'screens/pdf_print_screen.dart';
 import 'screens/pdf_workspace_screen.dart';
-import 'widgets/office_runtime_prewarmer.dart';
 
 class LexPdfApp extends StatefulWidget {
   const LexPdfApp({
@@ -43,12 +43,17 @@ class _LexPdfAppState extends State<LexPdfApp> {
   final NativePdfOpenService _nativeOpen = NativePdfOpenService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _openingPrint = false;
+  bool _officePrepared = false;
+  bool _officeVisible = false;
   String? _lastNativePath;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapNativeOpen());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _officePrepared = true);
+      _bootstrapNativeOpen();
+    });
   }
 
   Future<void> _bootstrapNativeOpen() async {
@@ -158,7 +163,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
       theme: LexPdfTheme.light,
       darkTheme: LexPdfTheme.dark,
       home: Builder(
-        builder: (context) => Stack(
+        builder: (context) => IndexedStack(
+          index: _officeVisible ? 1 : 0,
           children: [
             LibraryWorkspaceHomeScreen(
               catalog: _catalog,
@@ -166,12 +172,25 @@ class _LexPdfAppState extends State<LexPdfApp> {
               inkStore: _inkStore,
               onOpenAccount: () => _openAccount(context),
               onOpenPrint: () => _openPrint(context),
+              onOpenOffice: () {
+                if (!_officePrepared || !_officeVisible) {
+                  setState(() {
+                    _officePrepared = true;
+                    _officeVisible = true;
+                  });
+                }
+              },
             ),
-            const Positioned(
-              right: 0,
-              bottom: 0,
-              child: OfficeRuntimePrewarmer(),
-            ),
+            _officePrepared
+                ? OfficeDocumentScreen(
+                    active: _officeVisible,
+                    onClose: () {
+                      if (_officeVisible) {
+                        setState(() => _officeVisible = false);
+                      }
+                    },
+                  )
+                : const SizedBox.shrink(),
           ],
         ),
       ),
