@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 enum InkTool { pen, pencil, highlighter }
 
+enum InkBrush { round, fountain, chisel }
+
 enum InkPageBackground {
   blank,
   ruled,
@@ -74,6 +76,7 @@ class InkStroke {
     required this.width,
     required this.points,
     required this.createdAt,
+    this.brush = InkBrush.round,
   });
 
   final String id;
@@ -84,6 +87,7 @@ class InkStroke {
   final double width;
   final List<InkPoint> points;
   final DateTime createdAt;
+  final InkBrush brush;
 
   String encodePoints() => jsonEncode(points.map((point) => point.toJson()).toList());
 
