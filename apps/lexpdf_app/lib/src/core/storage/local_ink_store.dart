@@ -55,6 +55,34 @@ class LocalInkStore {
     return InkNotebook(id: id, title: normalized, createdAt: now, updatedAt: now);
   }
 
+  Future<InkNotebook> createNotebookConfigured(
+    String title, {
+    required InkPageBackground background,
+    required double width,
+    required double height,
+  }) async {
+    final now = DateTime.now().toUtc();
+    final id = 'notebook-${now.microsecondsSinceEpoch.toRadixString(36)}';
+    final normalized = title.trim().isEmpty ? 'Novo caderno' : title.trim();
+    final iso = now.toIso8601String();
+    db.database.execute(
+      'INSERT INTO notebooks(id, title, created_at, updated_at) VALUES (?, ?, ?, ?);',
+      [id, normalized, iso, iso],
+    );
+    await createPage(
+      id,
+      background: background,
+      width: width,
+      height: height,
+    );
+    return InkNotebook(
+      id: id,
+      title: normalized,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
   Future<void> renameNotebook(String id, String title) async {
     final normalized = title.trim();
     if (normalized.isEmpty) return;
@@ -137,6 +165,24 @@ class LocalInkStore {
     db.database.execute(
       'UPDATE notebook_pages SET background = ?, updated_at = ? WHERE id = ?;',
       [background.dbValue, DateTime.now().toUtc().toIso8601String(), pageId],
+    );
+  }
+
+  Future<void> updatePageFormat(
+    String pageId, {
+    required double width,
+    required double height,
+    required InkPageBackground background,
+  }) async {
+    db.database.execute(
+      'UPDATE notebook_pages SET width = ?, height = ?, background = ?, updated_at = ? WHERE id = ?;',
+      [
+        width,
+        height,
+        background.dbValue,
+        DateTime.now().toUtc().toIso8601String(),
+        pageId,
+      ],
     );
   }
 
