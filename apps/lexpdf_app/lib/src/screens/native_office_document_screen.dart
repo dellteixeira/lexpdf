@@ -8,6 +8,7 @@ import 'package:fluent_editor/widgets/fluent_document_widget.dart';
 import 'package:flutter/material.dart';
 
 import '../core/notebook/notebook_document_file_service.dart';
+import '../core/theme/lexpdf_theme.dart';
 
 /// Editor Office nativo do LexPDF.
 ///
@@ -129,6 +130,8 @@ class _NativeOfficeDocumentScreenState
   bool _dirty = false;
   bool _suppressDirty = false;
   bool _legacyDocAvailable = false;
+  bool _themeInitialized = false;
+  bool _darkMode = false;
   String _documentName = 'Sem título.docx';
 
   @override
@@ -138,6 +141,18 @@ class _NativeOfficeDocumentScreenState
     _document.registry.attach(_document);
     _document.addListener(_onDocumentChanged);
     _loadCapabilities();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_themeInitialized) return;
+    _themeInitialized = true;
+    _darkMode = Theme.of(context).brightness == Brightness.dark;
+  }
+
+  void _toggleTheme() {
+    setState(() => _darkMode = !_darkMode);
   }
 
   FluentDocument _blankDocument() {
@@ -322,9 +337,12 @@ class _NativeOfficeDocumentScreenState
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final editorTheme = _darkMode ? LexPdfTheme.dark : LexPdfTheme.light;
+    final scheme = editorTheme.colorScheme;
 
-    return PopScope<void>(
+    return Theme(
+      data: editorTheme,
+      child: PopScope<void>(
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
@@ -385,6 +403,13 @@ class _NativeOfficeDocumentScreenState
               icon: const Icon(Icons.redo),
             ),
             IconButton(
+              tooltip: _darkMode ? 'Usar modo claro' : 'Usar modo escuro',
+              onPressed: _toggleTheme,
+              icon: Icon(
+                _darkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              ),
+            ),
+            IconButton(
               tooltip: 'Salvar DOCX',
               onPressed: _busy ? null : _saveDocx,
               icon: const Icon(Icons.save_outlined),
@@ -408,34 +433,23 @@ class _NativeOfficeDocumentScreenState
             Positioned.fill(
               child: ColoredBox(
                 color: scheme.surfaceContainerLow,
-                child: Theme(
-                  data: ThemeData.light(useMaterial3: true).copyWith(
-                    colorScheme: const ColorScheme.light(
-                      primary: Color(0xFF2F66B3),
-                      onPrimary: Colors.white,
-                      surface: Colors.white,
-                      onSurface: Color(0xFF202124),
-                      surfaceContainerHighest: Color(0xFFF3F5F8),
-                      outline: Color(0xFFB8BEC7),
-                    ),
-                  ),
-                  child: FluentDocumentWidget(
-                    document: _document,
-                    labels: _labels,
-                    toolbarMode: FluentToolbarMode.fixed,
-                    maxWidth: 900,
-                  ),
+                child: FluentDocumentWidget(
+                  document: _document,
+                  labels: _labels,
+                  toolbarMode: FluentToolbarMode.fixed,
+                  maxWidth: 900,
                 ),
               ),
             ),
             if (_busy)
               Positioned.fill(
                 child: ColoredBox(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: scheme.surface.withValues(alpha: 0.78),
                   child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
           ],
+        ),
         ),
       ),
     );
