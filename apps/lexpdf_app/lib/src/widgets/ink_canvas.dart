@@ -96,6 +96,13 @@ class InkCanvasState extends State<InkCanvas> {
     return removed;
   }
 
+  void restoreStroke(InkStroke stroke) {
+    _strokes.removeWhere((item) => item.id == stroke.id);
+    _strokes.add(stroke);
+    _strokes.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    setState(() {});
+  }
+
   List<InkStroke> deleteSelected() {
     if (_selectedStrokeIds.isEmpty) return const [];
     final removed = _selectedStrokes();
