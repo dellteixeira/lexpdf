@@ -12,7 +12,6 @@ import 'backup_migration_screen.dart';
 import 'cloud_sync_screen.dart';
 import 'global_search_screen.dart';
 import 'library_organizer_screen.dart';
-import 'notebook_export_screen.dart';
 import 'notebook_screen.dart';
 import 'pdf_workspace_screen.dart';
 
@@ -170,16 +169,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           crossAxisSpacing: 16,
           children: [
             _QuickAction(
-              icon: Icons.edit_outlined,
+              icon: Icons.draw_outlined,
               title: 'Abrir cadernos',
-              subtitle: 'Páginas, escrita, formas, texto e imagens',
+              subtitle: 'Escrita à mão com stylus, páginas e exportação em PDF',
               onTap: _openNotebook,
-            ),
-            _QuickAction(
-              icon: Icons.picture_as_pdf_outlined,
-              title: 'Exportar caderno',
-              subtitle: 'Página atual ou caderno completo em PDF',
-              onTap: _openNotebookExport,
             ),
           ],
         );
@@ -450,14 +443,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NotebookScreen(inkStore: widget.inkStore),
-      ),
-    );
-  }
-
-  Future<void> _openNotebookExport() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NotebookExportScreen(inkStore: widget.inkStore),
       ),
     );
   }
