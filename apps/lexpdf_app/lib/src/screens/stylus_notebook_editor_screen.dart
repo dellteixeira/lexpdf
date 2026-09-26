@@ -12,7 +12,7 @@ import '../core/storage/local_ink_store.dart';
 import '../widgets/ink_canvas.dart';
 import '../widgets/notebook_page_background.dart';
 
-enum _NotebookTool { pen, pencil, highlighter, eraser, lasso, hand }
+enum _NotebookTool { pen, highlighter, eraser, lasso, hand }
 
 class StylusNotebookEditorScreen extends StatefulWidget {
   const StylusNotebookEditorScreen({
@@ -38,8 +38,14 @@ class _StylusNotebookEditorScreenState
   List<InkStroke> _strokes = const [];
   InkNotebookPage? _page;
   _NotebookTool _tool = _NotebookTool.pen;
-  int _colorValue = 0xFF1E1E1E;
-  double _width = 3.2;
+  int _penColorValue = 0xFF1E1E1E;
+  double _penWidth = 3.2;
+  double _penOpacity = 1.0;
+  InkBrush _penBrush = InkBrush.round;
+  int _highlighterColorValue = 0xFFFFC107;
+  double _highlighterWidth = 14;
+  double _highlighterOpacity = 0.28;
+  InkBrush _highlighterBrush = InkBrush.chisel;
   bool _stylusOnly = true;
   bool _loading = true;
   int _selectionCount = 0;
@@ -161,11 +167,21 @@ class _StylusNotebookEditorScreenState
     }
   }
 
-  InkTool get _inkTool => switch (_tool) {
-        _NotebookTool.pencil => InkTool.pencil,
-        _NotebookTool.highlighter => InkTool.highlighter,
-        _ => InkTool.pen,
-      };
+  InkTool get _inkTool =>
+      _tool == _NotebookTool.highlighter ? InkTool.highlighter : InkTool.pen;
+
+  int get _activeColorValue => _tool == _NotebookTool.highlighter
+      ? _highlighterColorValue
+      : _penColorValue;
+
+  double get _activeWidth =>
+      _tool == _NotebookTool.highlighter ? _highlighterWidth : _penWidth;
+
+  double get _activeOpacity =>
+      _tool == _NotebookTool.highlighter ? _highlighterOpacity : _penOpacity;
+
+  InkBrush get _activeBrush =>
+      _tool == _NotebookTool.highlighter ? _highlighterBrush : _penBrush;
 
   bool get _eraser => _tool == _NotebookTool.eraser;
   bool get _lasso => _tool == _NotebookTool.lasso;
@@ -175,6 +191,21 @@ class _StylusNotebookEditorScreenState
     setState(() {
       _tool = tool;
       if (tool != _NotebookTool.lasso) _selectionCount = 0;
+    });
+  }
+
+  Future<void> _deleteSelection() async {
+    final canvas = _canvasKey.currentState;
+    if (canvas == null) return;
+    final removed = canvas.deleteSelected();
+    if (removed.isEmpty) return;
+    for (final stroke in removed) {
+      await widget.inkStore.deleteStroke(stroke.id);
+    }
+    if (!mounted) return;
+    setState(() {
+      _strokes = canvas.strokes;
+      _selectionCount = 0;
     });
   }
 
@@ -286,13 +317,17 @@ class _StylusNotebookEditorScreenState
     await _load(selectPageId: _page?.id);
   }
 
-  Future<void> _showPenSettings() async {
+  Future<void> _showInkSettings() async {
+    if (_tool != _NotebookTool.pen && _tool != _NotebookTool.highlighter) {
+      return;
+    }
+    final editingHighlighter = _tool == _NotebookTool.highlighter;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
-          const colors = <int>[
+          const penColors = <int>[
             0xFF1E1E1E,
             0xFF246BFD,
             0xFFD93025,
@@ -300,15 +335,62 @@ class _StylusNotebookEditorScreenState
             0xFF7B1FA2,
             0xFFFF8F00,
           ];
+          const highlighterColors = <int>[
+            0xFFFFC107,
+            0xFFFFEB3B,
+            0xFF8BC34A,
+            0xFF4DD0E1,
+            0xFF64B5F6,
+            0xFFFF8A80,
+          ];
+          final colors = editingHighlighter ? highlighterColors : penColors;
+          final selectedColor =
+              editingHighlighter ? _highlighterColorValue : _penColorValue;
+          final width = editingHighlighter ? _highlighterWidth : _penWidth;
+          final opacity =
+              editingHighlighter ? _highlighterOpacity : _penOpacity;
+          final brush =
+              editingHighlighter ? _highlighterBrush : _penBrush;
+          final title = editingHighlighter ? 'Marca-texto' : 'Caneta';
+
           return SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Caneta', style: Theme.of(context).textTheme.titleLarge),
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 14),
+                  Text(
+                    'Brush',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final item in InkBrush.values)
+                        ChoiceChip(
+                          label: Text(_brushLabel(item)),
+                          selected: brush == item,
+                          onSelected: (_) {
+                            setState(() {
+                              if (editingHighlighter) {
+                                _highlighterBrush = item;
+                              } else {
+                                _penBrush = item;
+                              }
+                            });
+                            setSheetState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text('Cor', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
@@ -316,7 +398,13 @@ class _StylusNotebookEditorScreenState
                       for (final color in colors)
                         InkWell(
                           onTap: () {
-                            setState(() => _colorValue = color);
+                            setState(() {
+                              if (editingHighlighter) {
+                                _highlighterColorValue = color;
+                              } else {
+                                _penColorValue = color;
+                              }
+                            });
                             setSheetState(() {});
                           },
                           borderRadius: BorderRadius.circular(24),
@@ -327,7 +415,7 @@ class _StylusNotebookEditorScreenState
                               color: Color(color),
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: _colorValue == color
+                                color: selectedColor == color
                                     ? Theme.of(context).colorScheme.primary
                                     : Colors.transparent,
                                 width: 3,
@@ -338,14 +426,37 @@ class _StylusNotebookEditorScreenState
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Text('Espessura: ${_width.toStringAsFixed(1)}'),
+                  Text('Tamanho: ${width.toStringAsFixed(1)}'),
                   Slider(
-                    value: _width,
-                    min: 1,
-                    max: 18,
-                    divisions: 34,
+                    value: width,
+                    min: editingHighlighter ? 4 : 1,
+                    max: editingHighlighter ? 40 : 18,
+                    divisions: editingHighlighter ? 36 : 34,
                     onChanged: (value) {
-                      setState(() => _width = value);
+                      setState(() {
+                        if (editingHighlighter) {
+                          _highlighterWidth = value;
+                        } else {
+                          _penWidth = value;
+                        }
+                      });
+                      setSheetState(() {});
+                    },
+                  ),
+                  Text('Opacidade: ${(opacity * 100).round()}%'),
+                  Slider(
+                    value: opacity,
+                    min: 0.1,
+                    max: 1,
+                    divisions: 18,
+                    onChanged: (value) {
+                      setState(() {
+                        if (editingHighlighter) {
+                          _highlighterOpacity = value;
+                        } else {
+                          _penOpacity = value;
+                        }
+                      });
                       setSheetState(() {});
                     },
                   ),
@@ -369,7 +480,6 @@ class _StylusNotebookEditorScreenState
       ),
     );
   }
-
   Future<void> _showPageSettings() async {
     final current = _page;
     if (current == null) return;
@@ -462,6 +572,12 @@ class _StylusNotebookEditorScreenState
     );
     await _load(selectPageId: current.id);
   }
+
+  static String _brushLabel(InkBrush brush) => switch (brush) {
+        InkBrush.round => 'Redondo',
+        InkBrush.fountain => 'Tinteiro',
+        InkBrush.chisel => 'Chanfrado',
+      };
 
   static String _backgroundLabel(InkPageBackground value) => switch (value) {
         InkPageBackground.blank => 'Em branco',
@@ -557,10 +673,11 @@ class _StylusNotebookEditorScreenState
           preferredSize: const Size.fromHeight(58),
           child: _ToolBar(
             tool: _tool,
-            color: Color(_colorValue),
+            color: Color(_activeColorValue),
             selectionCount: _selectionCount,
             onSelect: _selectTool,
-            onPenSettings: _showPenSettings,
+            onInkSettings: _showInkSettings,
+            onDeleteSelection: _deleteSelection,
           ),
         ),
       ),
@@ -623,8 +740,10 @@ class _StylusNotebookEditorScreenState
                                     initialStrokes: _strokes,
                                     pageId: page.id,
                                     tool: _inkTool,
-                                    colorValue: _colorValue,
-                                    strokeWidth: _width,
+                                    colorValue: _activeColorValue,
+                                    strokeWidth: _activeWidth,
+                                    brush: _activeBrush,
+                                    strokeOpacity: _activeOpacity,
                                     stylusOnly: _stylusOnly,
                                     eraserMode: _eraser,
                                     lassoMode: _lasso,
@@ -687,14 +806,16 @@ class _ToolBar extends StatelessWidget {
     required this.color,
     required this.selectionCount,
     required this.onSelect,
-    required this.onPenSettings,
+    required this.onInkSettings,
+    required this.onDeleteSelection,
   });
 
   final _NotebookTool tool;
   final Color color;
   final int selectionCount;
   final ValueChanged<_NotebookTool> onSelect;
-  final VoidCallback onPenSettings;
+  final VoidCallback onInkSettings;
+  final VoidCallback onDeleteSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -707,7 +828,6 @@ class _ToolBar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           children: [
             _tool(context, _NotebookTool.pen, Icons.edit, 'Caneta'),
-            _tool(context, _NotebookTool.pencil, Icons.draw_outlined, 'Lápis'),
             _tool(
               context,
               _NotebookTool.highlighter,
@@ -727,11 +847,32 @@ class _ToolBar extends StatelessWidget {
               selectionCount > 0 ? 'Selecionados: $selectionCount' : 'Laço',
             ),
             _tool(context, _NotebookTool.hand, Icons.pan_tool_outlined, 'Mover'),
+            if (selectionCount > 0) ...[
+              const VerticalDivider(width: 18),
+              Tooltip(
+                message:
+                    'Arraste a seleção para mover. Use a alça no canto para redimensionar.',
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.open_with),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Excluir seleção',
+                onPressed: onDeleteSelection,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
             const VerticalDivider(width: 18),
             IconButton(
-              tooltip: 'Cor e espessura',
-              onPressed: onPenSettings,
-              icon: Icon(Icons.circle, color: color),
+              tooltip: tool == _NotebookTool.highlighter
+                  ? 'Brush, tamanho e opacidade do marca-texto'
+                  : 'Brush, tamanho e opacidade da caneta',
+              onPressed: tool == _NotebookTool.pen ||
+                      tool == _NotebookTool.highlighter
+                  ? onInkSettings
+                  : null,
+              icon: Icon(Icons.tune, color: color),
             ),
           ],
         ),
