@@ -25,75 +25,56 @@ void main() {
     );
   });
 
-  test('notebook select exposes direct object editing actions', () {
-    final screen = File('lib/src/screens/layered_notebook_screen.dart')
-        .readAsStringSync();
-    final toolbar = File('lib/src/widgets/notebook_editor_toolbar.dart')
-        .readAsStringSync();
-    final objectControls = File('lib/src/widgets/notebook_object_controls.dart')
-        .readAsStringSync();
-    final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
-        .readAsStringSync();
-    final styleControls = File(
-      'lib/src/widgets/notebook_editor_toolbar_groups.dart',
+  test('notebooks use the new stylus-first shelf and editor', () {
+    final shelf = File('lib/src/screens/notebook_screen.dart').readAsStringSync();
+    final editor = File(
+      'lib/src/screens/stylus_notebook_editor_screen.dart',
     ).readAsStringSync();
 
-    expect(screen, contains('onScaleObjectDown:'));
-    expect(screen, contains('onScaleObjectUp:'));
-    expect(screen, contains('onDuplicateObject:'));
-    expect(screen, contains('_setSelectedObjectWidth(value)'));
-    expect(screen, contains('_setSelectedObjectColor(value)'));
-    expect(screen, contains('_deleteSelectedObject()'));
-    expect(screen, contains('onEditTextObject: _activateTextMode'));
-    expect(screen, contains('_buildTextFormattingToolbar()'));
-    expect(screen, contains('NotebookRichDocumentSurface('));
-    expect(toolbar, contains('objectSelected: selectedObject != null'));
-    expect(toolbar, contains('onPointerModeChanged(true)'));
-    expect(
-      objectControls,
-      contains("tooltip: 'Duplicar \${_selectionLabel(selected.type)}'"),
-    );
-    expect(
-      objectControls,
-      contains("tooltip: 'Excluir \${_selectionLabel(selected.type)}'"),
-    );
-    expect(objectLayer, contains('onTapDown: (_) {'));
-    expect(objectLayer, contains('if (!_twoFingerNavigating) {'));
-    expect(objectLayer, contains('widget.onSelectionChanged(object.id);'));
-    expect(objectLayer, isNot(contains('_InlineNotebookTextEditor')));
-    expect(objectLayer, contains('enum _ResizeHandle'));
-    expect(styleControls, contains('width.toStringAsFixed(1)'));
+    expect(shelf, contains('NotebookCoverCard('));
+    expect(shelf, contains('Novo caderno'));
+    expect(shelf, contains('firstPageFormat: result.format'));
+    expect(shelf, contains('firstPageBackground: result.background'));
+    expect(shelf, contains('StylusNotebookEditorScreen('));
+
+    expect(editor, contains('InkCanvas('));
+    expect(editor, contains('stylusOnly: _stylusOnly'));
+    expect(editor, contains('eraserMode: _eraserMode'));
+    expect(editor, contains('lassoMode: _lassoMode'));
+    expect(editor, contains("label: 'Caneta'"));
+    expect(editor, contains("label: 'Marca'"));
+    expect(editor, contains("label: 'Borracha'"));
+    expect(editor, contains("label: 'Laço'"));
+    expect(editor, contains('InkPageFormat.a4Portrait'));
+    expect(editor, contains('InkPageFormat.a3Portrait'));
+    expect(editor, contains('InkPageFormat.infinite'));
   });
 
-  test('notebook inserted lines are horizontal until explicitly rotated', () {
-    final objectLayer = File('lib/src/widgets/notebook_object_layer.dart')
-        .readAsStringSync();
+  test('notebook paper gallery includes study and technical templates', () {
+    final models = File('lib/src/core/ink/ink_models.dart').readAsStringSync();
+    final background = File(
+      'lib/src/widgets/notebook_page_background.dart',
+    ).readAsStringSync();
 
-    expect(objectLayer, contains('final y = size.height / 2;'));
-    expect(
-      objectLayer,
-      contains('canvas.drawLine(Offset(0, y), Offset(size.width, y), stroke)'),
-    );
-    expect(
-      objectLayer,
-      isNot(
-        contains(
-          'canvas.drawLine(Offset.zero, Offset(size.width, size.height), stroke)',
-        ),
-      ),
-    );
+    expect(models, contains('cornell'));
+    expect(models, contains('planner'));
+    expect(models, contains('crossGrid'));
+    expect(models, contains('isometric'));
+    expect(models, contains('engineering'));
+    expect(models, contains('music'));
+    expect(models, contains('taskList'));
+
+    expect(background, contains('InkPageBackground.cornell'));
+    expect(background, contains('InkPageBackground.engineering'));
+    expect(background, contains('InkPageBackground.music'));
   });
 
-  test('notebook numeric zoom preserves the viewport center', () {
-    final screen = File('lib/src/screens/layered_notebook_screen.dart')
-        .readAsStringSync();
-
-    expect(screen, contains('final GlobalKey _pageViewportKey = GlobalKey();'));
-    expect(
-      screen,
-      contains('_pageTransformController.toScene(viewportCenter)'),
-    );
-    expect(screen, contains('Matrix4.translationValues('));
-    expect(screen, contains('Matrix4.diagonal3Values(next, next, 1)'));
+  test('legacy WordPad notebook UI is removed', () {
+    expect(File('lib/src/screens/layered_notebook_screen.dart').existsSync(),
+        isFalse);
+    expect(File('lib/src/widgets/notebook_wordpad_chrome.dart').existsSync(),
+        isFalse);
+    expect(File('lib/src/widgets/notebook_editor_toolbar.dart').existsSync(),
+        isFalse);
   });
 }
