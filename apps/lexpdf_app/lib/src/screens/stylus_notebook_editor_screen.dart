@@ -602,7 +602,7 @@ class _ToolBar extends StatelessWidget {
             _tool(
               context,
               _NotebookTool.lasso,
-              Icons.gesture_select_outlined,
+              Icons.gesture,
               selectionCount > 0 ? 'Selecionados: $selectionCount' : 'Laço',
             ),
             _tool(context, _NotebookTool.hand, Icons.pan_tool_outlined, 'Mover'),
