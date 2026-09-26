@@ -196,15 +196,6 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   Widget _buildContent() {
-    if (_section == _HomeSection.notebooks) {
-      return _ActionPanel(
-        icon: Icons.edit_note_outlined,
-        title: 'Cadernos',
-        subtitle: 'Escrita, desenhos, formas, texto e imagens.',
-        action: 'Abrir cadernos',
-        onTap: _openNotebook,
-      );
-    }
     if (_section == _HomeSection.office) {
       return _ActionPanel(
         icon: Icons.description_outlined,
