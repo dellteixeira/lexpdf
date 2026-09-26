@@ -353,8 +353,10 @@ class _StylusNotebookEditorScreenState
     final tx = (viewport.width - page.width * scale) / 2;
     final ty = (viewport.height - page.height * scale) / 2;
     _transform.value = Matrix4.identity()
-      ..translate(tx, ty)
-      ..scale(scale);
+      ..setEntry(0, 0, scale)
+      ..setEntry(1, 1, scale)
+      ..setEntry(0, 3, tx)
+      ..setEntry(1, 3, ty);
     _lastViewportSize = viewport;
     _lastFittedPageId = page.id;
   }
