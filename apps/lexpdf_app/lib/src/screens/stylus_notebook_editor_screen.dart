@@ -247,9 +247,8 @@ class _StylusNotebookEditorScreenState
                       child: ReorderableListView.builder(
                         padding: const EdgeInsets.all(12),
                         itemCount: ordered.length,
-                        onReorder: (oldIndex, newIndex) {
+                        onReorderItem: (oldIndex, newIndex) {
                           setSheetState(() {
-                            if (newIndex > oldIndex) newIndex--;
                             final item = ordered.removeAt(oldIndex);
                             ordered.insert(newIndex, item);
                           });
