@@ -13,8 +13,6 @@ import 'cloud_sync_screen.dart';
 import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
 import 'notebook_screen.dart';
-import 'office_document_screen.dart';
-import '../widgets/office_runtime_prewarmer.dart';
 import 'pdf_workspace_screen.dart';
 
 enum _HomeSection {
@@ -36,6 +34,7 @@ class LibraryWorkspaceHomeScreen extends StatefulWidget {
     required this.inkStore,
     required this.onOpenAccount,
     required this.onOpenPrint,
+    this.onOpenOffice,
     super.key,
   });
 
@@ -44,6 +43,7 @@ class LibraryWorkspaceHomeScreen extends StatefulWidget {
   final LocalInkStore inkStore;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenPrint;
+  final VoidCallback? onOpenOffice;
 
   @override
   State<LibraryWorkspaceHomeScreen> createState() =>
@@ -286,13 +286,13 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   void _select(_HomeSection section) {
     final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
 
-    if (section == _HomeSection.office) {
+    if (section == _HomeSection.office && widget.onOpenOffice != null) {
       if (hasDrawer) {
         Navigator.of(context).maybePop().then((_) {
-          if (mounted) unawaited(_openOffice());
+          if (mounted) widget.onOpenOffice!.call();
         });
       } else {
-        unawaited(_openOffice());
+        widget.onOpenOffice!.call();
       }
       return;
     }
@@ -408,33 +408,6 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
           builder: (_) => NotebookScreen(inkStore: widget.inkStore),
         ),
       );
-
-  Future<void> _openOffice() async {
-    final runtime = OfficeWebViewRuntime.instance;
-
-    // A mesma WebView nativa não pode estar visível em dois widgets ao mesmo
-    // tempo. Removemos o prewarm por um frame e então reapresentamos exatamente
-    // aquela instância já aquecida na tela do editor.
-    runtime.setBackgroundAttached(false);
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) {
-      runtime.setBackgroundAttached(true);
-      return;
-    }
-
-    try {
-      await Navigator.of(context).push(
-        PageRouteBuilder<void>(
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const OfficeDocumentScreen(),
-        ),
-      );
-    } finally {
-      runtime.setBackgroundAttached(true);
-    }
-  }
 
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
