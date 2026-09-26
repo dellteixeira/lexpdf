@@ -193,4 +193,39 @@ void main() {
     expect((await store.listNotebooks()).any((item) => item.id == notebook.id), isFalse);
     expect(await store.listStrokes(page.id), isEmpty);
   });
+  test('persists notebook cover, page size and paper template', () async {
+    final database = LocalDatabase.inMemory();
+    addTearDown(database.close);
+    final store = LocalInkStore(database);
+
+    final notebook = await store.createNotebook(
+      'Caderno Stylus',
+      cover: InkNotebookCover.teal,
+      firstPageFormat: InkPageFormat.a3Landscape,
+      firstPageBackground: InkPageBackground.isometric,
+    );
+
+    final restoredNotebook = (await store.listNotebooks())
+        .singleWhere((item) => item.id == notebook.id);
+    final page = (await store.listPages(notebook.id)).single;
+
+    expect(restoredNotebook.cover, InkNotebookCover.teal);
+    expect(page.format, InkPageFormat.a3Landscape);
+    expect(page.background, InkPageBackground.isometric);
+    expect(page.width, InkPageFormat.a3Landscape.defaultWidth);
+    expect(page.height, InkPageFormat.a3Landscape.defaultHeight);
+
+    await store.updateNotebookCover(notebook.id, InkNotebookCover.wine);
+    await store.updatePageFormat(page.id, InkPageFormat.infinite);
+    await store.updatePageBackground(page.id, InkPageBackground.cornell);
+
+    final updatedNotebook = (await store.listNotebooks())
+        .singleWhere((item) => item.id == notebook.id);
+    final updatedPage = (await store.listPages(notebook.id)).single;
+
+    expect(updatedNotebook.cover, InkNotebookCover.wine);
+    expect(updatedPage.format, InkPageFormat.infinite);
+    expect(updatedPage.background, InkPageBackground.cornell);
+  });
+
 }
