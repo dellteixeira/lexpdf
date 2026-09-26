@@ -39,28 +39,28 @@ void main() {
   });
 
   test(
-    'Notebook separates selection from hand navigation and has zoom presets',
+    'Notebook uses stylus tools with two-finger pan and zoom',
     () {
-      final screen = File('lib/src/screens/layered_notebook_screen.dart')
-          .readAsStringSync();
-      final controls = File('lib/src/widgets/notebook_ink_controls.dart')
-          .readAsStringSync();
-      final zoom = File('lib/src/widgets/notebook_wordpad_chrome.dart')
-          .readAsStringSync();
+      final screen = File(
+        'lib/src/screens/stylus_notebook_editor_screen.dart',
+      ).readAsStringSync();
+      final ink = File('lib/src/widgets/ink_canvas.dart').readAsStringSync();
+      final navigation = File(
+        'lib/src/widgets/notebook_two_finger_navigation_region.dart',
+      ).readAsStringSync();
 
-      expect(screen, contains('bool _handMode = false'));
-      expect(screen, contains('panEnabled: _handMode'));
-      expect(screen, contains('enabled: _textMode && !_handMode'));
-      expect(screen, contains('!_textMode &&'));
-      expect(screen, contains('_pointerMode &&'));
-      expect(screen, contains('!_handMode &&'));
-      expect(screen, contains('_canEditActiveLayer,'));
-      expect(screen, contains('onHandModeChanged'));
-      expect(controls, contains("label: 'Selecionar'"));
-      expect(controls, contains("label: 'Mão'"));
-      expect(zoom, contains('class NotebookWordPadStatusBar'));
-      expect(zoom, contains('onZoomChanged'));
-      expect(zoom, contains("tooltip: 'Ajustar à página'"));
+      expect(screen, contains('InteractiveViewer('));
+      expect(screen, contains('panEnabled: false'));
+      expect(screen, contains('scaleEnabled: false'));
+      expect(screen, contains('InkCanvas('));
+      expect(screen, contains('lassoMode: _lassoMode'));
+      expect(screen, contains('eraserMode: _eraserMode'));
+      expect(screen, contains('stylusOnly: _stylusOnly'));
+      expect(screen, contains('_fitPage'));
+      expect(ink, contains('NotebookTwoFingerNavigationRegion('));
+      expect(navigation, contains('_touchPositions.length >= 2'));
+      expect(navigation, contains('currentDistance / _startDistance'));
     },
   );
+
 }

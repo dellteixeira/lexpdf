@@ -13,6 +13,7 @@ import 'cloud_sync_screen.dart';
 import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
 import 'notebook_screen.dart';
+import 'native_office_document_screen.dart';
 import 'pdf_workspace_screen.dart';
 
 enum _HomeSection {
@@ -20,6 +21,7 @@ enum _HomeSection {
   recent,
   favorites,
   notebooks,
+  office,
   flashcards,
   offline,
   cloud,
@@ -53,6 +55,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     (_HomeSection.recent, Icons.history, 'Recentes'),
     (_HomeSection.favorites, Icons.star_border, 'Favoritos'),
     (_HomeSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
+    (_HomeSection.office, Icons.description_outlined, 'Documentos Office'),
     (_HomeSection.flashcards, Icons.style_outlined, 'Flashcards'),
     (_HomeSection.offline, Icons.offline_pin_outlined, 'Offline'),
     (_HomeSection.cloud, Icons.cloud_outlined, 'Nuvem'),
@@ -193,13 +196,13 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   Widget _buildContent() {
-    if (_section == _HomeSection.notebooks) {
+    if (_section == _HomeSection.office) {
       return _ActionPanel(
-        icon: Icons.edit_note_outlined,
-        title: 'Cadernos',
-        subtitle: 'Escrita, desenhos, formas, texto e imagens.',
-        action: 'Abrir cadernos',
-        onTap: _openNotebook,
+        icon: Icons.description_outlined,
+        title: 'Documentos Office',
+        subtitle: 'Editor nativo DOCX/RTF/TXT, sem WebView e sem dependência de servidor.',
+        action: 'Abrir editor',
+        onTap: _openOffice,
       );
     }
     if (_section == _HomeSection.flashcards) {
@@ -233,6 +236,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         final documents = await widget.catalog.list(limit: 500);
         return documents.where((document) => document.hasLocalPath).toList(growable: false);
       case _HomeSection.notebooks:
+      case _HomeSection.office:
       case _HomeSection.flashcards:
       case _HomeSection.cloud:
         return const [];
@@ -270,8 +274,29 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   void _select(_HomeSection section) {
+    final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
+
+    if (section == _HomeSection.notebooks ||
+        section == _HomeSection.office) {
+      if (hasDrawer) {
+        Navigator.of(context).maybePop().then((_) {
+          if (!mounted) return;
+          if (section == _HomeSection.notebooks) {
+            unawaited(_openNotebook());
+          } else {
+            unawaited(_openOffice());
+          }
+        });
+      } else if (section == _HomeSection.notebooks) {
+        unawaited(_openNotebook());
+      } else {
+        unawaited(_openOffice());
+      }
+      return;
+    }
+
     if (_section != section) setState(() => _section = section);
-    if (Scaffold.maybeOf(context)?.hasDrawer ?? false) {
+    if (hasDrawer) {
       Navigator.of(context).maybePop();
     }
   }
@@ -382,6 +407,12 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
+  Future<void> _openOffice() => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const NativeOfficeDocumentScreen(),
+        ),
+      );
+
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
       case _HomeMoreAction.account:
@@ -464,6 +495,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Recentes',
       _HomeSection.favorites => 'Favoritos',
       _HomeSection.notebooks => 'Cadernos',
+      _HomeSection.office => 'Documentos Office',
       _HomeSection.flashcards => 'Flashcards',
       _HomeSection.offline => 'Offline',
       _HomeSection.cloud => 'Nuvem',
@@ -472,7 +504,9 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.library => 'Clique em um documento para abrir diretamente em Trabalhar com PDF.',
       _HomeSection.recent => 'Documentos realmente abertos por você.',
       _HomeSection.favorites => 'Documentos mantidos por perto.',
-      _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.notebooks =>
+        'Cadernos manuscritos com stylus, capas, A4, A3 e página infinita.',
+      _HomeSection.office => 'Editor de documentos nativo, rápido e local-first.',
       _HomeSection.flashcards =>
         'Todos os cartões, organizados por matéria e assunto.',
       _HomeSection.offline => 'Arquivos locais prontos para abrir.',

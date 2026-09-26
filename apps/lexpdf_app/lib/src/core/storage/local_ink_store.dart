@@ -11,10 +11,16 @@ class LocalInkStore {
     final now = DateTime.now().toUtc();
     final iso = now.toIso8601String();
     db.database.execute('''
-      INSERT INTO notebooks(id, title, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO notebooks(id, title, cover_style, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING;
-    ''', [notebookId, 'Meu caderno', iso, iso]);
+    ''', [
+      notebookId,
+      'Meu caderno',
+      InkNotebookCover.midnight.dbValue,
+      iso,
+      iso,
+    ]);
     final row = db.database.select(
       'SELECT * FROM notebooks WHERE id = ? LIMIT 1;',
       [notebookId],
@@ -28,10 +34,21 @@ class LocalInkStore {
     final now = DateTime.now().toUtc().toIso8601String();
     db.database.execute('''
       INSERT INTO notebook_pages(
-        id, notebook_id, page_number, width, height, background, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, notebook_id, page_number, width, height, background, page_format,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING;
-    ''', [pageId, notebook.id, 1, 1080.0, 1440.0, 'blank', now, now]);
+    ''', [
+      pageId,
+      notebook.id,
+      1,
+      InkPageFormat.a4Portrait.defaultWidth,
+      InkPageFormat.a4Portrait.defaultHeight,
+      InkPageBackground.blank.dbValue,
+      InkPageFormat.a4Portrait.dbValue,
+      now,
+      now,
+    ]);
     return (await listPages(notebook.id)).first;
   }
 
@@ -42,17 +59,33 @@ class LocalInkStore {
     return rows.map(_notebookFromRow).toList(growable: false);
   }
 
-  Future<InkNotebook> createNotebook(String title) async {
+  Future<InkNotebook> createNotebook(
+    String title, {
+    InkNotebookCover cover = InkNotebookCover.midnight,
+    InkPageFormat firstPageFormat = InkPageFormat.a4Portrait,
+    InkPageBackground firstPageBackground = InkPageBackground.blank,
+  }) async {
     final now = DateTime.now().toUtc();
     final id = 'notebook-${now.microsecondsSinceEpoch.toRadixString(36)}';
     final normalized = title.trim().isEmpty ? 'Novo caderno' : title.trim();
     final iso = now.toIso8601String();
     db.database.execute(
-      'INSERT INTO notebooks(id, title, created_at, updated_at) VALUES (?, ?, ?, ?);',
-      [id, normalized, iso, iso],
+      'INSERT INTO notebooks(id, title, cover_style, created_at, updated_at) '
+      'VALUES (?, ?, ?, ?, ?);',
+      [id, normalized, cover.dbValue, iso, iso],
     );
-    await createPage(id);
-    return InkNotebook(id: id, title: normalized, createdAt: now, updatedAt: now);
+    await createPage(
+      id,
+      format: firstPageFormat,
+      background: firstPageBackground,
+    );
+    return InkNotebook(
+      id: id,
+      title: normalized,
+      cover: cover,
+      createdAt: now,
+      updatedAt: now,
+    );
   }
 
   Future<void> renameNotebook(String id, String title) async {
@@ -61,6 +94,16 @@ class LocalInkStore {
     db.database.execute(
       'UPDATE notebooks SET title = ?, updated_at = ? WHERE id = ?;',
       [normalized, DateTime.now().toUtc().toIso8601String(), id],
+    );
+  }
+
+  Future<void> updateNotebookCover(
+    String id,
+    InkNotebookCover cover,
+  ) async {
+    db.database.execute(
+      'UPDATE notebooks SET cover_style = ?, updated_at = ? WHERE id = ?;',
+      [cover.dbValue, DateTime.now().toUtc().toIso8601String(), id],
     );
   }
 
@@ -79,8 +122,9 @@ class LocalInkStore {
   Future<InkNotebookPage> createPage(
     String notebookId, {
     InkPageBackground background = InkPageBackground.blank,
-    double width = 1080,
-    double height = 1440,
+    InkPageFormat format = InkPageFormat.a4Portrait,
+    double? width,
+    double? height,
   }) async {
     final now = DateTime.now().toUtc();
     final maxRows = db.database.select(
@@ -90,19 +134,33 @@ class LocalInkStore {
     final pageNumber = (maxRows.single['max_page'] as int) + 1;
     final id = 'page-${now.microsecondsSinceEpoch.toRadixString(36)}';
     final iso = now.toIso8601String();
+    final resolvedWidth = width ?? format.defaultWidth;
+    final resolvedHeight = height ?? format.defaultHeight;
     db.database.execute('''
       INSERT INTO notebook_pages(
-        id, notebook_id, page_number, width, height, background, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-    ''', [id, notebookId, pageNumber, width, height, background.dbValue, iso, iso]);
+        id, notebook_id, page_number, width, height, background, page_format,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ''', [
+      id,
+      notebookId,
+      pageNumber,
+      resolvedWidth,
+      resolvedHeight,
+      background.dbValue,
+      format.dbValue,
+      iso,
+      iso,
+    ]);
     _touchNotebook(notebookId);
     return InkNotebookPage(
       id: id,
       notebookId: notebookId,
       pageNumber: pageNumber,
-      width: width,
-      height: height,
+      width: resolvedWidth,
+      height: resolvedHeight,
       background: background,
+      format: format,
     );
   }
 
@@ -110,6 +168,7 @@ class LocalInkStore {
     final duplicate = await createPage(
       source.notebookId,
       background: source.background,
+      format: source.format,
       width: source.width,
       height: source.height,
     );
@@ -137,6 +196,23 @@ class LocalInkStore {
     db.database.execute(
       'UPDATE notebook_pages SET background = ?, updated_at = ? WHERE id = ?;',
       [background.dbValue, DateTime.now().toUtc().toIso8601String(), pageId],
+    );
+  }
+
+  Future<void> updatePageFormat(
+    String pageId,
+    InkPageFormat format,
+  ) async {
+    db.database.execute(
+      'UPDATE notebook_pages SET page_format = ?, width = ?, height = ?, '
+      'updated_at = ? WHERE id = ?;',
+      [
+        format.dbValue,
+        format.defaultWidth,
+        format.defaultHeight,
+        DateTime.now().toUtc().toIso8601String(),
+        pageId,
+      ],
     );
   }
 
@@ -255,6 +331,7 @@ class LocalInkStore {
   static InkNotebook _notebookFromRow(dynamic row) => InkNotebook(
         id: row['id'] as String,
         title: row['title'] as String,
+        cover: InkNotebookCover.fromDb(row['cover_style'] as String?),
         createdAt: DateTime.parse(row['created_at'] as String),
         updatedAt: DateTime.parse(row['updated_at'] as String),
       );
@@ -266,6 +343,7 @@ class LocalInkStore {
         width: (row['width'] as num).toDouble(),
         height: (row['height'] as num).toDouble(),
         background: InkPageBackground.fromDb(row['background'] as String),
+        format: InkPageFormat.fromDb(row['page_format'] as String?),
       );
 
   static String _toolToDb(InkTool tool) => switch (tool) {

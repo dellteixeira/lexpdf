@@ -91,10 +91,100 @@ class _NotebookBackgroundPainter extends CustomPainter {
             plannerPaint,
           );
         }
-        for (double y = margin + headerHeight + 52; y < size.height - margin; y += 44) {
+        for (double y = margin + headerHeight + 52;
+            y < size.height - margin;
+            y += 44) {
           canvas.drawLine(
             Offset(margin, y),
             Offset(size.width - margin, y),
+            linePaint,
+          );
+        }
+        return;
+      case InkPageBackground.crossGrid:
+        final crossPaint = Paint()
+          ..color = const Color(0x405F6B7A)
+          ..strokeWidth = 0.9;
+        for (double y = 24; y < size.height; y += 24) {
+          for (double x = 24; x < size.width; x += 24) {
+            canvas.drawLine(
+              Offset(x - 3, y),
+              Offset(x + 3, y),
+              crossPaint,
+            );
+            canvas.drawLine(
+              Offset(x, y - 3),
+              Offset(x, y + 3),
+              crossPaint,
+            );
+          }
+        }
+        return;
+      case InkPageBackground.isometric:
+        final isoPaint = Paint()
+          ..color = const Color(0x285F6B7A)
+          ..strokeWidth = 0.8;
+        const spacing = 32.0;
+        for (double y = -size.width; y < size.height + size.width; y += spacing) {
+          canvas.drawLine(
+            Offset(0, y),
+            Offset(size.width, y + size.width * 0.577),
+            isoPaint,
+          );
+          canvas.drawLine(
+            Offset(0, y),
+            Offset(size.width, y - size.width * 0.577),
+            isoPaint,
+          );
+        }
+        for (double x = 0; x < size.width; x += spacing) {
+          canvas.drawLine(Offset(x, 0), Offset(x, size.height), isoPaint);
+        }
+        return;
+      case InkPageBackground.engineering:
+        final fine = Paint()
+          ..color = const Color(0x205F6B7A)
+          ..strokeWidth = 0.6;
+        final major = Paint()
+          ..color = const Color(0x385F6B7A)
+          ..strokeWidth = 1.0;
+        for (double y = 10; y < size.height; y += 10) {
+          final p = ((y / 10).round() % 5 == 0) ? major : fine;
+          canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+        }
+        for (double x = 10; x < size.width; x += 10) {
+          final p = ((x / 10).round() % 5 == 0) ? major : fine;
+          canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
+        }
+        return;
+      case InkPageBackground.music:
+        final staffPaint = Paint()
+          ..color = const Color(0x505F6B7A)
+          ..strokeWidth = 1.0;
+        for (double top = 48; top < size.height - 48; top += 92) {
+          for (var line = 0; line < 5; line++) {
+            final y = top + line * 10;
+            canvas.drawLine(
+              Offset(30, y),
+              Offset(size.width - 30, y),
+              staffPaint,
+            );
+          }
+        }
+        return;
+      case InkPageBackground.taskList:
+        final taskPaint = Paint()
+          ..color = const Color(0x405F6B7A)
+          ..strokeWidth = 1.1
+          ..style = PaintingStyle.stroke;
+        for (double y = 48; y < size.height - 28; y += 42) {
+          canvas.drawRect(
+            Rect.fromLTWH(30, y - 11, 18, 18),
+            taskPaint,
+          );
+          canvas.drawLine(
+            Offset(62, y),
+            Offset(size.width - 28, y),
             linePaint,
           );
         }
