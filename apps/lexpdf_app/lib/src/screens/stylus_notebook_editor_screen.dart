@@ -498,7 +498,7 @@ class _StylusNotebookEditorScreenState
                                 IgnorePointer(
                                   ignoring: _hand,
                                   child: InkCanvas(
-                                    key: ValueKey('ink-${page.id}-${_strokes.length}'),
+                                    key: _canvasKey,
                                     initialStrokes: _strokes,
                                     pageId: page.id,
                                     tool: _inkTool,
