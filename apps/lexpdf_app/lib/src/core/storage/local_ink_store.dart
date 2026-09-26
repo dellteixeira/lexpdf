@@ -153,6 +153,7 @@ class LocalInkStore {
           colorValue: stroke.colorValue,
           opacity: stroke.opacity,
           width: stroke.width,
+          brush: stroke.brush,
           points: stroke.points,
           createdAt: stroke.createdAt,
         ),
@@ -248,8 +249,8 @@ class LocalInkStore {
   void _insertStroke(InkStroke stroke) {
     db.database.execute('''
       INSERT OR REPLACE INTO ink_strokes(
-        id, page_id, tool, color_value, opacity, width, points_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        id, page_id, tool, color_value, opacity, width, brush, points_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
     ''', [
       stroke.id,
       stroke.pageId,
@@ -257,6 +258,7 @@ class LocalInkStore {
       stroke.colorValue,
       stroke.opacity,
       stroke.width,
+      _brushToDb(stroke.brush),
       stroke.encodePoints(),
       stroke.createdAt.toUtc().toIso8601String(),
     ]);
@@ -276,6 +278,7 @@ class LocalInkStore {
             colorValue: row['color_value'] as int,
             opacity: (row['opacity'] as num).toDouble(),
             width: (row['width'] as num).toDouble(),
+            brush: _brushFromDb(row['brush'] as String),
             points: InkStroke.decodePoints(row['points_json'] as String),
             createdAt: DateTime.parse(row['created_at'] as String),
           ),
@@ -325,5 +328,13 @@ class LocalInkStore {
         'pencil' => InkTool.pencil,
         'highlighter' => InkTool.highlighter,
         _ => throw StateError('Ferramenta de tinta desconhecida: $value'),
+      };
+
+  static String _brushToDb(InkBrush brush) => brush.name;
+
+  static InkBrush _brushFromDb(String value) => switch (value) {
+        'fountain' => InkBrush.fountain,
+        'chisel' => InkBrush.chisel,
+        _ => InkBrush.round,
       };
 }
