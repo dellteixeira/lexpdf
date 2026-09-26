@@ -10,7 +10,10 @@ enum InkPageBackground {
   grid,
   dotted,
   cornell,
-  planner;
+  planner,
+  taskList,
+  music,
+  isometric;
 
   String get dbValue => name;
 
@@ -20,6 +23,9 @@ enum InkPageBackground {
         'dotted' => InkPageBackground.dotted,
         'cornell' => InkPageBackground.cornell,
         'planner' => InkPageBackground.planner,
+        'taskList' => InkPageBackground.taskList,
+        'music' => InkPageBackground.music,
+        'isometric' => InkPageBackground.isometric,
         _ => InkPageBackground.blank,
       };
 }
