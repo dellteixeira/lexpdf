@@ -39,6 +39,9 @@ void main() {
     expect(editor, isNot(contains('_NotebookTool.pencil')));
     expect(editor, contains('InkBrush.values'));
     expect(editor, contains('Tamanho do brush'));
+    expect(editor, contains('Configurar caneta: brush, cor, tamanho e opacidade'));
+    expect(editor, contains('IconButton.filledTonal'));
+    expect(editor, isNot(contains('Icon(Icons.tune, color: color)')));
     expect(editor, contains('0xFF00ACC1'));
     expect(editor, contains('_deleteSelection'));
     expect(editor, contains('_rememberUpdatedStroke'));
