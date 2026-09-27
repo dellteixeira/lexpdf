@@ -925,15 +925,36 @@ class _ToolBar extends StatelessWidget {
               ),
             ],
             const VerticalDivider(width: 18),
-            IconButton(
+            IconButton.filledTonal(
               tooltip: tool == _NotebookTool.highlighter
-                  ? 'Brush, tamanho e opacidade do marca-texto'
-                  : 'Brush, tamanho e opacidade da caneta',
+                  ? 'Configurar marca-texto: brush, cor, tamanho e opacidade'
+                  : 'Configurar caneta: brush, cor, tamanho e opacidade',
               onPressed: tool == _NotebookTool.pen ||
                       tool == _NotebookTool.highlighter
                   ? onInkSettings
                   : null,
-              icon: Icon(Icons.tune, color: color),
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.tune),
+                  Positioned(
+                    right: -4,
+                    bottom: -4,
+                    child: Container(
+                      width: 11,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.surface,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
