@@ -608,10 +608,12 @@ class LocalDatabase {
         ]);
         database.userVersion = 11;
         database.execute('COMMIT;');
+        version = 11;
       } catch (_) {
         database.execute('ROLLBACK;');
         rethrow;
       }
+    }
 
     if (version < 12) {
       database.execute('BEGIN IMMEDIATE;');
@@ -625,11 +627,11 @@ class LocalDatabase {
         ]);
         database.userVersion = 12;
         database.execute('COMMIT;');
+        version = 12;
       } catch (_) {
         database.execute('ROLLBACK;');
         rethrow;
       }
-    }
     }
   }
 
