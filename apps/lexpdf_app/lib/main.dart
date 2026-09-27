@@ -35,7 +35,11 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    await pdfrxFlutterInitialize();
+    // Android uses Mozilla PDF.js in a dedicated WebView process.
+    // PDFium/pdfrx remains a Windows-only dependency at runtime.
+    if (Platform.isWindows) {
+      await pdfrxFlutterInitialize();
+    }
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {
