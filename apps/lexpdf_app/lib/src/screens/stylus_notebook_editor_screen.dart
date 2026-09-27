@@ -209,6 +209,17 @@ class _StylusNotebookEditorScreenState
     });
   }
 
+  void _rememberUpdatedStroke(InkStroke stroke) {
+    final index = _strokes.indexWhere((item) => item.id == stroke.id);
+    if (index < 0) {
+      _strokes = List<InkStroke>.unmodifiable([..._strokes, stroke]);
+      return;
+    }
+    final updated = [..._strokes];
+    updated[index] = stroke;
+    _strokes = List<InkStroke>.unmodifiable(updated);
+  }
+
   Future<void> _exportPdf() async {
     if (_pages.isEmpty) return;
     final safeName = widget.notebook.title
@@ -328,20 +339,37 @@ class _StylusNotebookEditorScreenState
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
           const penColors = <int>[
-            0xFF1E1E1E,
+            0xFF000000,
+            0xFF424242,
+            0xFF757575,
+            0xFF1A237E,
             0xFF246BFD,
-            0xFFD93025,
+            0xFF039BE5,
+            0xFF00ACC1,
+            0xFF00897B,
             0xFF188038,
-            0xFF7B1FA2,
+            0xFF7CB342,
+            0xFFF9A825,
             0xFFFF8F00,
+            0xFFF4511E,
+            0xFFD93025,
+            0xFFD81B60,
+            0xFF7B1FA2,
+            0xFF5D4037,
           ];
           const highlighterColors = <int>[
-            0xFFFFC107,
             0xFFFFEB3B,
-            0xFF8BC34A,
-            0xFF4DD0E1,
-            0xFF64B5F6,
+            0xFFFFC107,
+            0xFFFF9800,
+            0xFFFF7043,
             0xFFFF8A80,
+            0xFFF48FB1,
+            0xFFCE93D8,
+            0xFF90CAF9,
+            0xFF4DD0E1,
+            0xFF80CBC4,
+            0xFFA5D6A7,
+            0xFFC5E1A5,
           ];
           final colors = editingHighlighter ? highlighterColors : penColors;
           final selectedColor =
@@ -351,6 +379,9 @@ class _StylusNotebookEditorScreenState
               editingHighlighter ? _highlighterOpacity : _penOpacity;
           final brush =
               editingHighlighter ? _highlighterBrush : _penBrush;
+          final sizePresets = editingHighlighter
+              ? const <double>[6, 10, 14, 20, 28, 36]
+              : const <double>[1, 2, 3.2, 5, 8, 12, 18];
           final title = editingHighlighter ? 'Marca-texto' : 'Caneta';
 
           return SafeArea(
@@ -363,7 +394,7 @@ class _StylusNotebookEditorScreenState
                   Text(title, style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 14),
                   Text(
-                    'Brush',
+                    'Tipo de brush',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 8),
@@ -426,7 +457,36 @@ class _StylusNotebookEditorScreenState
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Text('Tamanho: ${width.toStringAsFixed(1)}'),
+                  Text(
+                    'Tamanho do brush: ${width.toStringAsFixed(1)} px',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final preset in sizePresets)
+                        ChoiceChip(
+                          label: Text(
+                            preset == preset.roundToDouble()
+                                ? preset.toInt().toString()
+                                : preset.toStringAsFixed(1),
+                          ),
+                          selected: (width - preset).abs() < 0.05,
+                          onSelected: (_) {
+                            setState(() {
+                              if (editingHighlighter) {
+                                _highlighterWidth = preset;
+                              } else {
+                                _penWidth = preset;
+                              }
+                            });
+                            setSheetState(() {});
+                          },
+                        ),
+                    ],
+                  ),
                   Slider(
                     value: width,
                     min: editingHighlighter ? 4 : 1,
@@ -759,6 +819,7 @@ class _StylusNotebookEditorScreenState
                                       }
                                     },
                                     onStrokeUpdated: (stroke) {
+                                      _rememberUpdatedStroke(stroke);
                                       unawaited(widget.inkStore.addStroke(stroke));
                                     },
                                     onStrokeErased: (stroke) {
