@@ -19,6 +19,9 @@ void main() {
     final home = File(
       'lib/src/screens/library_workspace_home_screen.dart',
     ).readAsStringSync();
+    final database = File(
+      'lib/src/core/storage/local_database.dart',
+    ).readAsStringSync();
 
     expect(hub, contains('StylusNotebookEditorScreen'));
     expect(hub, contains('Novo caderno'));
@@ -35,7 +38,10 @@ void main() {
     expect(editor, contains('_NotebookTool.hand'));
     expect(editor, isNot(contains('_NotebookTool.pencil')));
     expect(editor, contains('InkBrush.values'));
+    expect(editor, contains('Tamanho do brush'));
+    expect(editor, contains('0xFF00ACC1'));
     expect(editor, contains('_deleteSelection'));
+    expect(editor, contains('_rememberUpdatedStroke'));
     expect(editor, contains('onDeleteSelection'));
     expect(editor, contains('strokeOpacity: _activeOpacity'));
     expect(editor, contains('reorderPages'));
@@ -46,6 +52,12 @@ void main() {
     expect(canvas, contains('moveSelected(delta.dx, delta.dy)'));
     expect(canvas, contains('scaleSelected(factor.toDouble())'));
     expect(canvas, contains('strokeOpacity'));
+
+    expect(
+      database,
+      contains("    }\n\n    if (version < 12)"),
+      reason: 'A migração do brush deve rodar também para bancos já na versão 11.',
+    );
 
     expect(home, contains('section == _HomeSection.notebooks'));
     expect(home, isNot(contains('LayeredNotebookScreen')));
