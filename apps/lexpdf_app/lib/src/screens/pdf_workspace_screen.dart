@@ -24,6 +24,7 @@ import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../core/storage/local_workspace_ui_preferences.dart';
 import 'ai_context_chat_screen.dart';
+import 'native_pdf_reader_launcher.dart';
 import 'flashcard_center_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
@@ -712,10 +713,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Widget _buildEditorForTab(_WorkspaceTab tab) {
+    final key = ValueKey(
+      'pdf-tab-${tab.document.id}-${tab.generation}',
+    );
+
+    if (Platform.isAndroid) {
+      return NativePdfReaderLauncher(
+        key: key,
+        document: tab.document,
+        initialPage: tab.initialPage,
+        fullScreen: _fullScreen,
+        onToggleFullScreen: _toggleFullScreen,
+      );
+    }
+
     return editor.PdfWorkspaceScreen(
-      key: ValueKey(
-        'pdf-tab-${tab.document.id}-${tab.generation}',
-      ),
+      key: key,
       document: tab.document,
       store: widget.store,
       annotations: widget.annotations,
@@ -732,10 +745,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildPdfEditorSurface() {
     if (Platform.isAndroid) {
-      // Mobile keeps exactly one native PDFium-backed viewer alive. Restored
-      // tabs keep only lightweight session metadata and are reconstructed at
-      // their saved page when activated. This prevents background tabs from
-      // retaining native page/image caches.
+      // Android delegates PDF rendering to Mozilla PDF.js in an isolated
+      // WebView process. Flutter never mounts pdfrx/PDFium here.
       return _buildEditorForTab(_tabs[_activeIndex]);
     }
 
