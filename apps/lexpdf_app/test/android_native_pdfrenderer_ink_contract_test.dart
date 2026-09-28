@@ -159,6 +159,28 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
+  test('landscape keeps every native PDF toolbar control on one row', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(
+      activity,
+      contains('Configuration.ORIENTATION_LANDSCAPE'),
+    );
+    expect(
+      activity,
+      contains('val inkRow = if (landscape) navigationRow else toolRow()'),
+    );
+    expect(activity, contains('HorizontalScrollView(this)'));
+    expect(activity, contains('HorizontalScrollView.LayoutParams.WRAP_CONTENT'));
+    expect(activity, contains('if (landscape) {'));
+    expect(
+      activity,
+      contains('Portrait preserves the existing two-row'),
+    );
+  });
+
   test('PDF index uses embedded outline destinations from PDF.js', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
