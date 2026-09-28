@@ -359,8 +359,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     addView(
                         navigationRow,
                         FrameLayout.LayoutParams(
-                            HorizontalScrollView.LayoutParams.WRAP_CONTENT,
-                            HorizontalScrollView.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
                         ),
                     )
                 }
