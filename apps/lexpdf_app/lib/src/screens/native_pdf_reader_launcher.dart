@@ -29,10 +29,12 @@ class _NativePdfReaderLauncherState extends State<NativePdfReaderLauncher> {
   bool _opening = false;
   bool _openedOnce = false;
   Object? _error;
+  late int _resumePage;
 
   @override
   void initState() {
     super.initState();
+    _resumePage = widget.initialPage < 1 ? 1 : widget.initialPage;
     WidgetsBinding.instance.addPostFrameCallback((_) => _open());
   }
 
@@ -57,11 +59,12 @@ class _NativePdfReaderLauncherState extends State<NativePdfReaderLauncher> {
         'openDocument',
         <String, Object>{
           'path': path,
-          'initialPage': widget.initialPage < 1 ? 1 : widget.initialPage,
+          'initialPage': _resumePage,
         },
       );
       final lastPage = result?['lastPage'];
       if (lastPage is int && lastPage >= 1) {
+        _resumePage = lastPage;
         widget.onPageChanged(lastPage);
       }
       if (!mounted) return;
