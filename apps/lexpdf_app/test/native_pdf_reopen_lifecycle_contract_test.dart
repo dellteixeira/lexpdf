@@ -51,4 +51,33 @@ void main() {
     expect(source, contains('setIntent(intent)'));
     expect(source, contains('channel?.invokeMethod("openPdfPath", path)'));
   });
+  test('Android native reader returns and persists the last visible page', () {
+    final mainActivity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
+    ).readAsStringSync();
+    final readerActivity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+    final launcher = File(
+      'lib/src/screens/native_pdf_reader_launcher.dart',
+    ).readAsStringSync();
+    final workspace = File(
+      'lib/src/screens/pdf_workspace_screen.dart',
+    ).readAsStringSync();
+
+    expect(mainActivity, contains('OPEN_NATIVE_READER_REQUEST_CODE'));
+    expect(mainActivity, contains('startActivityForResult('));
+    expect(
+      mainActivity,
+      contains('NativePdfReaderActivity.EXTRA_LAST_PAGE'),
+    );
+    expect(readerActivity, contains('const val EXTRA_LAST_PAGE'));
+    expect(readerActivity, contains('publishLastPageResult()'));
+    expect(readerActivity, contains('putExtra(EXTRA_LAST_PAGE, currentPageIndex + 1)'));
+    expect(launcher, contains("result?['lastPage']"));
+    expect(launcher, contains('widget.onPageChanged(lastPage)'));
+    expect(workspace, contains('_progressStore.save('));
+    expect(workspace, contains('incomingProgress?.pageNumber'));
+  });
+
 }
