@@ -164,6 +164,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         if (restored.length >= _maxTabs) break;
       }
 
+      final incomingProgress = await _progressStore.get(widget.document.id);
       final incomingIndex = restored.indexWhere(
         (tab) => tab.document.id == widget.document.id,
       );
@@ -172,9 +173,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         restored.add(
           _WorkspaceTab(
             document: widget.document,
-            initialPage: widget.initialPage < 1 ? 1 : widget.initialPage,
+            initialPage:
+                incomingProgress?.pageNumber ??
+                (widget.initialPage < 1 ? 1 : widget.initialPage),
           ),
         );
+      } else if (incomingProgress != null) {
+        restored[incomingIndex].initialPage = incomingProgress.pageNumber;
       }
 
       final active = restored.indexWhere(
@@ -702,13 +707,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       tab.initialPage = page;
       tab.generation += 1;
     });
+    unawaited(
+      _progressStore.save(
+        documentId: tab.document.id,
+        pageNumber: page,
+      ),
+    );
     unawaited(_saveSession());
   }
 
   void _recordVisiblePage(_WorkspaceTab tab, int pageNumber) {
     _markReaderActivity(tab);
-    if (pageNumber < 1 || tab.initialPage == pageNumber) return;
-    tab.initialPage = pageNumber;
+    if (pageNumber < 1) return;
+    if (tab.initialPage != pageNumber) {
+      tab.initialPage = pageNumber;
+    }
+    unawaited(
+      _progressStore.save(
+        documentId: tab.document.id,
+        pageNumber: pageNumber,
+      ),
+    );
     unawaited(_saveSession());
   }
 
@@ -724,6 +743,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         initialPage: tab.initialPage,
         fullScreen: _fullScreen,
         onToggleFullScreen: _toggleFullScreen,
+        onPageChanged: (pageNumber) => _recordVisiblePage(tab, pageNumber),
       );
     }
 
