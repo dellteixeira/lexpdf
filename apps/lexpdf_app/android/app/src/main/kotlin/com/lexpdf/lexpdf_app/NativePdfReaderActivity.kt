@@ -69,6 +69,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     companion object {
         const val EXTRA_PATH = "lexpdf.native_reader.path"
         const val EXTRA_INITIAL_PAGE = "lexpdf.native_reader.initial_page"
+        const val EXTRA_LAST_PAGE = "lexpdf.native_reader.last_page"
 
         private const val LOCAL_ORIGIN = "https://lexpdf.local"
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
@@ -185,6 +186,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         currentPageIndex =
             (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1).coerceAtLeast(0)
+        publishLastPageResult()
 
         PdfCrashDiagnostics.mark(
             this,
@@ -671,6 +673,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     redoHistory.clear()
                     loadInkForPage(next)
                 }
+                publishLastPageResult()
                 updatePageLabel()
             }
         }
@@ -2451,7 +2454,22 @@ function hypot(a,b) {
         }
     }
 
+    override fun onPause() {
+        publishLastPageResult()
+        super.onPause()
+    }
+
+    private fun publishLastPageResult() {
+        setResult(
+            RESULT_OK,
+            android.content.Intent().apply {
+                putExtra(EXTRA_LAST_PAGE, currentPageIndex + 1)
+            },
+        )
+    }
+
     override fun onDestroy() {
+        publishLastPageResult()
         PdfCrashDiagnostics.mark(this, "JSZ_ON_DESTROY")
         try {
             persistInkForPage(currentPageIndex)
