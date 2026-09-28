@@ -358,7 +358,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     overScrollMode = View.OVER_SCROLL_NEVER
                     addView(
                         navigationRow,
-                        HorizontalScrollView.LayoutParams(
+                        FrameLayout.LayoutParams(
                             HorizontalScrollView.LayoutParams.WRAP_CONTENT,
                             HorizontalScrollView.LayoutParams.MATCH_PARENT,
                         ),
