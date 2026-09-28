@@ -2,6 +2,7 @@ package com.lexpdf.lexpdf_app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
@@ -23,6 +24,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -258,6 +260,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 setOnClickListener { onClick() }
             }
 
+        val landscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val navigationRow = toolRow()
         navigationRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
@@ -287,7 +291,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         navigationRow.addView(button("Índice") { showOutlineDialog() })
         navigationRow.addView(button("Fechar") { finish() })
 
-        val inkRow = toolRow()
+        // Landscape intentionally reuses the navigation row so every control
+        // stays on one 48dp toolbar. Portrait preserves the existing two-row
+        // layout. A horizontal scroller below prevents wrapping on narrower
+        // landscape devices without stealing a second line from the PDF.
+        val inkRow = if (landscape) navigationRow else toolRow()
         penButton =
             button("Caneta") {
                 selectInk(InkKind.PEN)
@@ -328,23 +336,57 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
         inkRow.addView(
             statusLabel,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
+            if (landscape) {
+                LinearLayout.LayoutParams(
+                    190.dp,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                )
+            } else {
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    1f,
+                )
+            },
         )
 
-        root.addView(
-            navigationRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp,
-            ),
-        )
-        root.addView(
-            inkRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp,
-            ),
-        )
+        if (landscape) {
+            val toolbarScroller =
+                HorizontalScrollView(this).apply {
+                    isHorizontalScrollBarEnabled = false
+                    isFillViewport = false
+                    overScrollMode = View.OVER_SCROLL_NEVER
+                    addView(
+                        navigationRow,
+                        HorizontalScrollView.LayoutParams(
+                            HorizontalScrollView.LayoutParams.WRAP_CONTENT,
+                            HorizontalScrollView.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                }
+            root.addView(
+                toolbarScroller,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        } else {
+            root.addView(
+                navigationRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+            root.addView(
+                inkRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    48.dp,
+                ),
+            )
+        }
 
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
