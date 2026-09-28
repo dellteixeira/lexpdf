@@ -9,6 +9,7 @@ class NativePdfReaderLauncher extends StatefulWidget {
     required this.initialPage,
     required this.fullScreen,
     required this.onToggleFullScreen,
+    required this.onPageChanged,
     super.key,
   });
 
@@ -16,6 +17,7 @@ class NativePdfReaderLauncher extends StatefulWidget {
   final int initialPage;
   final bool fullScreen;
   final VoidCallback onToggleFullScreen;
+  final ValueChanged<int> onPageChanged;
 
   @override
   State<NativePdfReaderLauncher> createState() => _NativePdfReaderLauncherState();
@@ -50,10 +52,18 @@ class _NativePdfReaderLauncherState extends State<NativePdfReaderLauncher> {
     });
 
     try {
-      await _channel.invokeMethod<bool>('openDocument', <String, Object>{
-        'path': path,
-        'initialPage': widget.initialPage < 1 ? 1 : widget.initialPage,
-      });
+      final result =
+          await _channel.invokeMapMethod<dynamic, dynamic>(
+        'openDocument',
+        <String, Object>{
+          'path': path,
+          'initialPage': widget.initialPage < 1 ? 1 : widget.initialPage,
+        },
+      );
+      final lastPage = result?['lastPage'];
+      if (lastPage is int && lastPage >= 1) {
+        widget.onPageChanged(lastPage);
+      }
       if (!mounted) return;
       setState(() => _openedOnce = true);
     } on PlatformException catch (error) {
