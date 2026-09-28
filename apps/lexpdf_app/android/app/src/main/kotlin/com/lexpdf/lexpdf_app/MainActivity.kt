@@ -21,6 +21,7 @@ class MainActivity : FlutterActivity() {
         private const val NATIVE_PICKER_CHANNEL = "lexpdf/native_pdf_picker"
         private const val PICK_FILE_REQUEST_CODE = 0x4C50
         private const val PICK_FILES_REQUEST_CODE = 0x4C51
+        private const val OPEN_NATIVE_READER_REQUEST_CODE = 0x4C52
     }
 
     private var channel: MethodChannel? = null
@@ -28,6 +29,8 @@ class MainActivity : FlutterActivity() {
     private var nativeReaderChannel: MethodChannel? = null
     private var nativePickerChannel: MethodChannel? = null
     private var pendingPickerResult: MethodChannel.Result? = null
+    private var pendingNativeReaderResult: MethodChannel.Result? = null
+    private var pendingNativeReaderInitialPage = 1
     private var pendingPickerExtensions: Set<String> = emptySet()
     private var pendingPickerMultiple = false
     private var pendingPdfPath: String? = null
@@ -135,12 +138,21 @@ class MainActivity : FlutterActivity() {
                                 result.error("missing_pdf", "PDF file is unavailable.", null)
                                 return@setMethodCallHandler
                             }
+                            if (pendingNativeReaderResult != null) {
+                                result.error(
+                                    "reader_busy",
+                                    "A native PDF reader session is already active.",
+                                    null,
+                                )
+                                return@setMethodCallHandler
+                            }
 
                             try {
                                 PdfCrashDiagnostics.markReaderLaunchAttempt(
                                     this,
                                     file.absolutePath,
                                 )
+                                val safeInitialPage = initialPage.coerceAtLeast(1)
                                 val readerIntent =
                                     Intent(this, NativePdfReaderActivity::class.java).apply {
                                         putExtra(
@@ -149,12 +161,18 @@ class MainActivity : FlutterActivity() {
                                         )
                                         putExtra(
                                             NativePdfReaderActivity.EXTRA_INITIAL_PAGE,
-                                            initialPage.coerceAtLeast(1),
+                                            safeInitialPage,
                                         )
                                     }
-                                startActivity(readerIntent)
-                                result.success(true)
+                                pendingNativeReaderResult = result
+                                pendingNativeReaderInitialPage = safeInitialPage
+                                startActivityForResult(
+                                    readerIntent,
+                                    OPEN_NATIVE_READER_REQUEST_CODE,
+                                )
                             } catch (error: Throwable) {
+                                pendingNativeReaderResult = null
+                                pendingNativeReaderInitialPage = 1
                                 PdfCrashDiagnostics.recordControlledLaunchFailure(
                                     this,
                                     error,
@@ -230,6 +248,25 @@ class MainActivity : FlutterActivity() {
 
     @Deprecated("Deprecated in Android framework; retained for FlutterActivity compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == OPEN_NATIVE_READER_REQUEST_CODE) {
+            val result = pendingNativeReaderResult
+            val fallbackPage = pendingNativeReaderInitialPage.coerceAtLeast(1)
+            pendingNativeReaderResult = null
+            pendingNativeReaderInitialPage = 1
+            val lastPage =
+                data
+                    ?.getIntExtra(NativePdfReaderActivity.EXTRA_LAST_PAGE, fallbackPage)
+                    ?.coerceAtLeast(1)
+                    ?: fallbackPage
+            result?.success(
+                mapOf(
+                    "opened" to (resultCode == RESULT_OK),
+                    "lastPage" to lastPage,
+                ),
+            )
+            return
+        }
+
         val isNativePicker =
             requestCode == PICK_FILE_REQUEST_CODE ||
                 requestCode == PICK_FILES_REQUEST_CODE
