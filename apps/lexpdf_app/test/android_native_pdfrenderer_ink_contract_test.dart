@@ -173,7 +173,7 @@ void main() {
       contains('val inkRow = if (landscape) navigationRow else toolRow()'),
     );
     expect(activity, contains('HorizontalScrollView(this)'));
-    expect(activity, contains('HorizontalScrollView.LayoutParams.WRAP_CONTENT'));
+    expect(activity, contains('FrameLayout.LayoutParams.WRAP_CONTENT'));
     expect(activity, contains('if (landscape) {'));
     expect(
       activity,
