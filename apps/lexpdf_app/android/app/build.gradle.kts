@@ -41,8 +41,8 @@ val preparePdfJsAssets by tasks.registering {
         }
 
         val requiredFiles = setOf(
-            "build/pdf.min.mjs",
-            "build/pdf.worker.min.mjs",
+            "build/pdf.mjs",
+            "build/pdf.worker.mjs",
         )
         val extractedRequired = mutableSetOf<String>()
 
@@ -52,10 +52,10 @@ val preparePdfJsAssets by tasks.registering {
                 if (entry.isDirectory) continue
                 val normalized = entry.name.replace('\\', '/')
                 val relative = when {
-                    normalized.endsWith("/build/pdf.min.mjs") ||
-                        normalized == "build/pdf.min.mjs" -> "build/pdf.min.mjs"
-                    normalized.endsWith("/build/pdf.worker.min.mjs") ||
-                        normalized == "build/pdf.worker.min.mjs" -> "build/pdf.worker.min.mjs"
+                    normalized.endsWith("/build/pdf.mjs") ||
+                        normalized == "build/pdf.mjs" -> "build/pdf.mjs"
+                    normalized.endsWith("/build/pdf.worker.mjs") ||
+                        normalized == "build/pdf.worker.mjs" -> "build/pdf.worker.mjs"
                     normalized.contains("/standard_fonts/") ->
                         "standard_fonts/" + normalized.substringAfterLast("/standard_fonts/")
                     normalized.startsWith("standard_fonts/") -> normalized
