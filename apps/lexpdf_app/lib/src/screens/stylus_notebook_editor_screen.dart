@@ -679,11 +679,17 @@ class _StylusNotebookEditorScreenState
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.notebook.title),
+            Text(
+              widget.notebook.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             if (page != null)
               Text(
                 'Página ${page.pageNumber} de ${_pages.length}',
-                style: Theme.of(context).textTheme.labelSmall,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
           ],
         ),
@@ -774,7 +780,9 @@ class _StylusNotebookEditorScreenState
                               border: infinite
                                   ? null
                                   : Border.all(
-                                      color: const Color(0xFFD0D4DA),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outlineVariant,
                                     ),
                               boxShadow: infinite
                                   ? null
@@ -782,7 +790,7 @@ class _StylusNotebookEditorScreenState
                                       BoxShadow(
                                         blurRadius: 8,
                                         offset: Offset(0, 3),
-                                        color: Color(0x28000000),
+                                        color: Color(0x18000000),
                                       ),
                                     ],
                             ),
@@ -881,7 +889,7 @@ class _ToolBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: SizedBox(
         height: 58,
         child: ListView(
@@ -997,11 +1005,11 @@ class _PageStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 62,
+          height: 60,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
