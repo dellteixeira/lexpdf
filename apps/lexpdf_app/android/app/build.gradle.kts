@@ -1,9 +1,83 @@
 import java.io.FileInputStream
+import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipInputStream
 
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val pdfJsVersion = "6.3.289"
+val pdfJsArchiveSha256 = "98c5832ffe7af4edd59853476a478c0d4d4d76dd49c1701f4c86f7182725cdf9"
+val pdfJsArchiveUrl =
+    "https://github.com/mozilla/pdf.js/releases/download/v$pdfJsVersion/pdfjs-$pdfJsVersion-dist.zip"
+val generatedPdfJsAssets = layout.buildDirectory.dir("generated/pdfjsAssets")
+
+val preparePdfJsAssets by tasks.registering {
+    outputs.dir(generatedPdfJsAssets)
+    inputs.property("pdfJsVersion", pdfJsVersion)
+    inputs.property("pdfJsArchiveSha256", pdfJsArchiveSha256)
+
+    doLast {
+        val outputRoot = generatedPdfJsAssets.get().asFile
+        val marker = outputRoot.resolve(".pdfjs-$pdfJsVersion-$pdfJsArchiveSha256")
+        if (marker.isFile) return@doLast
+
+        outputRoot.deleteRecursively()
+        outputRoot.mkdirs()
+
+        val archive = temporaryDir.resolve("pdfjs-$pdfJsVersion-dist.zip")
+        URI(pdfJsArchiveUrl).toURL().openStream().use { input ->
+            archive.outputStream().use { output -> input.copyTo(output) }
+        }
+
+        val actualDigest = MessageDigest.getInstance("SHA-256")
+            .digest(archive.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        check(actualDigest == pdfJsArchiveSha256) {
+            "PDF.js archive checksum mismatch: expected $pdfJsArchiveSha256, got $actualDigest"
+        }
+
+        val requiredFiles = setOf(
+            "build/pdf.min.mjs",
+            "build/pdf.worker.min.mjs",
+        )
+        val extractedRequired = mutableSetOf<String>()
+
+        ZipInputStream(archive.inputStream().buffered()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
+                val normalized = entry.name.replace('\\', '/')
+                val relative = when {
+                    normalized.endsWith("/build/pdf.min.mjs") ||
+                        normalized == "build/pdf.min.mjs" -> "build/pdf.min.mjs"
+                    normalized.endsWith("/build/pdf.worker.min.mjs") ||
+                        normalized == "build/pdf.worker.min.mjs" -> "build/pdf.worker.min.mjs"
+                    normalized.contains("/standard_fonts/") ->
+                        "standard_fonts/" + normalized.substringAfterLast("/standard_fonts/")
+                    normalized.startsWith("standard_fonts/") -> normalized
+                    normalized.contains("/wasm/") ->
+                        "wasm/" + normalized.substringAfterLast("/wasm/")
+                    normalized.startsWith("wasm/") -> normalized
+                    else -> null
+                } ?: continue
+
+                val destination = outputRoot.resolve("pdfjs/$relative")
+                destination.parentFile.mkdirs()
+                destination.outputStream().use { output -> zip.copyTo(output) }
+                if (relative in requiredFiles) extractedRequired += relative
+            }
+        }
+
+        check(extractedRequired == requiredFiles) {
+            "PDF.js distribution is missing required runtime files: " +
+                (requiredFiles - extractedRequired).joinToString()
+        }
+        marker.writeText("pdfjs=$pdfJsVersion\nsha256=$pdfJsArchiveSha256\n")
+    }
 }
 
 val keystoreProperties = Properties()
@@ -44,6 +118,8 @@ android {
         }
     }
 
+    sourceSets.getByName("main").assets.srcDir(generatedPdfJsAssets)
+
     buildTypes {
         release {
             // CI hardening can still compile without private signing material.
@@ -77,6 +153,10 @@ dependencies {
     implementation("androidx.ink:ink-rendering:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
     implementation("androidx.ink:ink-storage:1.0.0")
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(preparePdfJsAssets)
 }
 
 flutter {
