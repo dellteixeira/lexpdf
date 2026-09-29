@@ -118,7 +118,7 @@ android {
         }
     }
 
-    sourceSets.getByName("main").assets.srcDir(generatedPdfJsAssets)
+    sourceSets.getByName("main").assets.srcDir(generatedPdfJsAssets.get().asFile)
 
     buildTypes {
         release {
