@@ -91,7 +91,7 @@ class LocalDocumentCatalog {
         continue;
       }
       final path = document.localPath!;
-      if (!File(path).isFileSync()) continue;
+      if (!File(path).existsSync()) continue;
       try {
         final fingerprint = await _identity.fingerprintFile(path);
         _upsertIdentityAlias(fingerprint, document.id);
