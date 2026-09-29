@@ -16,10 +16,8 @@ void main() {
 
     expect(manualBody, contains('final androidPath = Platform.isAndroid ? document.localPath : null'));
     expect(manualBody, contains('filePath: androidPath'));
-    expect(
-      manualBody,
-      contains('openedDocument: Platform.isAndroid ? null : viewerDocument'),
-    );
+    expect(manualBody, contains('filePath: androidPath'));
+    expect(manualBody, contains('openedDocument: viewerDocument'));
     expect(manualBody, contains('..automatic = false'));
 
     final inspectStart =
