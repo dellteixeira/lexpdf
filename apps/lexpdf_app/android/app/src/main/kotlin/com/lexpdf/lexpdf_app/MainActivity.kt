@@ -512,8 +512,16 @@ class MainActivity : FlutterActivity() {
                     ?.forEach { it.delete() }
             }
         val target = File(targetDir, "${uriKey}_$safeName")
+        val backup = File(targetDir, "${target.name}.bak")
 
-        if (target.isFile && target.length() > 0L) return target.absolutePath
+        // An explicit picker/share/open action must refresh the materialized
+        // content even when a provider reuses the same content:// URI. Recover
+        // an interrupted prior replacement before starting a fresh stream.
+        if (!target.exists() && backup.isFile) {
+            backup.renameTo(target)
+        } else if (target.isFile && backup.isFile) {
+            backup.delete()
+        }
 
         val temporary = File.createTempFile("${uriKey}_", ".part", targetDir)
         return try {
@@ -533,13 +541,24 @@ class MainActivity : FlutterActivity() {
                 return null
             }
 
-            if (!temporary.renameTo(target)) {
+            if (backup.exists()) backup.delete()
+            if (target.exists() && !target.renameTo(backup)) {
                 temporary.delete()
                 return null
             }
+
+            if (!temporary.renameTo(target)) {
+                temporary.delete()
+                if (backup.exists()) backup.renameTo(target)
+                return null
+            }
+            if (backup.exists()) backup.delete()
             target.absolutePath
         } catch (_: Exception) {
             temporary.delete()
+            if (!target.exists() && backup.exists()) {
+                backup.renameTo(target)
+            }
             null
         }
     }

@@ -206,6 +206,18 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         webView.loadUrl(VIEWER_URL)
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        // The manifest keeps this Activity alive across orientation changes to
+        // protect the isolated reader process. Recreate explicitly so buildUi()
+        // can switch between the validated portrait two-row toolbar and the
+        // single 48dp landscape row, while carrying the exact visible page.
+        intent.putExtra(EXTRA_INITIAL_PAGE, currentPageIndex + 1)
+        publishLastPageResult()
+        recreate()
+    }
+
     private fun configureWebViewProcessStorage() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || webViewDirectoryConfigured) {
             return
