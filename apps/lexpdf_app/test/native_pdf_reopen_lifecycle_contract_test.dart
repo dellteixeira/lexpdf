@@ -38,8 +38,16 @@ void main() {
     expect(source, contains('temporary.delete()'));
     expect(
       source,
-      contains('if (target.isFile && target.length() > 0L) return target.absolutePath'),
+      isNot(
+        contains(
+          'if (target.isFile && target.length() > 0L) return target.absolutePath',
+        ),
+      ),
+      reason: 'Uma URI reutilizada deve atualizar o conteúdo materializado.',
     );
+    expect(source, contains('val backup = File(targetDir, "${target.name}.bak")'));
+    expect(source, contains('target.renameTo(backup)'));
+    expect(source, contains('backup.renameTo(target)'));
   });
 
   test('Android still handles new intents while Flutter is already running', () {
