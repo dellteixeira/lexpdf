@@ -27,7 +27,7 @@ void main() {
     expect(main, isNot(contains(
       'if (target.isFile && target.length() > 0L) return target.absolutePath',
     )));
-    expect(main, contains('val backup = File(targetDir, "${target.name}.bak")'));
+    expect(main, contains(r'val backup = File(targetDir, "${target.name}.bak")'));
     expect(main, contains('target.renameTo(backup)'));
     expect(main, contains('backup.renameTo(target)'));
     expect(main, contains('input.copyTo(output, bufferSize = 64 * 1024)'));
