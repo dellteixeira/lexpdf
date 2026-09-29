@@ -36,14 +36,14 @@ void main() {
     expect(source, contains('temporary.length() <= 0L'));
     expect(source, contains('temporary.renameTo(target)'));
     expect(source, contains('temporary.delete()'));
+    expect(source, contains('querySourceVersion(uri)'));
+    expect(source, contains('sourceVersion.cacheToken()'));
+    expect(source, contains('PICKER_CACHE_HIT'));
     expect(
       source,
-      isNot(
-        contains(
-          'if (target.isFile && target.length() > 0L) return target.absolutePath',
-        ),
-      ),
-      reason: 'Uma URI reutilizada deve atualizar o conteúdo materializado.',
+      contains('sourceVersionFile.readText() == sourceToken'),
+      reason:
+          'PDFs grandes inalterados devem reabrir sem repetir a cópia completa.',
     );
     expect(source, contains(r'val backup = File(targetDir, "${target.name}.bak")'));
     expect(source, contains('target.renameTo(backup)'));
