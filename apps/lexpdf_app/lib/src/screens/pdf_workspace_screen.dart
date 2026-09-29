@@ -26,6 +26,7 @@ import '../core/storage/local_workspace_ui_preferences.dart';
 import 'ai_context_chat_screen.dart';
 import 'native_pdf_reader_launcher.dart';
 import 'flashcard_center_screen.dart';
+import 'pdf_page_tools_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
 /// Persistent multi-document shell for the unified PDF editor.
@@ -585,6 +586,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     unawaited(_startBackgroundIndexing(_tabs[_activeIndex]));
   }
 
+  Future<void> _openActivePageTools() async {
+    if (_tabs.isEmpty) return;
+    final document = _tabs[_activeIndex].document;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfPageToolsScreen(document: document),
+      ),
+    );
+  }
+
   void _cancelActiveIndexing() {
     if (_tabs.isEmpty) return;
     final task = _ocrTasks[_tabs[_activeIndex].document.id];
@@ -863,6 +874,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         shortcut: 'Ctrl+Shift+I',
         icon: Icons.document_scanner_outlined,
         action: _startActiveIndexing,
+      ),
+      _WorkspaceCommand(
+        label: 'Gerenciar páginas',
+        shortcut: '',
+        icon: Icons.view_carousel_outlined,
+        action: () => unawaited(_openActivePageTools()),
       ),
       _WorkspaceCommand(
         label: 'Fechar aba atual',
@@ -1200,6 +1217,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _toggleFullScreen();
       case 'index':
         _startActiveIndexing();
+      case 'pages':
+        unawaited(_openActivePageTools());
       case 'cancel-index':
         _cancelActiveIndexing();
       case 'palette':
@@ -1375,6 +1394,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 'Ctrl+Shift+I',
               ),
               const _WorkspaceMenuItem(
+                'pages',
+                'Gerenciar páginas',
+                '',
+              ),
+              const _WorkspaceMenuItem(
                 'palette',
                 'Paleta de comandos',
                 'Ctrl+Shift+P',
@@ -1494,6 +1518,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             label: 'OCR/indexação manual',
             shortcut: 'Ctrl+Shift+I',
             onTap: _startActiveIndexing,
+          ),
+          _PanelAction(
+            icon: Icons.view_carousel_outlined,
+            label: 'Gerenciar páginas',
+            shortcut: '',
+            onTap: () => unawaited(_openActivePageTools()),
           ),
           _PanelAction(
             icon: Icons.forum_outlined,
@@ -1624,6 +1654,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   _startActiveIndexing();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.view_carousel_outlined),
+                title: const Text('Gerenciar páginas'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_openActivePageTools());
                 },
               ),
               ListTile(
@@ -1826,6 +1864,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               onPressed: _showDocumentSearch,
               icon: const Icon(Icons.search, size: 20),
             ),
+            if (sidePanelCapable)
+              IconButton(
+                tooltip: 'OCR/indexação (Ctrl+Shift+I)',
+                visualDensity:
+                    _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
+                onPressed: _startActiveIndexing,
+                icon: const Icon(Icons.document_scanner_outlined, size: 20),
+              ),
+            if (sidePanelCapable)
+              IconButton(
+                tooltip: 'Gerenciar páginas',
+                visualDensity:
+                    _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
+                onPressed: _openActivePageTools,
+                icon: const Icon(Icons.view_carousel_outlined, size: 20),
+              ),
             IconButton(
               tooltip: 'Desfazer (Ctrl+Z)',
               visualDensity:
