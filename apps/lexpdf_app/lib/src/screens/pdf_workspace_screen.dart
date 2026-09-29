@@ -1300,7 +1300,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                       children: [
                         if (showSidePanel) ...[
                           SizedBox(
-                            width: 268,
+                            width: 276,
                             child: _buildWorkspacePanel(),
                           ),
                           const VerticalDivider(width: 1),
@@ -1331,12 +1331,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Widget _buildDesktopMenuBar() {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 36,
+      height: 34,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
           _WorkspaceMenuButton(
@@ -1460,7 +1460,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 10, 8),
+            padding: const EdgeInsets.fromLTRB(16, 13, 10, 7),
             child: Row(
               children: [
                 const Icon(Icons.space_dashboard_outlined, size: 19),
@@ -1483,10 +1483,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
               decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(10),
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: scheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1578,7 +1579,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 return ListTile(
                   dense: true,
                   selected: selected,
-                  selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.55),
+                  selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.32),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -1736,10 +1737,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     return Container(
       height: 28,
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
+        color: scheme.surfaceContainerLowest,
         border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           const Icon(Icons.picture_as_pdf_outlined, size: 14),
@@ -1804,11 +1805,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   final selected = index == _activeIndex;
                   return Material(
                     color: selected
-                        ? scheme.primaryContainer
-                        : scheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(8),
+                        ? scheme.primaryContainer.withValues(alpha: 0.72)
+                        : scheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(7),
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(7),
                       onTap: () => unawaited(_activateTab(index)),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(
@@ -1996,8 +1997,12 @@ class _WorkspaceMenuButton extends StatelessWidget {
           ),
       ],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-        child: Text(label),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        child: Text(
+          label,
+          maxLines: 1,
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
       ),
     );
   }
@@ -2021,7 +2026,11 @@ class _PanelAction extends StatelessWidget {
     return ListTile(
       dense: true,
       leading: Icon(icon, size: 20),
-      title: Text(label),
+      title: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: shortcut.isEmpty ? null : _ShortcutBadge(shortcut),
       onTap: onTap,
     );
