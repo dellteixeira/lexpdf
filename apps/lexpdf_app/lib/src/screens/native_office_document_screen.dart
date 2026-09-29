@@ -339,6 +339,7 @@ class _NativeOfficeDocumentScreenState
   Widget build(BuildContext context) {
     final editorTheme = _darkMode ? LexPdfTheme.dark : LexPdfTheme.light;
     final scheme = editorTheme.colorScheme;
+    final compactToolbar = MediaQuery.sizeOf(context).width < 760;
 
     return Theme(
       data: editorTheme,
@@ -372,17 +373,20 @@ class _NativeOfficeDocumentScreenState
             ],
           ),
           actions: [
-            IconButton(
+            if (!compactToolbar)
+              IconButton(
               tooltip: 'Novo documento',
               onPressed: _busy ? null : _newDocument,
               icon: const Icon(Icons.note_add_outlined),
             ),
-            IconButton(
+            if (!compactToolbar)
+              IconButton(
               tooltip: 'Abrir documento',
               onPressed: _busy ? null : _openDocument,
               icon: const Icon(Icons.file_open_outlined),
             ),
-            IconButton(
+            if (!compactToolbar)
+              IconButton(
               tooltip: 'Desfazer',
               onPressed: _busy || !_document.canUndo
                   ? null
@@ -392,7 +396,8 @@ class _NativeOfficeDocumentScreenState
                     },
               icon: const Icon(Icons.undo),
             ),
-            IconButton(
+            if (!compactToolbar)
+              IconButton(
               tooltip: 'Refazer',
               onPressed: _busy || !_document.canRedo
                   ? null
@@ -402,13 +407,58 @@ class _NativeOfficeDocumentScreenState
                     },
               icon: const Icon(Icons.redo),
             ),
-            IconButton(
+            if (!compactToolbar)
+              IconButton(
               tooltip: _darkMode ? 'Usar modo claro' : 'Usar modo escuro',
               onPressed: _toggleTheme,
               icon: Icon(
                 _darkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
               ),
             ),
+            if (compactToolbar)
+              PopupMenuButton<String>(
+                tooltip: 'Ações do documento',
+                onSelected: (value) {
+                  if (value == 'new') _newDocument();
+                  if (value == 'open') _openDocument();
+                  if (value == 'undo' && _document.canUndo) {
+                    _document.undo();
+                    setState(() {});
+                  }
+                  if (value == 'redo' && _document.canRedo) {
+                    _document.redo();
+                    setState(() {});
+                  }
+                  if (value == 'theme') _toggleTheme();
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'new',
+                    child: Text('Novo documento'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'open',
+                    child: Text('Abrir documento'),
+                  ),
+                  PopupMenuItem(
+                    value: 'undo',
+                    enabled: !_busy && _document.canUndo,
+                    child: const Text('Desfazer'),
+                  ),
+                  PopupMenuItem(
+                    value: 'redo',
+                    enabled: !_busy && _document.canRedo,
+                    child: const Text('Refazer'),
+                  ),
+                  PopupMenuItem(
+                    value: 'theme',
+                    child: Text(
+                      _darkMode ? 'Usar modo claro' : 'Usar modo escuro',
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
+              ),
             IconButton(
               tooltip: 'Salvar DOCX',
               onPressed: _busy ? null : _saveDocx,
