@@ -306,9 +306,11 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
       final picked = await _picker.pickPdf();
       if (picked == null || !mounted) return;
 
-      // Opening the workspace must never wait for catalog/database bookkeeping.
-      unawaited(_rememberDocument(picked));
-      await _openDocument(picked, recordOpen: false);
+      // Resolve the stable identity before entering the workspace so a moved or
+      // renamed PDF keeps its existing reading progress and annotations.
+      final document = await widget.catalog.resolveLocalDocument(picked);
+      unawaited(widget.catalog.markOpened(document.id));
+      await _openDocument(document, recordOpen: false);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -317,12 +319,6 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     } finally {
       if (mounted) setState(() => _picking = false);
     }
-  }
-
-  Future<void> _rememberDocument(DocumentRef document) async {
-    await widget.catalog.upsert(document);
-    await widget.catalog.markOpened(document.id);
-    if (mounted) setState(() {});
   }
 
   Future<void> _openDocument(

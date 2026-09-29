@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'core/documents/document_picker_service.dart';
 import 'core/documents/document_provider.dart';
+import 'core/documents/local_document_identity.dart';
 import 'core/documents/native_pdf_open_service.dart';
 import 'core/storage/local_database.dart';
 import 'core/storage/local_document_catalog.dart';
@@ -39,6 +40,8 @@ class _LexPdfAppState extends State<LexPdfApp> {
   late final LocalPdfNavigationStore _navigationStore =
       LocalPdfNavigationStore(widget.database);
   final DocumentPickerService _picker = const DocumentPickerService();
+  static const LocalDocumentIdentity _documentIdentity =
+      LocalDocumentIdentity();
   final NativePdfOpenService _nativeOpen = NativePdfOpenService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _openingPrint = false;
@@ -47,7 +50,10 @@ class _LexPdfAppState extends State<LexPdfApp> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapNativeOpen());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_catalog.backfillLocalIdentityAliases());
+      _bootstrapNativeOpen();
+    });
   }
 
   Future<void> _bootstrapNativeOpen() async {
@@ -69,15 +75,11 @@ class _LexPdfAppState extends State<LexPdfApp> {
         throw StateError('arquivo recebido não é PDF');
       }
 
-      final document = DocumentRef(
-        id: path,
+      final identified = await _documentIdentity.identifyLocal(
+        path: path,
         name: path.split(Platform.pathSeparator).last,
-        provider: DocumentProviderKind.local,
-        localPath: path,
-        availableOffline: true,
-        syncState: DocumentSyncState.localOnly,
       );
-      await _catalog.upsert(document);
+      final document = await _catalog.resolveLocalDocument(identified);
       final navigator = _navigatorKey.currentState;
       if (!mounted || navigator == null) return;
 
@@ -121,8 +123,7 @@ class _LexPdfAppState extends State<LexPdfApp> {
     try {
       final picked = await _picker.pickPdf();
       if (picked == null) return;
-      await _catalog.upsert(picked);
-      final document = await _catalog.getById(picked.id) ?? picked;
+      final document = await _catalog.resolveLocalDocument(picked);
       if (!context.mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(

@@ -352,8 +352,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<DocumentRef?> _pickAndStorePdf() async {
     final document = await _picker.pickPdf();
     if (!mounted || document == null) return null;
-    await widget.catalog.upsert(document);
-    return await widget.catalog.getById(document.id) ?? document;
+    return widget.catalog.resolveLocalDocument(document);
   }
 
   Future<void> _openPdfWorkspacePicker() async {

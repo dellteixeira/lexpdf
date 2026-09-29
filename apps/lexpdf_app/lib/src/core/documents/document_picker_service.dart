@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 
 import 'document_provider.dart';
+import 'local_document_identity.dart';
 import 'native_android_file_picker_service.dart';
 
 class DocumentPickerService {
@@ -16,6 +17,7 @@ class DocumentPickerService {
 
   static const NativeAndroidFilePickerService _androidPicker =
       NativeAndroidFilePickerService();
+  static const LocalDocumentIdentity _identity = LocalDocumentIdentity();
 
   Future<DocumentRef?> pickPdf() async {
     if (Platform.isAndroid) {
@@ -25,13 +27,9 @@ class DocumentPickerService {
       );
       if (picked == null) return null;
 
-      return DocumentRef(
-        id: picked.path,
+      return _identity.identifyLocal(
+        path: picked.path,
         name: picked.name,
-        provider: DocumentProviderKind.local,
-        localPath: picked.path,
-        availableOffline: true,
-        syncState: DocumentSyncState.localOnly,
       );
     }
 
@@ -40,13 +38,9 @@ class DocumentPickerService {
     );
     if (file == null) return null;
 
-    return DocumentRef(
-      id: file.path,
+    return _identity.identifyLocal(
+      path: file.path,
       name: file.name,
-      provider: DocumentProviderKind.local,
-      localPath: file.path,
-      availableOffline: true,
-      syncState: DocumentSyncState.localOnly,
     );
   }
 }

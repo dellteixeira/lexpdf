@@ -225,7 +225,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final picked = await _picker.pickPdf();
       if (picked == null || !mounted) return;
-      final existing = _tabs.indexWhere((tab) => tab.document.id == picked.id);
+      final resolved =
+          await LocalDocumentCatalog(widget.store.db).resolveLocalDocument(picked);
+      if (!mounted) return;
+      final existing =
+          _tabs.indexWhere((tab) => tab.document.id == resolved.id);
       if (existing >= 0) {
         setState(() => _activeIndex = existing);
         await _saveSession();
@@ -240,7 +244,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return;
       }
       setState(() {
-        _tabs.add(_WorkspaceTab(document: picked, initialPage: 1));
+        _tabs.add(_WorkspaceTab(document: resolved, initialPage: 1));
         _activeIndex = _tabs.length - 1;
       });
       await _saveSession();
