@@ -32,13 +32,17 @@ void main() {
     expect(source, isNot(contains('PdfReaderScreen(')));
   });
 
-  test('picker opens the workspace without waiting for catalog bookkeeping', () {
+  test('picker resolves stable identity before opening the workspace', () {
     final source = File(
       'lib/src/screens/library_workspace_home_screen.dart',
     ).readAsStringSync();
 
-    expect(source, contains('unawaited(_rememberDocument(picked));'));
-    expect(source, contains('await _openDocument(picked, recordOpen: false);'));
+    expect(
+      source,
+      contains('await widget.catalog.resolveLocalDocument(picked)'),
+    );
+    expect(source, contains('unawaited(widget.catalog.markOpened(document.id));'));
+    expect(source, contains('await _openDocument(document, recordOpen: false);'));
     expect(source, contains("'Abrir PDF em Trabalhar com PDF'"));
     expect(source, contains("'Abrir em Trabalhar com PDF'"));
   });

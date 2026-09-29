@@ -39,7 +39,9 @@ void main() {
 
     expect(mainDart, contains('NativePdfOpenService.pdfPathFromArgs(args)'));
     expect(app, contains('File(path)'));
-    expect(app, contains('localPath: path'));
+    expect(app, contains('_documentIdentity.identifyLocal('));
+    expect(app, contains('path: path'));
+    expect(app, contains('_catalog.resolveLocalDocument(identified)'));
     expect(app, isNot(contains('copySync')));
   });
 }

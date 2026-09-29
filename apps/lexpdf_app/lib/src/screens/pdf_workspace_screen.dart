@@ -574,19 +574,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ..progress = null;
     _ocrTasks[document.id] = task;
     try {
-      final summary = await _ocrService.process(
-        documentId: document.id,
-        filePath: androidPath,
-        openedDocument: Platform.isAndroid ? null : viewerDocument,
-        resume: true,
-        isCancelled: () => task.cancelRequested,
-        onProgress: (progress) {
-          // This path is only entered after an explicit user action. Android
-          // opens a separate PDF document only for that requested OCR/indexing
-          // job; reader startup and idle reading never trigger it.
-          task.progress = progress;
-        },
-      );
+      final summary = Platform.isAndroid
+          ? await _ocrService.process(
+              documentId: document.id,
+              filePath: androidPath,
+              resume: true,
+              isCancelled: () => task.cancelRequested,
+              onProgress: (progress) {
+                // Android reaches this path only after an explicit user action.
+                // Reader startup and idle reading never trigger a second PDF.
+                task.progress = progress;
+              },
+            )
+          : await _ocrService.process(
+              documentId: document.id,
+              openedDocument: viewerDocument,
+              resume: true,
+              isCancelled: () => task.cancelRequested,
+              onProgress: (progress) {
+                // Silent by design: desktop indexing must never repaint or
+                // cover the document while the user is reading.
+                task.progress = progress;
+              },
+            );
       task.summary = summary;
     } catch (error) {
       // User-triggered indexing must never destabilize the reading workspace.
