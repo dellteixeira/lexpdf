@@ -19,8 +19,8 @@ void main() {
     );
     expect(gradle, contains('build/pdf.min.mjs'));
     expect(gradle, contains('build/pdf.worker.min.mjs'));
-    expect(gradle, contains('standard_fonts/'));
-    expect(gradle, contains('wasm/'));
+    expect(gradle, contains('listOf("standard_fonts", "wasm")'));
+    expect(gradle, contains('assetRoot.resolve(directory)'));
     expect(gradle, contains('dependsOn(preparePdfJsAssets)'));
 
     expect(reader, contains('PDFJS_MODULE_URL'));
