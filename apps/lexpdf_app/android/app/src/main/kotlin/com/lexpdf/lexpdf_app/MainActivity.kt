@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
@@ -14,6 +15,16 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private data class SourceVersion(
+        val size: Long?,
+        val lastModified: Long?,
+    ) {
+        fun cacheToken(): String? {
+            val safeSize = size?.takeIf { it >= 0L } ?: return null
+            val safeModified = lastModified?.takeIf { it > 0L } ?: return null
+            return "$safeSize|$safeModified"
+        }
+    }
     companion object {
         private const val PDF_CHANNEL = "lexpdf/native_pdf_open"
         private const val INPUT_CAPABILITIES_CHANNEL = "lexpdf/input_capabilities"
@@ -513,14 +524,36 @@ class MainActivity : FlutterActivity() {
             }
         val target = File(targetDir, "${uriKey}_$safeName")
         val backup = File(targetDir, "${target.name}.bak")
+        val sourceVersionFile = File(targetDir, "${target.name}.source")
+        val sourceVersion = querySourceVersion(uri)
+        val sourceToken = sourceVersion.cacheToken()
 
-        // An explicit picker/share/open action must refresh the materialized
-        // content even when a provider reuses the same content:// URI. Recover
-        // an interrupted prior replacement before starting a fresh stream.
+        // Recover an interrupted prior replacement before deciding whether the
+        // persisted local copy can be reused.
         if (!target.exists() && backup.isFile) {
             backup.renameTo(target)
         } else if (target.isFile && backup.isFile) {
             backup.delete()
+        }
+
+        // Fast path: the Android DocumentsProvider reports both size and
+        // last-modified time. When both still match the sidecar recorded after
+        // the previous successful copy, reopening the same large PDF must not
+        // stream the entire document again.
+        if (
+            target.isFile &&
+            target.length() > 0L &&
+            sourceToken != null &&
+            sourceVersionFile.isFile &&
+            sourceVersionFile.readText() == sourceToken &&
+            (sourceVersion.size == null || target.length() == sourceVersion.size)
+        ) {
+            PdfCrashDiagnostics.mark(
+                this,
+                "PICKER_CACHE_HIT",
+                "bytes=${target.length()}",
+            )
+            return target.absolutePath
         }
 
         val temporary = File.createTempFile("${uriKey}_", ".part", targetDir)
@@ -552,6 +585,11 @@ class MainActivity : FlutterActivity() {
                 if (backup.exists()) backup.renameTo(target)
                 return null
             }
+            if (sourceToken != null) {
+                sourceVersionFile.writeText(sourceToken)
+            } else if (sourceVersionFile.exists()) {
+                sourceVersionFile.delete()
+            }
             if (backup.exists()) backup.delete()
             target.absolutePath
         } catch (_: Exception) {
@@ -560,6 +598,37 @@ class MainActivity : FlutterActivity() {
                 backup.renameTo(target)
             }
             null
+        }
+    }
+
+    private fun querySourceVersion(uri: Uri): SourceVersion {
+        return try {
+            contentResolver
+                .query(uri, null, null, null, null)
+                ?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use SourceVersion(null, null)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    val modifiedIndex =
+                        cursor.getColumnIndex(
+                            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                        )
+                    val size =
+                        if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                            cursor.getLong(sizeIndex)
+                        } else {
+                            null
+                        }
+                    val lastModified =
+                        if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) {
+                            cursor.getLong(modifiedIndex)
+                        } else {
+                            null
+                        }
+                    SourceVersion(size, lastModified)
+                }
+                ?: SourceVersion(null, null)
+        } catch (_: Exception) {
+            SourceVersion(null, null)
         }
     }
 
