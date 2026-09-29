@@ -8,6 +8,7 @@ import 'package:fluent_editor/widgets/fluent_document_widget.dart';
 import 'package:flutter/material.dart';
 
 import '../core/notebook/notebook_document_file_service.dart';
+import '../core/storage/atomic_file_writer.dart';
 import '../core/theme/lexpdf_theme.dart';
 
 /// Editor Office nativo do LexPDF.
@@ -28,6 +29,7 @@ class _NativeOfficeDocumentScreenState
   static const int _maximumOfficeFileBytes = 32 * 1024 * 1024;
   static const NotebookDocumentFileService _fileService =
       NotebookDocumentFileService();
+  static const AtomicFileWriter _atomicWriter = AtomicFileWriter();
 
   static const FluentEditorLabels _labels = FluentEditorLabels(
     file: 'Arquivo',
@@ -307,7 +309,12 @@ class _NativeOfficeDocumentScreenState
     setState(() => _busy = true);
     try {
       final bytes = await _fileService.exportBytes(_document, ext);
-      await File(location.path).writeAsBytes(bytes, flush: true);
+      await _atomicWriter.writeBytes(
+        bytes: bytes,
+        destinationPath: location.path,
+        replaceExisting: true,
+        validator: (path) => _validateOfficeExport(path, ext),
+      );
       if (!mounted) return;
       setState(() {
         _documentName = location.path
@@ -320,6 +327,42 @@ class _NativeOfficeDocumentScreenState
       _show('Não foi possível salvar .$ext: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _validateOfficeExport(String path, String extension) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw StateError('Arquivo exportado não foi criado.');
+    }
+    final length = await file.length();
+    if (extension != 'txt' && length <= 0) {
+      throw StateError('Arquivo exportado está vazio.');
+    }
+    if (length <= 0) return;
+
+    final handle = await file.open();
+    try {
+      final header = await handle.read(8);
+      final ascii = String.fromCharCodes(header);
+      switch (extension) {
+        case 'docx':
+          if (header.length < 2 || header[0] != 0x50 || header[1] != 0x4B) {
+            throw StateError('DOCX exportado não possui contêiner ZIP válido.');
+          }
+        case 'pdf':
+          if (!ascii.startsWith('%PDF-')) {
+            throw StateError('PDF exportado não possui cabeçalho válido.');
+          }
+        case 'rtf':
+          if (!ascii.startsWith(r'{\rtf')) {
+            throw StateError('RTF exportado não possui cabeçalho válido.');
+          }
+        case 'txt':
+          break;
+      }
+    } finally {
+      await handle.close();
     }
   }
 
