@@ -74,8 +74,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val LOCAL_ORIGIN = "https://lexpdf.local"
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
         private const val PDFJS_ROOT = "$LOCAL_ORIGIN/pdfjs"
-        private const val PDFJS_MODULE_URL = "$PDFJS_ROOT/build/pdf.mjs"
-        private const val PDFJS_WORKER_URL = "$PDFJS_ROOT/build/pdf.worker.mjs"
+        private const val PDFJS_MODULE_URL = "$PDFJS_ROOT/build/pdf.min.mjs"
+        private const val PDFJS_WORKER_URL = "$PDFJS_ROOT/build/pdf.worker.min.mjs"
         private const val PDFJS_STANDARD_FONTS_URL = "$PDFJS_ROOT/standard_fonts/"
         private const val PDFJS_WASM_URL = "$PDFJS_ROOT/wasm/"
         private const val PDFJS_VERSION = "6.3.289"
@@ -572,7 +572,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 200,
                 "OK",
                 mapOf(
-                    "Cache-Control" to "no-store",
+                    "Cache-Control" to "public, max-age=31536000, immutable",
                     "Cross-Origin-Resource-Policy" to "same-origin",
                 ),
                 stream,
