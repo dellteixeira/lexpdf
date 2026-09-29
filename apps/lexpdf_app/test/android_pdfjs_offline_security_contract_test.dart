@@ -9,7 +9,7 @@ void main() {
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(gradle, contains('pdfjs-$pdfJsVersion-dist.zip'));
+    expect(gradle, contains(r'pdfjs-$pdfJsVersion-dist.zip'));
     expect(gradle, contains('val pdfJsVersion = "6.3.289"'));
     expect(
       gradle,
