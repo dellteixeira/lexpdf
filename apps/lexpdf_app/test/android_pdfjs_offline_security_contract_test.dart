@@ -9,14 +9,16 @@ void main() {
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(gradle, contains(r'pdfjs-$pdfJsVersion-dist.zip'));
+    expect(gradle, contains(r'pdfjs-dist-$pdfJsVersion.tgz'));
     expect(gradle, contains('val pdfJsVersion = "6.3.289"'));
     expect(
       gradle,
-      contains('98c5832ffe7af4edd59853476a478c0d4d4d76dd49c1701f4c86f7182725cdf9'),
+      contains(
+        'ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw==',
+      ),
     );
-    expect(gradle, contains('build/pdf.mjs'));
-    expect(gradle, contains('build/pdf.worker.mjs'));
+    expect(gradle, contains('build/pdf.min.mjs'));
+    expect(gradle, contains('build/pdf.worker.min.mjs'));
     expect(gradle, contains('standard_fonts/'));
     expect(gradle, contains('wasm/'));
     expect(gradle, contains('dependsOn(preparePdfJsAssets)'));
@@ -26,6 +28,10 @@ void main() {
     expect(reader, contains('PDFJS_STANDARD_FONTS_URL'));
     expect(reader, contains('PDFJS_WASM_URL'));
     expect(reader, contains('blockedNetworkResponse()'));
+    expect(
+      reader,
+      contains('Cache-Control" to "public, max-age=31536000, immutable"'),
+    );
     expect(reader, contains('Content-Security-Policy'));
     expect(reader, isNot(contains('cdn.jsdelivr.net')));
   });
