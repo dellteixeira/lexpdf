@@ -7,7 +7,7 @@ abstract final class LexPdfTheme {
   static ThemeData get light => _build(
         brightness: Brightness.light,
         primary: _lightPrimary,
-        scaffold: const Color(0xFFF4F6F8),
+        scaffold: const Color(0xFFF6F7F9),
         surface: const Color(0xFFFFFFFF),
         surfaceMuted: const Color(0xFFEEF1F4),
         outline: const Color(0xFFD5DBE2),
@@ -89,7 +89,7 @@ abstract final class LexPdfTheme {
         centerTitle: false,
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
-        toolbarHeight: 54,
+        toolbarHeight: 56,
         titleTextStyle: text.titleMedium?.copyWith(
           color: scheme.onSurface,
           fontWeight: FontWeight.w600,
