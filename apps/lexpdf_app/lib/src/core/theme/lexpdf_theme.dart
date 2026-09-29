@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 
 abstract final class LexPdfTheme {
-  static const _lightPrimary = Color(0xFF246BFD);
-  static const _darkPrimary = Color(0xFF8CB4FF);
+  static const _lightPrimary = Color(0xFF245F92);
+  static const _darkPrimary = Color(0xFF8CB9E8);
 
   static ThemeData get light => _build(
         brightness: Brightness.light,
         primary: _lightPrimary,
-        scaffold: const Color(0xFFF6F7F9),
+        scaffold: const Color(0xFFF4F6F8),
         surface: const Color(0xFFFFFFFF),
-        surfaceMuted: const Color(0xFFF1F3F6),
-        outline: const Color(0xFFDDE1E7),
+        surfaceMuted: const Color(0xFFEEF1F4),
+        outline: const Color(0xFFD5DBE2),
       );
 
   static ThemeData get dark => _build(
         brightness: Brightness.dark,
         primary: _darkPrimary,
-        scaffold: const Color(0xFF111315),
-        surface: const Color(0xFF181A1D),
-        surfaceMuted: const Color(0xFF202328),
-        outline: const Color(0xFF32363D),
+        scaffold: const Color(0xFF0E1114),
+        surface: const Color(0xFF15191D),
+        surfaceMuted: const Color(0xFF1C2228),
+        outline: const Color(0xFF313941),
       );
 
   static ThemeData _build({
@@ -55,22 +55,30 @@ abstract final class LexPdfTheme {
 
     final text = base.textTheme.copyWith(
       headlineLarge: base.textTheme.headlineLarge?.copyWith(
+        fontSize: 30,
+        height: 1.16,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.7,
+        letterSpacing: -0.65,
       ),
       headlineMedium: base.textTheme.headlineMedium?.copyWith(
+        fontSize: 25,
+        height: 1.18,
         fontWeight: FontWeight.w700,
         letterSpacing: -0.4,
       ),
       titleLarge: base.textTheme.titleLarge?.copyWith(
+        fontSize: 20,
+        height: 1.25,
         fontWeight: FontWeight.w600,
         letterSpacing: -0.2,
       ),
       titleMedium: base.textTheme.titleMedium?.copyWith(
+        fontSize: 16,
+        height: 1.3,
         fontWeight: FontWeight.w600,
       ),
-      bodyLarge: base.textTheme.bodyLarge?.copyWith(height: 1.45),
-      bodyMedium: base.textTheme.bodyMedium?.copyWith(height: 1.45),
+      bodyLarge: base.textTheme.bodyLarge?.copyWith(height: 1.5),
+      bodyMedium: base.textTheme.bodyMedium?.copyWith(height: 1.48),
     );
 
     return base.copyWith(
@@ -81,7 +89,7 @@ abstract final class LexPdfTheme {
         centerTitle: false,
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
-        toolbarHeight: 56,
+        toolbarHeight: 54,
         titleTextStyle: text.titleMedium?.copyWith(
           color: scheme.onSurface,
           fontWeight: FontWeight.w600,
@@ -103,7 +111,7 @@ abstract final class LexPdfTheme {
         surfaceTintColor: Colors.transparent,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: outline.withValues(alpha: 0.75)),
         ),
       ),
@@ -113,8 +121,52 @@ abstract final class LexPdfTheme {
           maximumSize: const Size.square(44),
           padding: const EdgeInsets.all(9),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(9),
           ),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+          textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          side: BorderSide(color: outline),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(40, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(9),
+          ),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        minVerticalPadding: 8,
+        iconColor: scheme.onSurfaceVariant,
+        textColor: scheme.onSurface,
+        titleTextStyle: text.bodyLarge?.copyWith(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w500,
+        ),
+        subtitleTextStyle: text.bodySmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+          height: 1.35,
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
