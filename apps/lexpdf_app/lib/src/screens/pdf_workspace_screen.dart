@@ -547,7 +547,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Future<void> _startBackgroundIndexing(_WorkspaceTab tab) async {
     final document = tab.document;
     final viewerDocument = tab.viewerDocument;
-    if (viewerDocument == null) return;
+    final androidPath = Platform.isAndroid ? document.localPath : null;
+    if (Platform.isAndroid) {
+      if (androidPath == null ||
+          androidPath.isEmpty ||
+          !File(androidPath).existsSync()) {
+        return;
+      }
+    } else if (viewerDocument == null) {
+      return;
+    }
+
     final existing = _ocrTasks[document.id];
     if (existing?.running == true) return;
     final task = existing ?? _WorkspaceOcrTask();
@@ -562,19 +572,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final summary = await _ocrService.process(
         documentId: document.id,
-        openedDocument: viewerDocument,
+        filePath: androidPath,
+        openedDocument: Platform.isAndroid ? null : viewerDocument,
         resume: true,
         isCancelled: () => task.cancelRequested,
         onProgress: (progress) {
-          // Silent by design: background indexing must never repaint or cover
-          // the document while the user is reading.
+          // This path is only entered after an explicit user action. Android
+          // opens a separate PDF document only for that requested OCR/indexing
+          // job; reader startup and idle reading never trigger it.
           task.progress = progress;
         },
       );
       task.summary = summary;
     } catch (error) {
-      // Keep diagnostics internal. Automatic indexing must not interrupt the
-      // reading surface with progress cards, snackbars or error banners.
+      // User-triggered indexing must never destabilize the reading workspace.
       task.error = error;
     } finally {
       task.running = false;
