@@ -19,14 +19,15 @@ void main() {
     expect(reader, contains('HorizontalScrollView'));
   });
 
-  test('Android explicit imports refresh reused content URIs with recovery backup', () {
+  test('Android reuses unchanged imports and refreshes changed content URIs', () {
     final main = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/MainActivity.kt',
     ).readAsStringSync();
 
-    expect(main, isNot(contains(
-      'if (target.isFile && target.length() > 0L) return target.absolutePath',
-    )));
+    expect(main, contains('querySourceVersion(uri)'));
+    expect(main, contains('sourceVersion.cacheToken()'));
+    expect(main, contains('sourceVersionFile.readText() == sourceToken'));
+    expect(main, contains('PICKER_CACHE_HIT'));
     expect(main, contains(r'val backup = File(targetDir, "${target.name}.bak")'));
     expect(main, contains('target.renameTo(backup)'));
     expect(main, contains('backup.renameTo(target)'));
