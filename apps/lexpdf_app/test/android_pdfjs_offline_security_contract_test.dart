@@ -15,8 +15,8 @@ void main() {
       gradle,
       contains('98c5832ffe7af4edd59853476a478c0d4d4d76dd49c1701f4c86f7182725cdf9'),
     );
-    expect(gradle, contains('build/pdf.min.mjs'));
-    expect(gradle, contains('build/pdf.worker.min.mjs'));
+    expect(gradle, contains('build/pdf.mjs'));
+    expect(gradle, contains('build/pdf.worker.mjs'));
     expect(gradle, contains('standard_fonts/'));
     expect(gradle, contains('wasm/'));
     expect(gradle, contains('dependsOn(preparePdfJsAssets)'));
