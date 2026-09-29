@@ -62,4 +62,17 @@ void main() {
       expect(shell, contains(menu));
     }
   });
+  test('workspace surfaces essential PDF tools without duplicating engines', () {
+    final shell = File('lib/src/screens/pdf_workspace_screen.dart')
+        .readAsStringSync();
+
+    expect(shell, contains("import 'pdf_page_tools_screen.dart';"));
+    expect(shell, contains('Gerenciar páginas'));
+    expect(shell, contains('OCR/indexação (Ctrl+Shift+I)'));
+    expect(shell, contains('PdfPageToolsScreen(document: document)'));
+    expect(shell, contains('Icons.document_scanner_outlined'));
+    expect(shell, contains('Icons.view_carousel_outlined'));
+    expect(shell, contains('if (sidePanelCapable)'));
+  });
+
 }
