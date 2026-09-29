@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'core/documents/document_picker_service.dart';
-import 'core/documents/document_provider.dart';
 import 'core/documents/local_document_identity.dart';
 import 'core/documents/native_pdf_open_service.dart';
 import 'core/storage/local_database.dart';
