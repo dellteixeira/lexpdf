@@ -15,7 +15,7 @@ void main() {
     expect(workspace, contains('onSearchClosed: () => _closeDocumentSearch(tab)'));
     expect(editor, contains('PdfTextSearcher'));
     expect(editor, contains('Localizar palavra ou frase'));
-    expect(editor, contains("'$current/$total'"));
+    expect(editor, contains(r"'$current/$total'"));
     expect(editor, contains('goToNextMatch()'));
     expect(editor, contains('goToPrevMatch()'));
     expect(editor, contains('pageTextMatchPaintCallback'));
