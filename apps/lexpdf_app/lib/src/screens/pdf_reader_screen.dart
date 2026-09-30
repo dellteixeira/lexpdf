@@ -80,6 +80,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   InkTool _inkTool = InkTool.pen;
   bool _viewerReady = false;
   bool _searchMode = false;
+  String _activeSearchQuery = '';
   bool _loadingAnnotations = false;
   bool _inkMode = false;
   bool _inkEraserMode = false;
@@ -1083,6 +1084,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     setState(() {});
     final query = value.trim();
     if (query.isEmpty) {
+      _activeSearchQuery = '';
       _textSearcher.resetTextSearch();
       return;
     }
@@ -1100,7 +1102,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       return;
     }
 
-    if (_textSearcher.matches.isNotEmpty) {
+    if (_activeSearchQuery == query && _textSearcher.matches.isNotEmpty) {
       unawaited(_textSearcher.goToNextMatch());
       return;
     }
@@ -1113,6 +1115,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
       _textSearcher.resetTextSearch();
       return;
     }
+    _activeSearchQuery = query;
     _textSearcher.startTextSearch(
       query,
       caseInsensitive: true,
@@ -1124,6 +1127,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   void _closeSearch() {
     _searchDebounce?.cancel();
     _textSearcher.resetTextSearch();
+    _activeSearchQuery = '';
     _searchController.clear();
     setState(() => _searchMode = false);
   }
