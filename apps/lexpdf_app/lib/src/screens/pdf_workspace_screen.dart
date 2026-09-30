@@ -631,125 +631,25 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Future<void> _showDocumentSearch() async {
     if (_tabs.isEmpty) return;
     final tab = _tabs[_activeIndex];
-    final controller = TextEditingController();
-    final query = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Pesquisar no PDF'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            hintText: 'Digite uma palavra ou expressão',
-          ),
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Pesquisar'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (!mounted || query == null || query.isEmpty) return;
-
-    final rows = widget.store.db.database.select('''
-      SELECT page_number, content
-      FROM pdf_page_text_index
-      WHERE document_id = ? AND lower(content) LIKE ?
-      ORDER BY page_number
-      LIMIT 200;
-    ''', [tab.document.id, '%${query.toLowerCase()}%']);
-
-    if (!mounted) return;
-    if (rows.isEmpty) {
-      final hasIndex = widget.store.db.database.select('''
-        SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
-      ''', [tab.document.id]).isNotEmpty;
-      if (!hasIndex) {
-        unawaited(_startBackgroundIndexing(tab));
-      }
+    if (Platform.isAndroid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text(
-            hasIndex
-                ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'A indexação deste PDF foi iniciada para atender à busca. '
-                    'Tente novamente em alguns instantes.',
+            'Use o botão Buscar na barra do leitor Android para pesquisar sem sair do PDF.',
           ),
         ),
       );
       return;
     }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.70,
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-            itemCount: rows.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final row = rows[index];
-              final page = row['page_number'] as int;
-              final content = row['content'] as String? ?? '';
-              return ListTile(
-                leading: CircleAvatar(child: Text('$page')),
-                title: Text('Página $page'),
-                subtitle: Text(
-                  _searchSnippet(content, query),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _openIndexedSearchPage(page);
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _searchSnippet(String content, String query) {
-    final lower = content.toLowerCase();
-    final index = lower.indexOf(query.toLowerCase());
-    if (index < 0) {
-      return content.length <= 180 ? content : '${content.substring(0, 180)}…';
+    if (!tab.searchVisible) {
+      setState(() => tab.searchVisible = true);
     }
-    final start = (index - 70).clamp(0, content.length);
-    final end = (index + query.length + 100).clamp(0, content.length);
-    return '${start > 0 ? '…' : ''}${content.substring(start, end)}${end < content.length ? '…' : ''}';
   }
 
-  void _openIndexedSearchPage(int page) {
-    if (_tabs.isEmpty || page < 1) return;
-    final tab = _tabs[_activeIndex];
-    setState(() {
-      tab.initialPage = page;
-      tab.generation += 1;
-    });
-    unawaited(
-      _progressStore.save(
-        documentId: tab.document.id,
-        pageNumber: page,
-      ),
-    );
-    unawaited(_saveSession());
+  void _closeDocumentSearch(_WorkspaceTab tab) {
+    if (!mounted || !tab.searchVisible) return;
+    setState(() => tab.searchVisible = false);
+    _shortcutFocus.requestFocus();
   }
 
   void _recordVisiblePage(_WorkspaceTab tab, int pageNumber) {
@@ -796,6 +696,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       onReaderActivity: () => _markReaderActivity(tab),
       onViewerDocumentChanged: (document) =>
           _onViewerDocumentChanged(tab, document),
+      searchVisible: tab.searchVisible,
+      onSearchClosed: () => _closeDocumentSearch(tab),
     );
   }
 
@@ -1952,6 +1854,7 @@ class _WorkspaceTab {
   int? pageCount;
   PdfDocument? viewerDocument;
   bool localizedIndexPending = false;
+  bool searchVisible = false;
 }
 
 class _WorkspaceOcrTask {
