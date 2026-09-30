@@ -648,8 +648,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           const SingleActivator(LogicalKeyboardKey.keyH, control: true):
               _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.f11): _requestFullScreen,
+          const SingleActivator(LogicalKeyboardKey.f3): () {
+            if (widget.searchVisible) {
+              unawaited(_nextTextSearchMatch());
+            }
+          },
+          const SingleActivator(LogicalKeyboardKey.f3, shift: true): () {
+            if (widget.searchVisible) {
+              unawaited(_previousTextSearchMatch());
+            }
+          },
           const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (widget.fullScreen) {
+            if (widget.searchVisible) {
+              _closeTextSearch();
+            } else if (widget.fullScreen) {
               widget.onToggleFullScreen?.call();
             } else if (_readingMode) {
               unawaited(_setReadingMode(false));
