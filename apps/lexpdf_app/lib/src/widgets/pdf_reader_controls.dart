@@ -251,38 +251,69 @@ class PdfSearchAppBarActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Center(
-            child: Text(
-              isSearching
-                  ? 'Buscando…'
-                  : matchCount == 0
-                      ? '0'
-                      : '${(currentIndex ?? 0) + 1}/$matchCount',
-              style: Theme.of(context).textTheme.labelMedium,
+    final scheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 640;
+    final status = isSearching
+        ? 'Buscando…'
+        : matchCount == 0
+            ? '0 resultados'
+            : '${(currentIndex ?? 0) + 1} de $matchCount';
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            constraints: BoxConstraints(maxWidth: compact ? 92 : 132),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isSearching) ...[
+                  const SizedBox.square(
+                    dimension: 13,
+                    child: CircularProgressIndicator(strokeWidth: 1.7),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    status,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        _ReaderIconButton(
-          tooltip: 'Resultado anterior',
-          onPressed: onPrevious,
-          icon: Icons.keyboard_arrow_up,
-        ),
-        _ReaderIconButton(
-          tooltip: 'Próximo resultado',
-          onPressed: onNext,
-          icon: Icons.keyboard_arrow_down,
-        ),
-        _ReaderIconButton(
-          tooltip: 'Fechar pesquisa',
-          onPressed: onClose,
-          icon: Icons.close,
-        ),
-      ],
+          const SizedBox(width: 2),
+          _ReaderIconButton(
+            tooltip: 'Ocorrência anterior',
+            onPressed: onPrevious,
+            icon: Icons.keyboard_arrow_up,
+          ),
+          _ReaderIconButton(
+            tooltip: 'Próxima ocorrência',
+            onPressed: onNext,
+            icon: Icons.keyboard_arrow_down,
+          ),
+          _ReaderIconButton(
+            tooltip: 'Fechar pesquisa',
+            onPressed: onClose,
+            icon: Icons.close,
+          ),
+        ],
+      ),
     );
   }
 }
