@@ -122,6 +122,19 @@ void main() {
     expect(source, contains('RANGE_CHUNK_SIZE = 512 * 1024'));
   });
 
+  test('Windows workspace reader keeps Acrobat-style search in the viewer', () {
+    final source =
+        File('lib/src/screens/pdf_workspace_stylus_screen.dart').readAsStringSync();
+
+    expect(source, contains('PdfTextSearcher(_controller)'));
+    expect(source, contains('_textSearcher.pageTextMatchPaintCallback'));
+    expect(source, contains("LogicalKeyboardKey.keyF, control: true"));
+    expect(source, contains("tooltip: 'Ocorrência anterior'"));
+    expect(source, contains("tooltip: 'Próxima ocorrência'"));
+    expect(source, contains('onChanged: _scheduleSearch'));
+    expect(source, contains('onSubmitted: _submitSearch'));
+  });
+
   test('workspace search keeps result navigation open while changing pages', () {
     final source =
         File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
