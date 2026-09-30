@@ -8,13 +8,18 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
 import android.text.TextUtils
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -138,6 +143,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var highlighterButton: Button
     private lateinit var eraserButton: Button
     private lateinit var readerFrame: StylusRouterLayout
+    private lateinit var searchBar: LinearLayout
+    private lateinit var searchInput: EditText
+    private lateinit var searchCountLabel: TextView
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private var searchWholeWord = false
+    private var searchCaseSensitive = false
+    private var pendingSearchRunnable: Runnable? = null
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
@@ -300,6 +312,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         navigationRow.addView(button("Ir") { showPageJumpDialog() })
         navigationRow.addView(button("›") { js("LexPDF.nextPage()") })
+        navigationRow.addView(button("Buscar") { showSearchBar() })
         navigationRow.addView(button("−") { js("LexPDF.zoomOut()") })
         navigationRow.addView(button("+") { js("LexPDF.zoomIn()") })
         navigationRow.addView(
@@ -439,6 +452,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             )
         }
 
+        searchBar = buildSearchBar()
+        root.addView(
+            searchBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                52.dp,
+            ),
+        )
+        searchBar.visibility = View.GONE
+
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
             onStylusEvent = { event -> handleStylusEvent(event) }
@@ -524,6 +547,154 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
         selectInk(currentKind)
+    }
+
+    private fun buildSearchBar(): LinearLayout {
+        val row =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(10.dp, 4.dp, 6.dp, 4.dp)
+                setBackgroundColor(Color.rgb(242, 244, 247))
+            }
+
+        searchInput =
+            EditText(this).apply {
+                hint = "Localizar palavra ou frase"
+                setSingleLine(true)
+                textSize = 15f
+                inputType = InputType.TYPE_CLASS_TEXT
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                setPadding(8.dp, 0, 8.dp, 0)
+                addTextChangedListener(
+                    object : TextWatcher {
+                        override fun beforeTextChanged(
+                            s: CharSequence?,
+                            start: Int,
+                            count: Int,
+                            after: Int,
+                        ) = Unit
+
+                        override fun onTextChanged(
+                            s: CharSequence?,
+                            start: Int,
+                            before: Int,
+                            count: Int,
+                        ) {
+                            scheduleNativeSearch()
+                        }
+
+                        override fun afterTextChanged(s: Editable?) = Unit
+                    },
+                )
+                setOnEditorActionListener { _, _, _ ->
+                    startNativeSearch()
+                    true
+                }
+            }
+        row.addView(
+            searchInput,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
+        )
+
+        searchCountLabel =
+            TextView(this).apply {
+                gravity = Gravity.CENTER
+                textSize = 13f
+                setTextColor(Color.rgb(50, 53, 59))
+                text = "0/0"
+            }
+        row.addView(
+            searchCountLabel,
+            LinearLayout.LayoutParams(64.dp, LinearLayout.LayoutParams.MATCH_PARENT),
+        )
+
+        fun compactButton(label: String, action: () -> Unit): Button =
+            Button(this).apply {
+                text = label
+                isAllCaps = false
+                minWidth = 44.dp
+                minimumWidth = 44.dp
+                setSingleLine(true)
+                setPadding(5.dp, 0, 5.dp, 0)
+                setOnClickListener { action() }
+            }
+
+        row.addView(compactButton("‹") { js("LexPDF.previousSearchMatch()") })
+        row.addView(compactButton("›") { js("LexPDF.nextSearchMatch()") })
+        row.addView(compactButton("⋯") { showSearchOptionsDialog() })
+        row.addView(compactButton("×") { hideSearchBar() })
+        return row
+    }
+
+    private fun showSearchBar() {
+        searchBar.visibility = View.VISIBLE
+        searchInput.requestFocus()
+        searchInput.selectAll()
+        searchInput.post {
+            val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            keyboard?.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun hideSearchBar() {
+        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        pendingSearchRunnable = null
+        searchInput.clearFocus()
+        val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        keyboard?.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        searchBar.visibility = View.GONE
+        searchCountLabel.text = "0/0"
+        js("LexPDF.clearSearch()")
+    }
+
+    private fun scheduleNativeSearch() {
+        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        val runnable = Runnable { startNativeSearch() }
+        pendingSearchRunnable = runnable
+        searchHandler.postDelayed(runnable, 220L)
+    }
+
+    private fun startNativeSearch() {
+        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        pendingSearchRunnable = null
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        if (query.isBlank()) {
+            searchCountLabel.text = "0/0"
+            js("LexPDF.clearSearch()")
+            return
+        }
+        val encoded = JSONObject.quote(query)
+        js(
+            "LexPDF.startSearch(" +
+                encoded +
+                "," +
+                searchCaseSensitive +
+                "," +
+                searchWholeWord +
+                ")",
+        )
+    }
+
+    private fun showSearchOptionsDialog() {
+        val labels =
+            arrayOf(
+                "Palavra inteira",
+                "Diferenciar maiúsculas/minúsculas",
+            )
+        val values = booleanArrayOf(searchWholeWord, searchCaseSensitive)
+        AlertDialog.Builder(this)
+            .setTitle("Opções de pesquisa")
+            .setMultiChoiceItems(labels, values) { _, which, checked ->
+                values[which] = checked
+            }
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Aplicar") { _, _ ->
+                searchWholeWord = values[0]
+                searchCaseSensitive = values[1]
+                startNativeSearch()
+            }
+            .show()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -722,6 +893,26 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     "JS07_OUTLINE_READY",
                     "entries=${parsed.size} source=$outlineSource",
                 )
+            }
+        }
+
+        @JavascriptInterface
+        fun searchState(payload: String) {
+            runOnUiThread {
+                try {
+                    val value = JSONObject(payload)
+                    val current = value.optInt("current", 0)
+                    val total = value.optInt("total", 0)
+                    val searching = value.optBoolean("searching", false)
+                    searchCountLabel.text =
+                        if (searching) {
+                            "$current/$total…"
+                        } else {
+                            "$current/$total"
+                        }
+                } catch (_: Exception) {
+                    searchCountLabel.text = "0/0"
+                }
             }
         }
 
