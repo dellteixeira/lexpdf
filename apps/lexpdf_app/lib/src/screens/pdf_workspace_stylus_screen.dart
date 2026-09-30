@@ -461,11 +461,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   void _toggleSearchOption(_SearchOption option) {
     setState(() {
-      switch (option) {
-        case _SearchOption.wholeWord:
-          _searchWholeWord = !_searchWholeWord;
-        case _SearchOption.caseSensitive:
-          _searchCaseSensitive = !_searchCaseSensitive;
+      if (option == _SearchOption.wholeWord) {
+        _searchWholeWord = !_searchWholeWord;
+      } else {
+        _searchCaseSensitive = !_searchCaseSensitive;
       }
     });
     _startTextSearch();
