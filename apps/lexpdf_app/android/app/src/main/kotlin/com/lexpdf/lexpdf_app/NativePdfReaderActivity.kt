@@ -73,11 +73,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         private const val LOCAL_ORIGIN = "https://lexpdf.local"
         private const val VIEWER_URL = "$LOCAL_ORIGIN/viewer.html"
-        private const val PDFJS_ROOT = "$LOCAL_ORIGIN/pdfjs"
-        private const val PDFJS_MODULE_URL = "$PDFJS_ROOT/build/pdf.min.mjs"
-        private const val PDFJS_WORKER_URL = "$PDFJS_ROOT/build/pdf.worker.min.mjs"
-        private const val PDFJS_STANDARD_FONTS_URL = "$PDFJS_ROOT/standard_fonts/"
-        private const val PDFJS_WASM_URL = "$PDFJS_ROOT/wasm/"
         private const val PDFJS_VERSION = "6.3.289"
         private const val RANGE_CHUNK_SIZE = 512 * 1024
         private const val SIDECAR_VERSION = 3
@@ -204,18 +199,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         loadInkForPage(currentPageIndex)
         PdfCrashDiagnostics.mark(this, "JS03_BEFORE_LOAD_VIEWER")
         webView.loadUrl(VIEWER_URL)
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-
-        // The manifest keeps this Activity alive across orientation changes to
-        // protect the isolated reader process. Recreate explicitly so buildUi()
-        // can switch between the validated portrait two-row toolbar and the
-        // single 48dp landscape row, while carrying the exact visible page.
-        intent.putExtra(EXTRA_INITIAL_PAGE, currentPageIndex + 1)
-        publishLastPageResult()
-        recreate()
     }
 
     private fun configureWebViewProcessStorage() {
@@ -502,24 +485,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest,
-                ): WebResourceResponse {
-                    val url = request.url
-                    if (url.scheme != "https" || url.host != "lexpdf.local") {
-                        return blockedNetworkResponse()
+                ): WebResourceResponse? {
+                    return when (request.url.toString()) {
+                        VIEWER_URL -> htmlResponse()
+                        else -> null
                     }
-                    if (url.toString() == VIEWER_URL) return htmlResponse()
-                    if (url.path?.startsWith("/pdfjs/") == true) {
-                        return pdfJsAssetResponse(url.path.orEmpty())
-                    }
-                    return notFoundResponse()
-                }
-
-                override fun shouldOverrideUrlLoading(
-                    view: WebView?,
-                    request: WebResourceRequest,
-                ): Boolean {
-                    val url = request.url
-                    return url.scheme != "https" || url.host != "lexpdf.local"
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -548,59 +518,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ByteArrayInputStream(bytes),
         )
     }
-
-
-    private fun pdfJsAssetResponse(path: String): WebResourceResponse {
-        val relative = path.removePrefix("/pdfjs/").trimStart('/')
-        if (relative.isBlank() || relative.contains("..")) return notFoundResponse()
-
-        return try {
-            val stream = assets.open("pdfjs/$relative")
-            val mimeType =
-                when {
-                    relative.endsWith(".mjs") || relative.endsWith(".js") ->
-                        "text/javascript"
-                    relative.endsWith(".wasm") -> "application/wasm"
-                    relative.endsWith(".ttf") -> "font/ttf"
-                    relative.endsWith(".otf") -> "font/otf"
-                    relative.endsWith(".pfb") -> "application/octet-stream"
-                    else -> "application/octet-stream"
-                }
-            WebResourceResponse(
-                mimeType,
-                if (mimeType.startsWith("text/")) "utf-8" else null,
-                200,
-                "OK",
-                mapOf(
-                    "Cache-Control" to "public, max-age=31536000, immutable",
-                    "Cross-Origin-Resource-Policy" to "same-origin",
-                ),
-                stream,
-            )
-        } catch (_: Throwable) {
-            notFoundResponse()
-        }
-    }
-
-    private fun blockedNetworkResponse(): WebResourceResponse =
-        WebResourceResponse(
-            "text/plain",
-            "utf-8",
-            403,
-            "Forbidden",
-            mapOf("Cache-Control" to "no-store"),
-            ByteArrayInputStream("External network access is disabled in the LexPDF reader.".toByteArray()),
-        )
-
-    private fun notFoundResponse(): WebResourceResponse =
-        WebResourceResponse(
-            "text/plain",
-            "utf-8",
-            404,
-            "Not Found",
-            mapOf("Cache-Control" to "no-store"),
-            ByteArrayInputStream(ByteArray(0)),
-        )
 
     private inner class JsBridge {
         @JavascriptInterface
@@ -824,7 +741,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; style-src 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'">
   <style>
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:center}
@@ -837,8 +753,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 <div id="stage"><div id="wrap"><canvas id="pdf"></canvas></div></div>
 <div id="loading">Abrindo PDF…</div>
 <script type="module">
-import * as pdfjsLib from '${PDFJS_MODULE_URL}';
-pdfjsLib.GlobalWorkerOptions.workerSrc = '${PDFJS_WORKER_URL}';
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs';
 
 const PDF_LENGTH = ${sourceFile.length()};
 const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
@@ -1747,8 +1664,10 @@ function hypot(a,b) {
       disableStream: true,
       disableAutoFetch: true,
       disableRange: false,
-      standardFontDataUrl: '${PDFJS_STANDARD_FONTS_URL}',
-      wasmUrl: '${PDFJS_WASM_URL}'
+      standardFontDataUrl:
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/standard_fonts/',
+      wasmUrl:
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/wasm/'
     });
     pdf = await task.promise;
     LexPdfBridge.ready(pdf.numPages);
