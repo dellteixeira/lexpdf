@@ -638,7 +638,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun hideSearchBar() {
-        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
         pendingSearchRunnable = null
         searchInput.clearFocus()
         val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -649,14 +649,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun scheduleNativeSearch() {
-        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
         val runnable = Runnable { startNativeSearch() }
         pendingSearchRunnable = runnable
         searchHandler.postDelayed(runnable, 220L)
     }
 
     private fun startNativeSearch() {
-        pendingSearchRunnable?.let(searchHandler::removeCallbacks)
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
         pendingSearchRunnable = null
         val query = searchInput.text?.toString()?.trim().orEmpty()
         if (query.isBlank()) {
