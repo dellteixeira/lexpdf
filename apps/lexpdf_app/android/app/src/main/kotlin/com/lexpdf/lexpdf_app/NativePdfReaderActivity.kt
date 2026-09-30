@@ -259,6 +259,20 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     TypedValue.COMPLEX_UNIT_SP,
                 )
                 setPadding(8.dp, 0, 8.dp, 0)
+                isClickable = true
+                isFocusable = true
+                setOnTouchListener { view, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.ACTION_MOVE,
+                        -> view.parent?.requestDisallowInterceptTouchEvent(true)
+
+                        MotionEvent.ACTION_UP,
+                        MotionEvent.ACTION_CANCEL,
+                        -> view.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    false
+                }
                 setOnClickListener { onClick() }
             }
 
