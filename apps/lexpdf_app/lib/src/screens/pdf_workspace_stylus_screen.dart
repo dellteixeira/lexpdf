@@ -44,6 +44,8 @@ enum _WorkspaceMoreAction {
 
 enum _StylusMode { hand, selectText, note, pen, highlighter, eraser }
 
+enum _SearchOption { wholeWord, caseSensitive }
+
 class PdfWorkspaceScreen extends StatefulWidget {
   const PdfWorkspaceScreen({
     required this.document,
@@ -56,6 +58,8 @@ class PdfWorkspaceScreen extends StatefulWidget {
     this.onPageChanged,
     this.onReaderActivity,
     this.onViewerDocumentChanged,
+    this.searchVisible = false,
+    this.onSearchClosed,
     super.key,
   });
 
@@ -69,6 +73,8 @@ class PdfWorkspaceScreen extends StatefulWidget {
   final ValueChanged<int>? onPageChanged;
   final VoidCallback? onReaderActivity;
   final ValueChanged<PdfDocument?>? onViewerDocumentChanged;
+  final bool searchVisible;
+  final VoidCallback? onSearchClosed;
 
   @override
   State<PdfWorkspaceScreen> createState() => _PdfWorkspaceScreenState();
@@ -89,6 +95,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
 
   final PdfViewerController _controller = PdfViewerController();
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'pdf-workspace');
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode(debugLabel: 'pdf-text-search');
+  PdfTextSearcher? _textSearcher;
+  Timer? _searchDebounce;
+  bool _searchWholeWord = false;
+  bool _searchCaseSensitive = false;
   final List<int> _backHistory = <int>[];
   final List<int> _forwardHistory = <int>[];
   final Map<int, List<PdfInkStroke>> _inkByPage = <int, List<PdfInkStroke>>{};
@@ -281,6 +293,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   @override
   void didUpdateWidget(covariant PdfWorkspaceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.searchVisible && widget.searchVisible) {
+      _focusSearchField();
+    } else if (oldWidget.searchVisible && !widget.searchVisible) {
+      _resetTextSearch(clearQuery: true);
+    }
     if (oldWidget.fullScreen == widget.fullScreen) return;
 
     // Changing the amount of chrome changes the viewer viewport. pdfrx may
@@ -346,11 +363,228 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     }
     widget.onViewerDocumentChanged?.call(null);
     _controller.removeListener(_syncZoomFromController);
+    _searchDebounce?.cancel();
+    _textSearcher?.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     _keyboardFocusNode.dispose();
     if (_android && _readingMode) {
       unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     }
     super.dispose();
+  }
+
+  void _attachTextSearcher(PdfViewerController controller) {
+    if (_android) return;
+    _textSearcher?.dispose();
+    _textSearcher = PdfTextSearcher(controller)..addListener(_onTextSearchChanged);
+    if (widget.searchVisible) {
+      _focusSearchField();
+      if (_searchController.text.trim().isNotEmpty) {
+        _startTextSearch();
+      }
+    }
+  }
+
+  void _onTextSearchChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_controller.isReady) {
+      _controller.invalidate();
+    }
+  }
+
+  void _focusSearchField() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.searchVisible) return;
+      _searchFocusNode.requestFocus();
+      _searchController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _searchController.text.length,
+      );
+    });
+  }
+
+  void _scheduleTextSearch(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 220), _startTextSearch);
+  }
+
+  Pattern _searchPattern(String query) {
+    if (!_searchWholeWord) return query;
+    final escaped = RegExp.escape(query);
+    return RegExp(
+      '(?<![A-Za-zÀ-ÖØ-öø-ÿ0-9_])$escaped(?![A-Za-zÀ-ÖØ-öø-ÿ0-9_])',
+      caseSensitive: _searchCaseSensitive,
+      unicode: true,
+    );
+  }
+
+  void _startTextSearch() {
+    final searcher = _textSearcher;
+    if (searcher == null) return;
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      searcher.resetTextSearch();
+      return;
+    }
+    searcher.startTextSearch(
+      _searchPattern(query),
+      caseInsensitive: !_searchCaseSensitive,
+      goToFirstMatch: true,
+      searchImmediately: true,
+    );
+  }
+
+  void _resetTextSearch({bool clearQuery = false}) {
+    _searchDebounce?.cancel();
+    _textSearcher?.resetTextSearch();
+    if (clearQuery) {
+      _searchController.clear();
+    }
+    if (_controller.isReady) {
+      _controller.invalidate();
+    }
+  }
+
+  Future<void> _nextTextSearchMatch() async {
+    final searcher = _textSearcher;
+    if (searcher == null || !searcher.hasMatches) return;
+    await searcher.goToNextMatch();
+  }
+
+  Future<void> _previousTextSearchMatch() async {
+    final searcher = _textSearcher;
+    if (searcher == null || !searcher.hasMatches) return;
+    await searcher.goToPrevMatch();
+  }
+
+  void _toggleSearchOption(_SearchOption option) {
+    setState(() {
+      if (option == _SearchOption.wholeWord) {
+        _searchWholeWord = !_searchWholeWord;
+      } else {
+        _searchCaseSensitive = !_searchCaseSensitive;
+      }
+    });
+    _startTextSearch();
+  }
+
+  void _closeTextSearch() {
+    _resetTextSearch(clearQuery: true);
+    widget.onSearchClosed?.call();
+  }
+
+  Widget _buildTextSearchBar() {
+    final scheme = Theme.of(context).colorScheme;
+    final searcher = _textSearcher;
+    final total = searcher?.matches.length ?? 0;
+    final currentIndex = searcher?.currentIndex;
+    final current = total == 0 ? 0 : ((currentIndex ?? 0) + 1).clamp(1, total);
+    final searching = searcher?.isSearching ?? false;
+    final progress = searcher?.searchProgress;
+
+    return Material(
+      elevation: 5,
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 360, maxWidth: 620),
+        padding: const EdgeInsets.fromLTRB(10, 7, 6, 7),
+        decoration: BoxDecoration(
+          border: Border.all(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (searching)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: progress,
+                  ),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(Icons.search, size: 19, color: scheme.onSurfaceVariant),
+              ),
+            Flexible(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                autofocus: true,
+                maxLines: 1,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: 'Localizar palavra ou frase',
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 2, vertical: 9),
+                ),
+                onChanged: _scheduleTextSearch,
+                onSubmitted: (_) {
+                  if (searcher?.hasMatches == true) {
+                    unawaited(_nextTextSearchMatch());
+                  } else {
+                    _startTextSearch();
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$current/$total',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            IconButton(
+              tooltip: 'Ocorrência anterior',
+              visualDensity: VisualDensity.compact,
+              onPressed: total == 0
+                  ? null
+                  : () => unawaited(_previousTextSearchMatch()),
+              icon: const Icon(Icons.keyboard_arrow_up),
+            ),
+            IconButton(
+              tooltip: 'Próxima ocorrência',
+              visualDensity: VisualDensity.compact,
+              onPressed: total == 0
+                  ? null
+                  : () => unawaited(_nextTextSearchMatch()),
+              icon: const Icon(Icons.keyboard_arrow_down),
+            ),
+            PopupMenuButton<_SearchOption>(
+              tooltip: 'Opções de pesquisa',
+              icon: const Icon(Icons.more_horiz),
+              onSelected: _toggleSearchOption,
+              itemBuilder: (context) => [
+                CheckedPopupMenuItem(
+                  value: _SearchOption.wholeWord,
+                  checked: _searchWholeWord,
+                  child: const Text('Palavra inteira'),
+                ),
+                CheckedPopupMenuItem(
+                  value: _SearchOption.caseSensitive,
+                  checked: _searchCaseSensitive,
+                  child: const Text('Diferenciar maiúsculas/minúsculas'),
+                ),
+              ],
+            ),
+            IconButton(
+              tooltip: 'Fechar pesquisa',
+              visualDensity: VisualDensity.compact,
+              onPressed: _closeTextSearch,
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -414,8 +648,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           const SingleActivator(LogicalKeyboardKey.keyH, control: true):
               _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.f11): _requestFullScreen,
+          const SingleActivator(LogicalKeyboardKey.f3): () {
+            if (widget.searchVisible) {
+              unawaited(_nextTextSearchMatch());
+            }
+          },
+          const SingleActivator(LogicalKeyboardKey.f3, shift: true): () {
+            if (widget.searchVisible) {
+              unawaited(_previousTextSearchMatch());
+            }
+          },
           const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (widget.fullScreen) {
+            if (widget.searchVisible) {
+              _closeTextSearch();
+            } else if (widget.fullScreen) {
               widget.onToggleFullScreen?.call();
             } else if (_readingMode) {
               unawaited(_setReadingMode(false));
@@ -602,7 +848,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                 ? const []
                                 : (_windows10Tiles
                                       ? const []
-                                      : [_selectionMenu.paint]),
+                                      : [
+                                          if (_textSearcher != null)
+                                            _textSearcher!.pageTextMatchPaintCallback,
+                                          _selectionMenu.paint,
+                                        ]),
                             layoutPages: switch (_viewMode) {
                               _PdfViewMode.continuous => null,
                               _PdfViewMode.horizontal => _horizontalLayout,
@@ -642,6 +892,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                                     child: CustomPaint(
                                       painter: _SelectionMarkupOverlayPainter(
                                         menu: _selectionMenu,
+                                        pageRect: pageRect,
+                                        page: page,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (_windows10Tiles && _textSearcher != null)
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: CustomPaint(
+                                      painter: _PdfSearchHighlightOverlayPainter(
+                                        searcher: _textSearcher!,
                                         pageRect: pageRect,
                                         page: page,
                                       ),
@@ -690,6 +952,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             onViewerReady: (document, controller) {
                               _document = document;
                               _syncZoomFromController();
+                              if (!_android) {
+                                _attachTextSearcher(controller);
+                              }
                               if (mounted) setState(() {});
 
                               if (!_android) {
@@ -719,6 +984,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         ),
                       ),
                     ),
+                    if (widget.searchVisible && !_android)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        left: 12,
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: _buildTextSearchBar(),
+                        ),
+                      ),
                     if (!_readingMode && _loadingInk)
                       const Positioned(
                         right: 16,
@@ -2054,6 +2329,44 @@ class _SelectionMarkupOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SelectionMarkupOverlayPainter oldDelegate) =>
+      true;
+}
+
+class _PdfSearchHighlightOverlayPainter extends CustomPainter {
+  const _PdfSearchHighlightOverlayPainter({
+    required this.searcher,
+    required this.pageRect,
+    required this.page,
+  });
+
+  final PdfTextSearcher searcher;
+  final Rect pageRect;
+  final PdfPage page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final matches = searcher.matches;
+    if (matches.isEmpty) return;
+    final currentIndex = searcher.currentIndex;
+    for (var index = 0; index < matches.length; index++) {
+      final match = matches[index];
+      if (match.pageNumber != page.pageNumber) continue;
+      final rect = match.bounds.toRectInDocument(
+        page: page,
+        pageRect: pageRect,
+      );
+      final localRect = rect.shift(-pageRect.topLeft);
+      final paint = Paint()
+        ..color = index == currentIndex
+            ? const Color(0x99FF9800)
+            : const Color(0x66FFEB3B)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(localRect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PdfSearchHighlightOverlayPainter oldDelegate) =>
       true;
 }
 

@@ -8,13 +8,18 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
 import android.text.TextUtils
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -138,6 +143,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var highlighterButton: Button
     private lateinit var eraserButton: Button
     private lateinit var readerFrame: StylusRouterLayout
+    private lateinit var searchBar: LinearLayout
+    private lateinit var searchInput: EditText
+    private lateinit var searchCountLabel: TextView
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private var searchWholeWord = false
+    private var searchCaseSensitive = false
+    private var pendingSearchRunnable: Runnable? = null
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
@@ -300,6 +312,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         navigationRow.addView(button("Ir") { showPageJumpDialog() })
         navigationRow.addView(button("›") { js("LexPDF.nextPage()") })
+        navigationRow.addView(button("Buscar") { showSearchBar() })
         navigationRow.addView(button("−") { js("LexPDF.zoomOut()") })
         navigationRow.addView(button("+") { js("LexPDF.zoomIn()") })
         navigationRow.addView(
@@ -439,6 +452,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             )
         }
 
+        searchBar = buildSearchBar()
+        root.addView(
+            searchBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                52.dp,
+            ),
+        )
+        searchBar.visibility = View.GONE
+
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
             onStylusEvent = { event -> handleStylusEvent(event) }
@@ -524,6 +547,154 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
         selectInk(currentKind)
+    }
+
+    private fun buildSearchBar(): LinearLayout {
+        val row =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(10.dp, 4.dp, 6.dp, 4.dp)
+                setBackgroundColor(Color.rgb(242, 244, 247))
+            }
+
+        searchInput =
+            EditText(this).apply {
+                hint = "Localizar palavra ou frase"
+                setSingleLine(true)
+                textSize = 15f
+                inputType = InputType.TYPE_CLASS_TEXT
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                setPadding(8.dp, 0, 8.dp, 0)
+                addTextChangedListener(
+                    object : TextWatcher {
+                        override fun beforeTextChanged(
+                            s: CharSequence?,
+                            start: Int,
+                            count: Int,
+                            after: Int,
+                        ) = Unit
+
+                        override fun onTextChanged(
+                            s: CharSequence?,
+                            start: Int,
+                            before: Int,
+                            count: Int,
+                        ) {
+                            scheduleNativeSearch()
+                        }
+
+                        override fun afterTextChanged(s: Editable?) = Unit
+                    },
+                )
+                setOnEditorActionListener { _, _, _ ->
+                    startNativeSearch()
+                    true
+                }
+            }
+        row.addView(
+            searchInput,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
+        )
+
+        searchCountLabel =
+            TextView(this).apply {
+                gravity = Gravity.CENTER
+                textSize = 13f
+                setTextColor(Color.rgb(50, 53, 59))
+                text = "0/0"
+            }
+        row.addView(
+            searchCountLabel,
+            LinearLayout.LayoutParams(64.dp, LinearLayout.LayoutParams.MATCH_PARENT),
+        )
+
+        fun compactButton(label: String, action: () -> Unit): Button =
+            Button(this).apply {
+                text = label
+                isAllCaps = false
+                minWidth = 44.dp
+                minimumWidth = 44.dp
+                setSingleLine(true)
+                setPadding(5.dp, 0, 5.dp, 0)
+                setOnClickListener { action() }
+            }
+
+        row.addView(compactButton("‹") { js("LexPDF.previousSearchMatch()") })
+        row.addView(compactButton("›") { js("LexPDF.nextSearchMatch()") })
+        row.addView(compactButton("⋯") { showSearchOptionsDialog() })
+        row.addView(compactButton("×") { hideSearchBar() })
+        return row
+    }
+
+    private fun showSearchBar() {
+        searchBar.visibility = View.VISIBLE
+        searchInput.requestFocus()
+        searchInput.selectAll()
+        searchInput.post {
+            val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            keyboard?.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun hideSearchBar() {
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
+        pendingSearchRunnable = null
+        searchInput.clearFocus()
+        val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        keyboard?.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        searchBar.visibility = View.GONE
+        searchCountLabel.text = "0/0"
+        js("LexPDF.clearSearch()")
+    }
+
+    private fun scheduleNativeSearch() {
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
+        val runnable = Runnable { startNativeSearch() }
+        pendingSearchRunnable = runnable
+        searchHandler.postDelayed(runnable, 220L)
+    }
+
+    private fun startNativeSearch() {
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
+        pendingSearchRunnable = null
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        if (query.isBlank()) {
+            searchCountLabel.text = "0/0"
+            js("LexPDF.clearSearch()")
+            return
+        }
+        val encoded = JSONObject.quote(query)
+        js(
+            "LexPDF.startSearch(" +
+                encoded +
+                "," +
+                searchCaseSensitive +
+                "," +
+                searchWholeWord +
+                ")",
+        )
+    }
+
+    private fun showSearchOptionsDialog() {
+        val labels =
+            arrayOf(
+                "Palavra inteira",
+                "Diferenciar maiúsculas/minúsculas",
+            )
+        val values = booleanArrayOf(searchWholeWord, searchCaseSensitive)
+        AlertDialog.Builder(this)
+            .setTitle("Opções de pesquisa")
+            .setMultiChoiceItems(labels, values) { _, which, checked ->
+                values[which] = checked
+            }
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Aplicar") { _, _ ->
+                searchWholeWord = values[0]
+                searchCaseSensitive = values[1]
+                startNativeSearch()
+            }
+            .show()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -726,6 +897,26 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         @JavascriptInterface
+        fun searchState(payload: String) {
+            runOnUiThread {
+                try {
+                    val value = JSONObject(payload)
+                    val current = value.optInt("current", 0)
+                    val total = value.optInt("total", 0)
+                    val searching = value.optBoolean("searching", false)
+                    searchCountLabel.text =
+                        if (searching) {
+                            "$current/$total…"
+                        } else {
+                            "$current/$total"
+                        }
+                } catch (_: Exception) {
+                    searchCountLabel.text = "0/0"
+                }
+            }
+        }
+
+        @JavascriptInterface
         fun pageChanged(page: Int) {
             runOnUiThread {
                 val next = (page - 1).coerceAtLeast(0)
@@ -848,6 +1039,14 @@ let printedPaginationReady = false;
 const printedToPhysical = new Map();
 const physicalToPrinted = new Map();
 let numericPaginationSegments = [];
+
+let searchGeneration = 0;
+let searchMatches = [];
+let searchCurrentIndex = -1;
+let searchInProgress = false;
+let searchQuery = '';
+let searchCaseSensitive = false;
+let searchWholeWord = false;
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -1514,6 +1713,172 @@ async function loadNavigationMetadata() {
   }
 }
 
+function isSearchWordChar(value) {
+  return /[A-Za-zÀ-ÖØ-öø-ÿ0-9_]/.test(String(value || ''));
+}
+
+function buildSearchPageText(content) {
+  let text = '';
+  const spans = [];
+  const items = content.items || [];
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    const item = items[itemIndex];
+    const value = String(item.str || '');
+    if (!value) continue;
+    if (text.length > 0) text += ' ';
+    const start = text.length;
+    text += value;
+    spans.push({ start, end: text.length, itemIndex });
+  }
+  return { text, spans, items };
+}
+
+function findSearchRanges(text, query, caseSensitive, wholeWord) {
+  const ranges = [];
+  if (!query) return ranges;
+  const source = caseSensitive ? text : text.toLocaleLowerCase();
+  const needle = caseSensitive ? query : query.toLocaleLowerCase();
+  let offset = 0;
+  while (offset <= source.length - needle.length) {
+    const index = source.indexOf(needle, offset);
+    if (index < 0) break;
+    const end = index + needle.length;
+    const leftOk =
+      !wholeWord || index === 0 || !isSearchWordChar(source.charAt(index - 1));
+    const rightOk =
+      !wholeWord || end >= source.length || !isSearchWordChar(source.charAt(end));
+    if (leftOk && rightOk) ranges.push({ start: index, end });
+    offset = Math.max(index + 1, end);
+  }
+  return ranges;
+}
+
+function reportSearchState(searching) {
+  LexPdfBridge.searchState(JSON.stringify({
+    current: searchCurrentIndex >= 0 ? searchCurrentIndex + 1 : 0,
+    total: searchMatches.length,
+    searching: Boolean(searching)
+  }));
+}
+
+async function searchPageMatches(physical, query, caseSensitive, wholeWord) {
+  const page = await pdf.getPage(physical);
+  try {
+    const content = await page.getTextContent();
+    const built = buildSearchPageText(content);
+    return findSearchRanges(
+      built.text,
+      query,
+      caseSensitive,
+      wholeWord
+    ).map(range => ({
+      page: physical,
+      start: range.start,
+      end: range.end
+    }));
+  } finally {
+    page.cleanup();
+  }
+}
+
+async function startDocumentSearch(query, caseSensitive, wholeWord) {
+  const token = ++searchGeneration;
+  searchMatches = [];
+  searchCurrentIndex = -1;
+  searchQuery = String(query || '').trim();
+  searchCaseSensitive = Boolean(caseSensitive);
+  searchWholeWord = Boolean(wholeWord);
+  searchInProgress = searchQuery.length > 0;
+  reportSearchState(searchInProgress);
+
+  if (!pdf || !searchQuery) {
+    searchInProgress = false;
+    reportSearchState(false);
+    if (pdf) renderPage(pageNumber, true);
+    return;
+  }
+
+  const order = [];
+  for (let page = pageNumber; page <= pdf.numPages; page++) order.push(page);
+  for (let page = 1; page < pageNumber; page++) order.push(page);
+
+  for (let orderIndex = 0; orderIndex < order.length; orderIndex++) {
+    if (token !== searchGeneration) return;
+    const physical = order[orderIndex];
+    try {
+      const found = await searchPageMatches(
+        physical,
+        searchQuery,
+        searchCaseSensitive,
+        searchWholeWord
+      );
+      if (token !== searchGeneration) return;
+      if (found.length) {
+        searchMatches.push(...found);
+        if (searchCurrentIndex < 0) {
+          searchCurrentIndex = 0;
+          renderPage(searchMatches[0].page, true);
+        }
+        reportSearchState(true);
+      } else if (orderIndex % 12 === 0) {
+        reportSearchState(true);
+      }
+    } catch (_) {
+      // A malformed text layer on one page must not cancel the whole search.
+    }
+  }
+
+  if (token !== searchGeneration) return;
+  searchInProgress = false;
+  reportSearchState(false);
+}
+
+async function goToSearchMatch(index) {
+  if (!searchMatches.length) return;
+  const total = searchMatches.length;
+  searchCurrentIndex = ((index % total) + total) % total;
+  const match = searchMatches[searchCurrentIndex];
+  await renderPage(match.page, true);
+  reportSearchState(searchInProgress);
+}
+
+async function paintSearchHighlights(page, viewport, renderScale, target) {
+  if (!searchMatches.length || !searchQuery) return;
+  const pageMatches = [];
+  for (let index = 0; index < searchMatches.length; index++) {
+    const match = searchMatches[index];
+    if (match.page === target) pageMatches.push({ match, index });
+  }
+  if (!pageMatches.length) return;
+
+  try {
+    const content = await page.getTextContent();
+    const built = buildSearchPageText(content);
+    for (const entry of pageMatches) {
+      const active = entry.index === searchCurrentIndex;
+      ctx.save();
+      ctx.fillStyle = active
+        ? 'rgba(255, 152, 0, 0.58)'
+        : 'rgba(255, 235, 59, 0.38)';
+      for (const span of built.spans) {
+        if (span.end <= entry.match.start || span.start >= entry.match.end) continue;
+        const item = built.items[span.itemIndex];
+        if (!item || !Array.isArray(item.transform)) continue;
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const fontHeight = Math.max(4, Math.hypot(tx[2], tx[3]));
+        const width = Math.max(3, Number(item.width || 0) * viewport.scale);
+        ctx.fillRect(
+          tx[4] * renderScale,
+          (tx[5] - fontHeight) * renderScale,
+          width * renderScale,
+          fontHeight * renderScale
+        );
+      }
+      ctx.restore();
+    }
+  } catch (_) {}
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -1592,6 +1957,8 @@ async function renderPage(target, preserveCenter = false) {
     renderTask = null;
 
     if (token !== renderToken) return;
+    await paintSearchHighlights(page, viewport, renderScale, target);
+    if (token !== renderToken) return;
     const pageChanged = pageNumber !== target;
     pageNumber = target;
     page.cleanup();
@@ -1625,6 +1992,24 @@ window.LexPDF = {
   goToPage(page) { renderPage(Number(page)); },
   nextPage() { renderPage(pageNumber + 1); },
   previousPage() { renderPage(pageNumber - 1); },
+  startSearch(query, caseSensitive, wholeWord) {
+    startDocumentSearch(query, caseSensitive, wholeWord);
+  },
+  nextSearchMatch() {
+    goToSearchMatch(searchCurrentIndex + 1);
+  },
+  previousSearchMatch() {
+    goToSearchMatch(searchCurrentIndex - 1);
+  },
+  clearSearch() {
+    searchGeneration++;
+    searchMatches = [];
+    searchCurrentIndex = -1;
+    searchQuery = '';
+    searchInProgress = false;
+    reportSearchState(false);
+    renderPage(pageNumber, true);
+  },
   zoomIn() {
     scale = Math.min(4.0, scale * 1.2);
     renderPage(pageNumber, true);
@@ -2542,6 +2927,8 @@ function hypot(a,b) {
             wetInkView.clearFinishedStrokesListeners()
         } catch (_: Throwable) {
         }
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
+        pendingSearchRunnable = null
         try {
             rangeReader?.close()
             rangeReader = null
