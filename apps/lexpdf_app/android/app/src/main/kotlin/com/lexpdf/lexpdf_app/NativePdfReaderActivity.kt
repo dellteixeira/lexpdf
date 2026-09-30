@@ -139,6 +139,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var penButton: Button
     private lateinit var highlighterButton: Button
     private lateinit var eraserButton: Button
+    private lateinit var searchRow: LinearLayout
+    private lateinit var searchInput: EditText
+    private lateinit var searchStatusLabel: TextView
     private lateinit var readerFrame: StylusRouterLayout
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -307,6 +310,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 contentDescription = "Página inteira"
             },
         )
+        navigationRow.addView(button("Buscar") { showSearchPanel() })
         navigationRow.addView(button("Índice") { showOutlineDialog() })
         navigationRow.addView(button("Fechar") { finish() })
 
@@ -406,6 +410,74 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 ),
             )
         }
+
+        searchRow =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(8.dp, 4.dp, 8.dp, 4.dp)
+                setBackgroundColor(Color.rgb(250, 251, 253))
+                visibility = View.GONE
+            }
+
+        searchInput =
+            EditText(this).apply {
+                hint = "Pesquisar palavra ou frase"
+                inputType = InputType.TYPE_CLASS_TEXT
+                isSingleLine = true
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(12.dp, 0, 12.dp, 0)
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                setOnEditorActionListener { _, actionId, _ ->
+                    if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                        runSearchQuery()
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        searchRow.addView(
+            searchInput,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f,
+            ),
+        )
+        searchRow.addView(button("Buscar") { runSearchQuery() })
+
+        searchStatusLabel =
+            TextView(this).apply {
+                text = ""
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(52, 58, 66))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(8.dp, 0, 6.dp, 0)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
+        searchRow.addView(
+            searchStatusLabel,
+            LinearLayout.LayoutParams(112.dp, LinearLayout.LayoutParams.MATCH_PARENT),
+        )
+        searchRow.addView(button("↑") { js("LexPDF.searchPrevious()") }.apply {
+            contentDescription = "Ocorrência anterior"
+        })
+        searchRow.addView(button("↓") { js("LexPDF.searchNext()") }.apply {
+            contentDescription = "Próxima ocorrência"
+        })
+        searchRow.addView(button("×") { closeSearchPanel() }.apply {
+            contentDescription = "Fechar pesquisa"
+        })
+
+        root.addView(
+            searchRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                52.dp,
+            ),
+        )
 
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
@@ -787,6 +859,35 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
 
         @JavascriptInterface
+        fun searchState(json: String) {
+            try {
+                val obj = JSONObject(json)
+                val phase = obj.optString("phase", "idle")
+                val total = obj.optInt("total", 0).coerceAtLeast(0)
+                val current = obj.optInt("current", -1)
+                val page = obj.optInt("page", 0)
+                val scanned = obj.optInt("scanned", 0)
+                val pages = obj.optInt("pages", pageCount)
+
+                runOnUiThread {
+                    searchStatusLabel.text =
+                        when {
+                            phase == "searching" && pages > 0 ->
+                                "Buscando… $scanned/$pages"
+                            total <= 0 && phase == "done" ->
+                                "0 resultados"
+                            total > 0 && current >= 0 && page > 0 ->
+                                "${current + 1} de $total · p. $page"
+                            total > 0 && current >= 0 ->
+                                "${current + 1} de $total"
+                            else -> ""
+                        }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
+        @JavascriptInterface
         fun error(message: String) {
             runOnUiThread {
                 statusLabel.text = "Falha PDF.js"
@@ -829,12 +930,15 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:center}
     #wrap{padding:18px 18px 36px;min-width:max-content}
+    #pageShell{position:relative;display:inline-block}
     canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
+    #searchHighlights{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+    .search-hit{position:absolute;background:rgba(255,213,0,.38);border:1px solid rgba(245,124,0,.9);border-radius:2px;box-sizing:border-box}
     #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#17191dcc;padding:12px 18px;border-radius:18px;font-size:14px}
   </style>
 </head>
 <body>
-<div id="stage"><div id="wrap"><canvas id="pdf"></canvas></div></div>
+<div id="stage"><div id="wrap"><div id="pageShell"><canvas id="pdf"></canvas><div id="searchHighlights"></div></div></div></div>
 <div id="loading">Abrindo PDF…</div>
 <script type="module">
 import * as pdfjsLib from '${PDFJS_MODULE_URL}';
@@ -845,6 +949,7 @@ const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
 const canvas = document.getElementById('pdf');
 const ctx = canvas.getContext('2d', { alpha: false });
 const stage = document.getElementById('stage');
+const searchHighlights = document.getElementById('searchHighlights');
 const loading = document.getElementById('loading');
 
 let pdf = null;
@@ -868,6 +973,10 @@ let printedPaginationReady = false;
 const printedToPhysical = new Map();
 const physicalToPrinted = new Map();
 let numericPaginationSegments = [];
+let searchGeneration = 0;
+let searchResults = [];
+let searchIndex = -1;
+let searchQuery = '';
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -1534,6 +1643,194 @@ async function loadNavigationMetadata() {
   }
 }
 
+function publishSearchState(phase, scanned = 0) {
+  const active = searchIndex >= 0 && searchIndex < searchResults.length
+    ? searchResults[searchIndex]
+    : null;
+  LexPdfBridge.searchState(JSON.stringify({
+    phase,
+    current: searchIndex,
+    total: searchResults.length,
+    page: active ? active.page : 0,
+    scanned,
+    pages: pdf ? pdf.numPages : 0
+  }));
+}
+
+function clearSearchHighlights() {
+  while (searchHighlights.firstChild) {
+    searchHighlights.removeChild(searchHighlights.firstChild);
+  }
+}
+
+function searchableText(content) {
+  let text = '';
+  const spans = [];
+  const items = content.items || [];
+
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    const raw = String(items[itemIndex].str || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!raw) continue;
+
+    if (text.length > 0) text += ' ';
+    const start = text.length;
+    text += raw;
+    spans.push({
+      itemIndex,
+      start,
+      end: text.length,
+      length: raw.length
+    });
+  }
+  return { text, spans };
+}
+
+function findMatchesInPage(content, query) {
+  const built = searchableText(content);
+  const haystack = built.text.toLocaleLowerCase();
+  const needle = query.toLocaleLowerCase();
+  const matches = [];
+  if (!needle) return matches;
+
+  let cursor = 0;
+  while (cursor <= haystack.length - needle.length) {
+    const index = haystack.indexOf(needle, cursor);
+    if (index < 0) break;
+    const end = index + needle.length;
+    const segments = [];
+
+    for (const span of built.spans) {
+      if (span.end <= index || span.start >= end) continue;
+      segments.push({
+        itemIndex: span.itemIndex,
+        from: Math.max(0, index - span.start),
+        to: Math.min(span.length, end - span.start)
+      });
+    }
+    if (segments.length > 0) matches.push({ segments });
+    cursor = Math.max(index + 1, end);
+  }
+  return matches;
+}
+
+async function startTextSearch(rawQuery) {
+  const generation = ++searchGeneration;
+  searchQuery = String(rawQuery || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  searchResults = [];
+  searchIndex = -1;
+  clearSearchHighlights();
+
+  if (!pdf || !searchQuery) {
+    publishSearchState('idle');
+    return;
+  }
+
+  publishSearchState('searching', 0);
+
+  for (let physical = 1; physical <= pdf.numPages; physical++) {
+    if (generation !== searchGeneration) return;
+    try {
+      const page = await pdf.getPage(physical);
+      const content = await page.getTextContent();
+      const matches = findMatchesInPage(content, searchQuery);
+      for (const match of matches) {
+        searchResults.push({
+          page: physical,
+          segments: match.segments
+        });
+      }
+      page.cleanup();
+    } catch (_) {}
+
+    if (physical === pdf.numPages || physical % 5 === 0) {
+      publishSearchState('searching', physical);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
+  if (generation !== searchGeneration) return;
+  if (searchResults.length === 0) {
+    publishSearchState('done', pdf.numPages);
+    return;
+  }
+
+  await goToSearchResult(0, generation);
+}
+
+async function renderSearchHighlight(page, viewport) {
+  clearSearchHighlights();
+  if (searchIndex < 0 || searchIndex >= searchResults.length) return;
+
+  const result = searchResults[searchIndex];
+  if (result.page !== page.pageNumber) return;
+
+  let content;
+  try {
+    content = await page.getTextContent();
+  } catch (_) {
+    return;
+  }
+
+  const items = content.items || [];
+  let firstHit = null;
+  for (const segment of result.segments || []) {
+    const item = items[segment.itemIndex];
+    if (!item || !Array.isArray(item.transform)) continue;
+
+    const raw = String(item.str || '');
+    const textLength = Math.max(1, raw.length);
+    const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const itemWidth = Math.max(3, Math.abs(Number(item.width || 0) * scale));
+    const itemHeight = Math.max(9, Math.hypot(tx[2], tx[3]));
+    const fromRatio = Math.max(0, Math.min(1, segment.from / textLength));
+    const toRatio = Math.max(fromRatio, Math.min(1, segment.to / textLength));
+
+    const hit = document.createElement('div');
+    hit.className = 'search-hit';
+    hit.style.left = (tx[4] + itemWidth * fromRatio) + 'px';
+    hit.style.top = (tx[5] - itemHeight) + 'px';
+    hit.style.width = Math.max(3, itemWidth * (toRatio - fromRatio)) + 'px';
+    hit.style.height = Math.max(9, itemHeight) + 'px';
+    searchHighlights.appendChild(hit);
+    if (!firstHit) firstHit = hit;
+  }
+
+  if (firstHit) {
+    requestAnimationFrame(() => {
+      try {
+        firstHit.scrollIntoView({
+          block: 'center',
+          inline: 'center',
+          behavior: 'smooth'
+        });
+      } catch (_) {}
+    });
+  }
+}
+
+async function goToSearchResult(index, generation = searchGeneration) {
+  if (!searchResults.length || generation !== searchGeneration) return;
+  const total = searchResults.length;
+  searchIndex = ((index % total) + total) % total;
+  const target = searchResults[searchIndex];
+  await renderPage(target.page);
+  if (generation !== searchGeneration) return;
+  publishSearchState('done', pdf ? pdf.numPages : 0);
+}
+
+function clearTextSearch() {
+  searchGeneration++;
+  searchQuery = '';
+  searchResults = [];
+  searchIndex = -1;
+  clearSearchHighlights();
+  publishSearchState('idle');
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -1614,6 +1911,7 @@ async function renderPage(target, preserveCenter = false) {
     if (token !== renderToken) return;
     const pageChanged = pageNumber !== target;
     pageNumber = target;
+    await renderSearchHighlight(page, viewport);
     page.cleanup();
     if (pageChanged && !preserveCenter) {
       stage.scrollTop = 0;
@@ -1645,6 +1943,10 @@ window.LexPDF = {
   goToPage(page) { renderPage(Number(page)); },
   nextPage() { renderPage(pageNumber + 1); },
   previousPage() { renderPage(pageNumber - 1); },
+  search(query) { return startTextSearch(query); },
+  searchNext() { return goToSearchResult(searchIndex + 1); },
+  searchPrevious() { return goToSearchResult(searchIndex - 1); },
+  clearSearch() { clearTextSearch(); },
   zoomIn() {
     scale = Math.min(4.0, scale * 1.2);
     renderPage(pageNumber, true);
@@ -1785,6 +2087,34 @@ function hypot(a,b) {
                     "$logical · $physical / $pageCount"
                 else -> "$physical / $pageCount"
             }
+    }
+
+    private fun showSearchPanel() {
+        if (!::searchRow.isInitialized) return
+        searchRow.visibility = View.VISIBLE
+        searchStatusLabel.text = ""
+        searchInput.requestFocus()
+        searchInput.selectAll()
+    }
+
+    private fun runSearchQuery() {
+        if (!::searchInput.isInitialized) return
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        if (query.isBlank()) {
+            searchStatusLabel.text = ""
+            js("LexPDF.clearSearch()")
+            return
+        }
+        searchStatusLabel.text = "Buscando…"
+        js("LexPDF.search(${JSONObject.quote(query)})")
+    }
+
+    private fun closeSearchPanel() {
+        if (!::searchRow.isInitialized) return
+        js("LexPDF.clearSearch()")
+        searchStatusLabel.text = ""
+        searchRow.visibility = View.GONE
+        webView.requestFocus()
     }
 
     private fun showPageJumpDialog() {
