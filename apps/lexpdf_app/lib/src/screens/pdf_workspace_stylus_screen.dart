@@ -88,11 +88,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
   ];
 
   final PdfViewerController _controller = PdfViewerController();
+  final TextEditingController _searchController = TextEditingController();
+  late final PdfTextSearcher _textSearcher =
+      PdfTextSearcher(_controller)..addListener(_onSearchChanged);
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'pdf-workspace');
   final List<int> _backHistory = <int>[];
   final List<int> _forwardHistory = <int>[];
   final Map<int, List<PdfInkStroke>> _inkByPage = <int, List<PdfInkStroke>>{};
   final PdfOpenCrashGuard _openCrashGuard = const PdfOpenCrashGuard();
+  Timer? _searchDebounce;
+  bool _searchMode = false;
+  String _activeSearchQuery = '';
 
   late final LocalPdfInkStore _inkStore = LocalPdfInkStore(widget.store.db);
   late final PdfSelectionActionMenu _selectionMenu = PdfSelectionActionMenu(
@@ -346,6 +352,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     }
     widget.onViewerDocumentChanged?.call(null);
     _controller.removeListener(_syncZoomFromController);
+    _searchDebounce?.cancel();
+    _textSearcher.removeListener(_onSearchChanged);
+    _textSearcher.dispose();
+    _searchController.dispose();
     _keyboardFocusNode.dispose();
     if (_android && _readingMode) {
       unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
@@ -411,11 +421,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
               unawaited(_previousPage()),
           const SingleActivator(LogicalKeyboardKey.pageDown): () =>
               unawaited(_nextPage()),
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+              _openSearch,
           const SingleActivator(LogicalKeyboardKey.keyH, control: true):
               _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.f11): _requestFullScreen,
           const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (widget.fullScreen) {
+            if (_searchMode) {
+              _closeSearch();
+            } else if (widget.fullScreen) {
               widget.onToggleFullScreen?.call();
             } else if (_readingMode) {
               unawaited(_setReadingMode(false));
@@ -427,6 +441,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
           autofocus: true,
           child: Column(
             children: [
+              if (!_readingMode && _searchMode) _buildSearchBar(),
               if (!_readingMode) _buildCommandBar(path),
               if (!_readingMode) const Divider(height: 1),
               Expanded(
@@ -600,9 +615,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                             ),
                             pagePaintCallbacks: _androidMinimalReader
                                 ? const []
-                                : (_windows10Tiles
-                                      ? const []
-                                      : [_selectionMenu.paint]),
+                                : [
+                                    if (!_windows10Tiles) _selectionMenu.paint,
+                                    _textSearcher.pageTextMatchPaintCallback,
+                                  ],
                             layoutPages: switch (_viewMode) {
                               _PdfViewMode.continuous => null,
                               _PdfViewMode.horizontal => _horizontalLayout,
@@ -856,6 +872,161 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
     );
   }
 
+  void _onSearchChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _openSearch() {
+    if (_readingMode) {
+      unawaited(_setReadingMode(false));
+    }
+    setState(() => _searchMode = true);
+  }
+
+  void _scheduleSearch(String value) {
+    _searchDebounce?.cancel();
+    setState(() {});
+    final query = value.trim();
+    if (query.isEmpty) {
+      _activeSearchQuery = '';
+      _textSearcher.resetTextSearch();
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 320), () {
+      if (!mounted || _searchController.text.trim() != query) return;
+      _startSearch(query);
+    });
+  }
+
+  void _submitSearch(String value) {
+    _searchDebounce?.cancel();
+    final query = value.trim();
+    if (query.isEmpty) {
+      _activeSearchQuery = '';
+      _textSearcher.resetTextSearch();
+      return;
+    }
+    if (_activeSearchQuery == query && _textSearcher.matches.isNotEmpty) {
+      unawaited(_textSearcher.goToNextMatch());
+      return;
+    }
+    _startSearch(query);
+  }
+
+  void _startSearch(String value) {
+    final query = value.trim();
+    if (query.isEmpty) return;
+    _activeSearchQuery = query;
+    _textSearcher.startTextSearch(
+      query,
+      caseInsensitive: true,
+      goToFirstMatch: true,
+      searchImmediately: true,
+    );
+  }
+
+  void _closeSearch() {
+    _searchDebounce?.cancel();
+    _textSearcher.resetTextSearch();
+    _activeSearchQuery = '';
+    _searchController.clear();
+    if (mounted) setState(() => _searchMode = false);
+    _keyboardFocusNode.requestFocus();
+  }
+
+  Widget _buildSearchBar() {
+    final scheme = Theme.of(context).colorScheme;
+    final matchCount = _textSearcher.matches.length;
+    final currentIndex = _textSearcher.currentIndex;
+    final status = _textSearcher.isSearching
+        ? 'Buscando…'
+        : matchCount == 0
+            ? '0 resultados'
+            : '${(currentIndex ?? 0) + 1} de $matchCount';
+
+    return Material(
+      color: scheme.surface,
+      child: SizedBox(
+        height: 52,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 5, 6, 5),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Pesquisar palavra ou frase',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Limpar busca',
+                            onPressed: () {
+                              _searchController.clear();
+                              _activeSearchQuery = '';
+                              _textSearcher.resetTextSearch();
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.clear, size: 18),
+                          ),
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(11),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: _scheduleSearch,
+                  onSubmitted: _submitSearch,
+                ),
+              ),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 86, maxWidth: 128),
+                child: Text(
+                  status,
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Ocorrência anterior',
+                onPressed: matchCount == 0
+                    ? null
+                    : () => unawaited(_textSearcher.goToPrevMatch()),
+                icon: const Icon(Icons.keyboard_arrow_up),
+              ),
+              IconButton(
+                tooltip: 'Próxima ocorrência',
+                onPressed: matchCount == 0
+                    ? null
+                    : () => unawaited(_textSearcher.goToNextMatch()),
+                icon: const Icon(Icons.keyboard_arrow_down),
+              ),
+              IconButton(
+                tooltip: 'Fechar pesquisa',
+                onPressed: _closeSearch,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCommandBar(String path) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
@@ -900,6 +1071,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
                         tooltip: 'Ir para página',
                         onPressed: _jumpToPage,
                         icon: const Icon(Icons.numbers_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Pesquisar no PDF (Ctrl+F)',
+                        onPressed: _openSearch,
+                        icon: const Icon(Icons.search),
                       ),
                       const SizedBox(width: 4),
                       _stylusButton(
