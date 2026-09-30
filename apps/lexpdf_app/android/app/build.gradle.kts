@@ -1,6 +1,7 @@
 import java.io.FileInputStream
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Base64
 import java.util.Properties
 import java.util.zip.ZipInputStream
 
@@ -36,7 +37,7 @@ val preparePdfJsAssets by tasks.registering {
         }
 
         val actualIntegrity =
-            java.util.Base64.getEncoder().encodeToString(
+            Base64.getEncoder().encodeToString(
                 MessageDigest.getInstance("SHA-512").digest(archive.readBytes()),
             )
         check(actualIntegrity == pdfJsNpmIntegritySha512) {
