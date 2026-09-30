@@ -240,6 +240,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           onPressed: () {
                             _searchController.clear();
                             _searchDebounce?.cancel();
+                            _activeSearchQuery = '';
                             _textSearcher.resetTextSearch();
                             setState(() {});
                           },
