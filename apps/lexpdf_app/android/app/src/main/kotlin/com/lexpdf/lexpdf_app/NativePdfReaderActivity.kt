@@ -1040,6 +1040,14 @@ const printedToPhysical = new Map();
 const physicalToPrinted = new Map();
 let numericPaginationSegments = [];
 
+let searchGeneration = 0;
+let searchMatches = [];
+let searchCurrentIndex = -1;
+let searchInProgress = false;
+let searchQuery = '';
+let searchCaseSensitive = false;
+let searchWholeWord = false;
+
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
     super(length, new Uint8Array(0), false, 'document.pdf');
@@ -1705,6 +1713,172 @@ async function loadNavigationMetadata() {
   }
 }
 
+function isSearchWordChar(value) {
+  return /[A-Za-zÀ-ÖØ-öø-ÿ0-9_]/.test(String(value || ''));
+}
+
+function buildSearchPageText(content) {
+  let text = '';
+  const spans = [];
+  const items = content.items || [];
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    const item = items[itemIndex];
+    const value = String(item.str || '');
+    if (!value) continue;
+    if (text.length > 0) text += ' ';
+    const start = text.length;
+    text += value;
+    spans.push({ start, end: text.length, itemIndex });
+  }
+  return { text, spans, items };
+}
+
+function findSearchRanges(text, query, caseSensitive, wholeWord) {
+  const ranges = [];
+  if (!query) return ranges;
+  const source = caseSensitive ? text : text.toLocaleLowerCase();
+  const needle = caseSensitive ? query : query.toLocaleLowerCase();
+  let offset = 0;
+  while (offset <= source.length - needle.length) {
+    const index = source.indexOf(needle, offset);
+    if (index < 0) break;
+    const end = index + needle.length;
+    const leftOk =
+      !wholeWord || index === 0 || !isSearchWordChar(source.charAt(index - 1));
+    const rightOk =
+      !wholeWord || end >= source.length || !isSearchWordChar(source.charAt(end));
+    if (leftOk && rightOk) ranges.push({ start: index, end });
+    offset = Math.max(index + 1, end);
+  }
+  return ranges;
+}
+
+function reportSearchState(searching) {
+  LexPdfBridge.searchState(JSON.stringify({
+    current: searchCurrentIndex >= 0 ? searchCurrentIndex + 1 : 0,
+    total: searchMatches.length,
+    searching: Boolean(searching)
+  }));
+}
+
+async function searchPageMatches(physical, query, caseSensitive, wholeWord) {
+  const page = await pdf.getPage(physical);
+  try {
+    const content = await page.getTextContent();
+    const built = buildSearchPageText(content);
+    return findSearchRanges(
+      built.text,
+      query,
+      caseSensitive,
+      wholeWord
+    ).map(range => ({
+      page: physical,
+      start: range.start,
+      end: range.end
+    }));
+  } finally {
+    page.cleanup();
+  }
+}
+
+async function startDocumentSearch(query, caseSensitive, wholeWord) {
+  const token = ++searchGeneration;
+  searchMatches = [];
+  searchCurrentIndex = -1;
+  searchQuery = String(query || '').trim();
+  searchCaseSensitive = Boolean(caseSensitive);
+  searchWholeWord = Boolean(wholeWord);
+  searchInProgress = searchQuery.length > 0;
+  reportSearchState(searchInProgress);
+
+  if (!pdf || !searchQuery) {
+    searchInProgress = false;
+    reportSearchState(false);
+    if (pdf) renderPage(pageNumber, true);
+    return;
+  }
+
+  const order = [];
+  for (let page = pageNumber; page <= pdf.numPages; page++) order.push(page);
+  for (let page = 1; page < pageNumber; page++) order.push(page);
+
+  for (let orderIndex = 0; orderIndex < order.length; orderIndex++) {
+    if (token !== searchGeneration) return;
+    const physical = order[orderIndex];
+    try {
+      const found = await searchPageMatches(
+        physical,
+        searchQuery,
+        searchCaseSensitive,
+        searchWholeWord
+      );
+      if (token !== searchGeneration) return;
+      if (found.length) {
+        searchMatches.push(...found);
+        if (searchCurrentIndex < 0) {
+          searchCurrentIndex = 0;
+          renderPage(searchMatches[0].page, true);
+        }
+        reportSearchState(true);
+      } else if (orderIndex % 12 === 0) {
+        reportSearchState(true);
+      }
+    } catch (_) {
+      // A malformed text layer on one page must not cancel the whole search.
+    }
+  }
+
+  if (token !== searchGeneration) return;
+  searchInProgress = false;
+  reportSearchState(false);
+}
+
+async function goToSearchMatch(index) {
+  if (!searchMatches.length) return;
+  const total = searchMatches.length;
+  searchCurrentIndex = ((index % total) + total) % total;
+  const match = searchMatches[searchCurrentIndex];
+  await renderPage(match.page, true);
+  reportSearchState(searchInProgress);
+}
+
+async function paintSearchHighlights(page, viewport, renderScale, target) {
+  if (!searchMatches.length || !searchQuery) return;
+  const pageMatches = [];
+  for (let index = 0; index < searchMatches.length; index++) {
+    const match = searchMatches[index];
+    if (match.page === target) pageMatches.push({ match, index });
+  }
+  if (!pageMatches.length) return;
+
+  try {
+    const content = await page.getTextContent();
+    const built = buildSearchPageText(content);
+    for (const entry of pageMatches) {
+      const active = entry.index === searchCurrentIndex;
+      ctx.save();
+      ctx.fillStyle = active
+        ? 'rgba(255, 152, 0, 0.58)'
+        : 'rgba(255, 235, 59, 0.38)';
+      for (const span of built.spans) {
+        if (span.end <= entry.match.start || span.start >= entry.match.end) continue;
+        const item = built.items[span.itemIndex];
+        if (!item || !Array.isArray(item.transform)) continue;
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const fontHeight = Math.max(4, Math.hypot(tx[2], tx[3]));
+        const width = Math.max(3, Number(item.width || 0) * viewport.scale);
+        ctx.fillRect(
+          tx[4] * renderScale,
+          (tx[5] - fontHeight) * renderScale,
+          width * renderScale,
+          fontHeight * renderScale
+        );
+      }
+      ctx.restore();
+    }
+  } catch (_) {}
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -1783,6 +1957,8 @@ async function renderPage(target, preserveCenter = false) {
     renderTask = null;
 
     if (token !== renderToken) return;
+    await paintSearchHighlights(page, viewport, renderScale, target);
+    if (token !== renderToken) return;
     const pageChanged = pageNumber !== target;
     pageNumber = target;
     page.cleanup();
@@ -1816,6 +1992,24 @@ window.LexPDF = {
   goToPage(page) { renderPage(Number(page)); },
   nextPage() { renderPage(pageNumber + 1); },
   previousPage() { renderPage(pageNumber - 1); },
+  startSearch(query, caseSensitive, wholeWord) {
+    startDocumentSearch(query, caseSensitive, wholeWord);
+  },
+  nextSearchMatch() {
+    goToSearchMatch(searchCurrentIndex + 1);
+  },
+  previousSearchMatch() {
+    goToSearchMatch(searchCurrentIndex - 1);
+  },
+  clearSearch() {
+    searchGeneration++;
+    searchMatches = [];
+    searchCurrentIndex = -1;
+    searchQuery = '';
+    searchInProgress = false;
+    reportSearchState(false);
+    renderPage(pageNumber, true);
+  },
   zoomIn() {
     scale = Math.min(4.0, scale * 1.2);
     renderPage(pageNumber, true);
