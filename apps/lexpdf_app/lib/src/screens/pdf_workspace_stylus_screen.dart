@@ -541,9 +541,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen> {
             const SizedBox(width: 8),
             Text(
               '$current/$total',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+              style: Theme.of(context).textTheme.labelLarge,
             ),
             IconButton(
               tooltip: 'Ocorrência anterior',
@@ -2320,6 +2318,44 @@ class _SelectionMarkupOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SelectionMarkupOverlayPainter oldDelegate) =>
+      true;
+}
+
+class _PdfSearchHighlightOverlayPainter extends CustomPainter {
+  const _PdfSearchHighlightOverlayPainter({
+    required this.searcher,
+    required this.pageRect,
+    required this.page,
+  });
+
+  final PdfTextSearcher searcher;
+  final Rect pageRect;
+  final PdfPage page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final matches = searcher.matches;
+    if (matches.isEmpty) return;
+    final currentIndex = searcher.currentIndex;
+    for (var index = 0; index < matches.length; index++) {
+      final match = matches[index];
+      if (match.pageNumber != page.pageNumber) continue;
+      final rect = match.bounds.toRectInDocument(
+        page: page,
+        pageRect: pageRect,
+      );
+      final localRect = rect.shift(-pageRect.topLeft);
+      final paint = Paint()
+        ..color = index == currentIndex
+            ? const Color(0x99FF9800)
+            : const Color(0x66FFEB3B)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(localRect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PdfSearchHighlightOverlayPainter oldDelegate) =>
       true;
 }
 
