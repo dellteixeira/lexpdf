@@ -2927,6 +2927,8 @@ function hypot(a,b) {
             wetInkView.clearFinishedStrokesListeners()
         } catch (_: Throwable) {
         }
+        pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
+        pendingSearchRunnable = null
         try {
             rangeReader?.close()
             rangeReader = null
