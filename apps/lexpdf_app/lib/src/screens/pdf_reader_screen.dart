@@ -67,6 +67,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
 
   Timer? _progressSaveTimer;
   Timer? _deferredOverlayLoadTimer;
+  Timer? _searchDebounce;
   PdfDocument? _activeDocument;
   int _overlayLoadGeneration = 0;
   int _annotationCount = 0;
@@ -116,6 +117,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     _readerReadyStopwatch.stop();
     _progressSaveTimer?.cancel();
     _deferredOverlayLoadTimer?.cancel();
+    _searchDebounce?.cancel();
     _overlayLoadGeneration++;
     final page = _currentPage;
     if (page != null) {
@@ -227,11 +229,35 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                 controller: _searchController,
                 autofocus: true,
                 textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Pesquisar no documento',
-                  border: InputBorder.none,
+                decoration: InputDecoration(
+                  hintText: 'Pesquisar palavra ou frase',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Limpar busca',
+                          onPressed: () {
+                            _searchController.clear();
+                            _searchDebounce?.cancel();
+                            _textSearcher.resetTextSearch();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.clear, size: 19),
+                        ),
+                  filled: true,
+                  fillColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.72),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
-                onSubmitted: _startSearch,
+                onChanged: _scheduleSearch,
+                onSubmitted: _submitSearch,
               )
             : Text(
                 widget.document.name,
@@ -1052,6 +1078,35 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     }
   }
 
+  void _scheduleSearch(String value) {
+    _searchDebounce?.cancel();
+    setState(() {});
+    final query = value.trim();
+    if (query.isEmpty) {
+      _textSearcher.resetTextSearch();
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 320), () {
+      if (!mounted || _searchController.text.trim() != query) return;
+      _startSearch(query);
+    });
+  }
+
+  void _submitSearch(String value) {
+    _searchDebounce?.cancel();
+    final query = value.trim();
+    if (query.isEmpty) {
+      _textSearcher.resetTextSearch();
+      return;
+    }
+
+    if (_textSearcher.matches.isNotEmpty) {
+      unawaited(_textSearcher.goToNextMatch());
+      return;
+    }
+    _startSearch(query);
+  }
+
   void _startSearch(String value) {
     final query = value.trim();
     if (query.isEmpty) {
@@ -1067,6 +1122,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   }
 
   void _closeSearch() {
+    _searchDebounce?.cancel();
     _textSearcher.resetTextSearch();
     _searchController.clear();
     setState(() => _searchMode = false);
