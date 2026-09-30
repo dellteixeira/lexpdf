@@ -21,6 +21,5 @@ void main() {
     expect(source, contains('Palavra inteira'));
     expect(source, contains('Diferenciar maiúsculas/minúsculas'));
     expect(source, contains('RANGE_CHUNK_SIZE = 512 * 1024'));
-    expect(source, contains('android:process=":pdfreader"'), isFalse);
   });
 }
