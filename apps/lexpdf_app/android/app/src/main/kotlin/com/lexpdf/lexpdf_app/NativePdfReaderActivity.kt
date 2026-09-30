@@ -31,6 +31,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.TextViewCompat
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
@@ -473,7 +476,21 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
+        // Android 15/16 draw edge-to-edge. Apply actual system bar and cutout
+        // insets to the native reader root so Xiaomi/HyperOS status-bar and
+        // gesture regions cannot overlap or swallow toolbar button taps.
+        // Keep the 48dp landscape toolbar and PDF reader internals unchanged.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout(),
+            )
+            view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            insets
+        }
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         selectInk(currentKind)
     }
 
