@@ -644,6 +644,19 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (!tab.searchVisible) {
       setState(() => tab.searchVisible = true);
     }
+
+    final hasIndexedText = widget.store.db.database.select(
+      '''
+      SELECT 1
+      FROM pdf_page_text_index
+      WHERE document_id = ?
+      LIMIT 1;
+      ''',
+      [tab.document.id],
+    ).isNotEmpty;
+    if (!hasIndexedText) {
+      unawaited(_startBackgroundIndexing(tab));
+    }
   }
 
   void _closeDocumentSearch(_WorkspaceTab tab) {
