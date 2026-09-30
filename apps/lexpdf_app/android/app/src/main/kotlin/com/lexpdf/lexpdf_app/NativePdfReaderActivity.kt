@@ -31,6 +31,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.TextViewCompat
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
@@ -473,7 +475,28 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
+        // Android 15+/HyperOS may draw this Activity edge-to-edge. Keep the
+        // native controls outside status/navigation bars and display cutouts,
+        // including in landscape, without changing the 48dp toolbar geometry.
+        // Apply padding to the root rather than the PDF surface so stylus and
+        // PDF.js page coordinates remain in their existing local coordinate space.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout(),
+            )
+            if (
+                view.paddingLeft != safe.left ||
+                view.paddingTop != safe.top ||
+                view.paddingRight != safe.right ||
+                view.paddingBottom != safe.bottom
+            ) {
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            }
+            insets
+        }
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         selectInk(currentKind)
     }
 
