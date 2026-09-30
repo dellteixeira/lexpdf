@@ -307,8 +307,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 contentDescription = "Página inteira"
             },
         )
-        navigationRow.addView(button("Índice") { showOutlineDialog() })
-        navigationRow.addView(button("Fechar") { finish() })
+        // Keep these essential commands reachable even when the navigation
+        // controls exceed the available width on portrait phones.
+        val indexButton = button("Índice") { showOutlineDialog() }
+        val closeButton = button("Fechar") { finish() }
+        if (landscape) {
+            navigationRow.addView(indexButton)
+            navigationRow.addView(closeButton)
+        }
 
         // Landscape intentionally reuses the navigation row so every control
         // stays on one 48dp toolbar. Portrait preserves the existing two-row
@@ -391,8 +397,34 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 ),
             )
         } else {
+            // Portrait: pin Índice and Fechar outside the scrolling navigation
+            // controls. They must never disappear behind the right screen edge.
+            // This is still the existing first toolbar row (48dp), not a new row.
+            val pinnedNavigationRow = toolRow().apply {
+                setPadding(0, 0, 6.dp, 0)
+            }
+            val navigationScroller = HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                isHorizontalFadingEdgeEnabled = true
+                setFadingEdgeLength(12.dp)
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                addView(
+                    navigationRow,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
+            pinnedNavigationRow.addView(
+                navigationScroller,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
+            )
+            pinnedNavigationRow.addView(indexButton)
+            pinnedNavigationRow.addView(closeButton)
             root.addView(
-                navigationRow,
+                pinnedNavigationRow,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     48.dp,
