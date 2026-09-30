@@ -100,8 +100,36 @@ void main() {
     expect(source, contains('_textSearcher.pageTextMatchPaintCallback'));
     expect(source, contains('_textSearcher.goToPrevMatch()'));
     expect(source, contains('_textSearcher.goToNextMatch()'));
-    expect(source, contains('onSubmitted: _startSearch'));
+    expect(source, contains('onChanged: _scheduleSearch'));
+    expect(source, contains('onSubmitted: _submitSearch'));
+    expect(source, contains('PdfSearchAppBarActions('));
     expect(source, contains('HugePdfPolicy.overlayWindow('));
     expect(source, contains('listForPageRange('));
+  });
+
+  test('Android native reader exposes persistent PDF.js search navigation', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('button("Buscar") { showSearchPanel() }'));
+    expect(source, contains('fun searchState(json: String)'));
+    expect(source, contains('async function startTextSearch(rawQuery)'));
+    expect(source, contains('async function goToSearchResult('));
+    expect(source, contains('async function renderSearchHighlight('));
+    expect(source, contains('searchNext() { return goToSearchResult('));
+    expect(source, contains('searchPrevious() { return goToSearchResult('));
+    expect(source, contains('RANGE_CHUNK_SIZE = 512 * 1024'));
+  });
+
+  test('workspace search keeps result navigation open while changing pages', () {
+    final source =
+        File('lib/src/screens/pdf_workspace_screen.dart').readAsStringSync();
+
+    expect(source, contains('Pesquisar palavra ou frase'));
+    expect(source, contains("tooltip: 'Ocorrência anterior'"));
+    expect(source, contains("tooltip: 'Próxima ocorrência'"));
+    expect(source, contains('_openIndexedSearchPage(page);'));
+    expect(source, isNot(contains("showDialog<String>(")));
   });
 }
