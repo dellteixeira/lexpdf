@@ -79,7 +79,9 @@ class FluentTextInputHandler implements DeltaTextInputClient {
 
   @override
   TextEditingValue? get currentTextEditingValue {
-    if (defaultTargetPlatform == TargetPlatform.macOS) {
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        (defaultTargetPlatform == TargetPlatform.android &&
+            state.isComposing)) {
       return _currentPlatformValue;
     }
     final text = _getCurrentFragmentText() ?? '';
@@ -187,7 +189,8 @@ class FluentTextInputHandler implements DeltaTextInputClient {
 
   @override
   void updateEditingValue(TextEditingValue value) {
-    if (defaultTargetPlatform == TargetPlatform.macOS) {
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.android) {
       _currentPlatformValue = value;
     }
     final doc = _document;
@@ -438,9 +441,10 @@ class FluentTextInputHandler implements DeltaTextInputClient {
     if (doc == null) return;
     if (state.updatingSelf) return;
 
-    if (defaultTargetPlatform == TargetPlatform.macOS) {
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.android) {
       for (final delta in deltas) {
-        _currentPlatformValue = delta.apply(_currentPlatformValue);
+        _currentPlatformValue = _valueAfterDelta(delta);
       }
     }
 
@@ -473,11 +477,38 @@ class FluentTextInputHandler implements DeltaTextInputClient {
       if (delta is TextEditingDeltaDeletion ||
           (delta is TextEditingDeltaReplacement &&
               delta.replacementText.isEmpty)) {
-        doc.saveState(description: 'Delete', forceNewAction: false);
-
         final deletionRange = delta is TextEditingDeltaDeletion
             ? delta.deletedRange
             : (delta as TextEditingDeltaReplacement).replacedRange;
+
+        if (state.isComposing) {
+          final valueAfterDelta = _valueAfterDelta(delta);
+          if (valueAfterDelta.composing.isValid &&
+              valueAfterDelta.composing.start <
+                  valueAfterDelta.composing.end) {
+            _updateCompositionFromPlatformValue(
+              valueAfterDelta,
+              fragId,
+              doc,
+            );
+            return;
+          }
+
+          // If the deletion consumed the active preedit range, the user is
+          // editing/cancelling the not-yet-committed word. Do not backspace
+          // committed document text underneath it.
+          if (_rangesOverlap(deletionRange, state.composingRange)) {
+            _resetComposition();
+            _invalidatePreeditRender();
+            return;
+          }
+
+          // Deletion outside the active preedit means the keyboard finalized
+          // the word first. Commit it before applying the deletion.
+          commitIfComposing();
+        }
+
+        doc.saveState(description: 'Delete', forceNewAction: false);
 
         // We reposition ONLY if the keyboard provides a mathematically
         // valid range (e.g., selecting and deleting a whole word).
@@ -508,47 +539,23 @@ class FluentTextInputHandler implements DeltaTextInputClient {
 
         if (delta.composing.isValid &&
             delta.composing.start < delta.composing.end) {
-          state.isComposing = true;
-          if (defaultTargetPlatform == TargetPlatform.iOS ||
-              defaultTargetPlatform == TargetPlatform.macOS ||
-              defaultTargetPlatform == TargetPlatform.linux ||
-              defaultTargetPlatform == TargetPlatform.windows ||
-              defaultTargetPlatform == TargetPlatform.android) {
-            final fullText = delta.oldText.replaceRange(
-              delta.insertionOffset,
-              delta.insertionOffset,
-              delta.textInserted,
-            );
-            final composingStart = delta.composing.start.clamp(
-              0,
-              fullText.length,
-            );
-            final composingEnd = delta.composing.end.clamp(0, fullText.length);
-            state.preeditText = fullText.substring(
-              composingStart,
-              composingEnd,
-            );
-            state.composingRange = delta.composing;
-          } else {
-            state.preeditText = delta.textInserted;
-            state.composingRange = delta.composing;
-          }
-          state.preeditLocalOffset = doc.cursor.focusOffset;
-          final parentId = doc.findParentCached(fragId);
-          state.preeditContainerId = parentId ?? '';
-          doc.cursor.imeComposing = true;
-          doc.cursor.imeComposingStart = state.preeditLocalOffset;
+          _updateCompositionFromPlatformValue(
+            _valueAfterDelta(delta),
+            fragId,
+            doc,
+          );
           if (batchEndsComposing) {
             commitIfComposing();
-          } else {
-            _invalidatePreeditRender();
           }
           return;
         }
 
         if (state.isComposing) {
-          _resetComposition();
-          _invalidatePreeditRender();
+          // Android keyboards frequently finalize the current word by sending
+          // the separator (usually a space/punctuation) as a normal insertion
+          // with an empty composing range. Resetting here used to discard the
+          // entire composed word and leave only the separator.
+          commitIfComposing();
         }
 
         // iOS Predictive Text Bug Fix for Insertions:
@@ -593,24 +600,30 @@ class FluentTextInputHandler implements DeltaTextInputClient {
 
         if (delta.composing.isValid &&
             delta.composing.start < delta.composing.end) {
-          state.isComposing = true;
-          state.preeditText = delta.replacementText;
-          state.composingRange = delta.composing;
-          state.preeditLocalOffset = doc.cursor.focusOffset;
-          doc.cursor.imeComposing = true;
-          doc.cursor.imeComposingStart = state.preeditLocalOffset;
+          _updateCompositionFromPlatformValue(
+            _valueAfterDelta(delta),
+            fragId,
+            doc,
+          );
           if (batchEndsComposing) {
             commitIfComposing();
-          } else {
-            _invalidatePreeditRender();
           }
           return;
         }
 
-        // Unlock cursor at the end of composition
+        // A replacement that overlaps the previous composing range is the
+        // finalized autocorrect/candidate text itself. Do not first commit the
+        // old preedit or it would be duplicated. For unrelated replacements,
+        // finalize the pending word before applying the edit.
         if (state.isComposing) {
-          _resetComposition();
-          _invalidatePreeditRender();
+          final replacesComposition =
+              _rangesOverlap(delta.replacedRange, state.composingRange);
+          if (replacesComposition) {
+            _resetComposition();
+            _invalidatePreeditRender();
+          } else {
+            commitIfComposing();
+          }
         }
 
         if (node is Fragment && delta.replacedRange.isValid) {
@@ -675,13 +688,7 @@ class FluentTextInputHandler implements DeltaTextInputClient {
       // -----------------------------------------------------------------------
       // 4. NON-TEXT UPDATE HANDLING (Commit IME Desktop/Linux/MacOS)
       // -----------------------------------------------------------------------
-      final isDesktopOrWeb =
-          kIsWeb ||
-          defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.macOS;
-      if ((isDesktopOrWeb || defaultTargetPlatform == TargetPlatform.iOS) &&
-          delta is TextEditingDeltaNonTextUpdate) {
+      if (delta is TextEditingDeltaNonTextUpdate) {
         if (state.isComposing &&
             (!delta.composing.isValid ||
                 delta.composing.start >= delta.composing.end)) {
@@ -696,6 +703,77 @@ class FluentTextInputHandler implements DeltaTextInputClient {
         continue;
       }
     }
+  }
+
+  TextEditingValue _valueAfterDelta(TextEditingDelta delta) {
+    var text = delta.oldText;
+
+    if (delta is TextEditingDeltaInsertion) {
+      final offset = delta.insertionOffset.clamp(0, text.length);
+      text = text.replaceRange(offset, offset, delta.textInserted);
+    } else if (delta is TextEditingDeltaDeletion) {
+      final start = delta.deletedRange.start.clamp(0, text.length);
+      final end = delta.deletedRange.end.clamp(start, text.length);
+      text = text.replaceRange(start, end, '');
+    } else if (delta is TextEditingDeltaReplacement) {
+      final start = delta.replacedRange.start.clamp(0, text.length);
+      final end = delta.replacedRange.end.clamp(start, text.length);
+      text = text.replaceRange(start, end, delta.replacementText);
+    }
+
+    return TextEditingValue(
+      text: text,
+      selection: delta.selection,
+      composing: delta.composing,
+    );
+  }
+
+  void _updateCompositionFromPlatformValue(
+    TextEditingValue value,
+    String fragId,
+    FluentDocument doc,
+  ) {
+    if (!value.composing.isValid ||
+        value.composing.start >= value.composing.end) {
+      return;
+    }
+
+    final start = value.composing.start.clamp(0, value.text.length);
+    final end = value.composing.end.clamp(start, value.text.length);
+    final preedit = _sanitizeUtf16(
+      value.text.substring(start, end),
+    ).replaceAll(_emptyFragmentPlaceholder, '');
+
+    if (!state.isComposing) {
+      state.preeditFragmentId = fragId;
+      final cursor = doc.cursor;
+      state.preeditLocalOffset = cursor.isCollapsed
+          ? cursor.focusOffset
+          : (cursor.anchorOffset < cursor.focusOffset
+                ? cursor.anchorOffset
+                : cursor.focusOffset);
+      state.lastSyncedText = _getCurrentFragmentText() ?? '';
+      final parentId = doc.findParentCached(fragId);
+      state.preeditContainerId = parentId ?? '';
+      state.justCommittedComposition = false;
+    }
+
+    state.isComposing = true;
+    state.preeditText = preedit;
+    state.composingRange = value.composing;
+    state.preeditCaretOffset = value.selection.isValid
+        ? (value.selection.extentOffset - start).clamp(0, preedit.length)
+        : preedit.length;
+
+    doc.cursor.imeComposing = true;
+    doc.cursor.imeComposingStart = state.preeditLocalOffset;
+    doc.selectionManager.clear();
+    _invalidatePreeditRender();
+  }
+
+  bool _rangesOverlap(TextRange a, TextRange b) {
+    if (!a.isValid || !b.isValid) return false;
+    return a.start < b.end && b.start < a.end;
   }
 
   // ===========================================================================
@@ -992,13 +1070,15 @@ class FluentTextInputHandler implements DeltaTextInputClient {
           connectionManager.connection!.setEditingState(newValue);
         }
       } else {
-        connectionManager.connection!.setEditingState(
-          TextEditingValue(
-            text: syncedText,
-            selection: syncedSelection,
-            composing: TextRange.empty,
-          ),
+        final newValue = TextEditingValue(
+          text: syncedText,
+          selection: syncedSelection,
+          composing: TextRange.empty,
         );
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          _currentPlatformValue = newValue;
+        }
+        connectionManager.connection!.setEditingState(newValue);
         state.lastSyncedText = syncedText;
       }
     } finally {
@@ -1077,6 +1157,7 @@ class FluentTextInputHandler implements DeltaTextInputClient {
   void _resetPlatformBuffer() {
     state.lastSyncedText = '';
     state.prevSelectionKey = '';
+    _currentPlatformValue = const TextEditingValue();
     if (connectionManager.connection != null &&
         connectionManager.connection!.attached) {
       connectionManager.connection!.setEditingState(const TextEditingValue());

@@ -16,10 +16,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <filesystem>
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -114,10 +117,23 @@ class NativePdfFrameCache {
   std::unordered_map<std::string, Entry> entries_;
 };
 
+std::string FileVersionKey(const std::string& path) {
+  std::error_code error;
+  const auto file_path = std::filesystem::u8path(path);
+  const auto size = std::filesystem::file_size(file_path, error);
+  if (error) return "unknown";
+  error.clear();
+  const auto modified = std::filesystem::last_write_time(file_path, error);
+  if (error) return std::to_string(size) + "|unknown-time";
+  return std::to_string(size) + "|" +
+         std::to_string(modified.time_since_epoch().count());
+}
+
 std::string FrameCacheKey(const std::string& path, int page_number, int width,
                           int height) {
-  return path + "|" + std::to_string(page_number) + "|" +
-         std::to_string(width) + "x" + std::to_string(height);
+  return path + "|" + FileVersionKey(path) + "|" +
+         std::to_string(page_number) + "|" + std::to_string(width) + "x" +
+         std::to_string(height);
 }
 
 NativePdfFrameCache g_frame_cache(128ull * 1024ull * 1024ull);
@@ -343,12 +359,82 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
     }
     InvalidateRect(window_, nullptr, FALSE);
 
-    std::weak_ptr<NativePdfSurface> weak_self = shared_from_this();
     ++g_render_requests;
-    std::thread([weak_self, generation, path, page_number, width, height]() {
+    {
+      std::lock_guard<std::mutex> render_lock(render_mutex_);
+      if (!render_worker_.joinable()) {
+        render_stop_ = false;
+        render_worker_ = std::thread([this]() { RenderLoop(); });
+      }
+      if (pending_render_.has_value()) {
+        // A newer geometry/page request supersedes work that has not started.
+        ++g_stale_discards;
+      }
+      pending_render_ =
+          PendingRender{generation, path, page_number, width, height};
+    }
+    render_cv_.notify_one();
+  }
+
+  void Hide() {
+    ++generation_;
+    {
+      std::lock_guard<std::mutex> render_lock(render_mutex_);
+      if (pending_render_.has_value()) {
+        pending_render_.reset();
+        ++g_stale_discards;
+      }
+    }
+    if (window_ != nullptr) ShowWindow(window_, SW_HIDE);
+  }
+
+  void Destroy() {
+    ++generation_;
+    {
+      std::lock_guard<std::mutex> render_lock(render_mutex_);
+      pending_render_.reset();
+      render_stop_ = true;
+    }
+    render_cv_.notify_all();
+    if (render_worker_.joinable()) {
+      render_worker_.join();
+    }
+    if (window_ != nullptr) {
+      DestroyWindow(window_);
+      window_ = nullptr;
+    }
+  }
+
+ private:
+  struct PendingRender {
+    int64_t generation = 0;
+    std::string path;
+    int page_number = 0;
+    int width = 0;
+    int height = 0;
+  };
+
+  void RenderLoop() {
+    while (true) {
+      PendingRender request;
+      {
+        std::unique_lock<std::mutex> render_lock(render_mutex_);
+        render_cv_.wait(render_lock, [this]() {
+          return render_stop_ || pending_render_.has_value();
+        });
+        if (render_stop_ && !pending_render_.has_value()) return;
+        request = std::move(*pending_render_);
+        pending_render_.reset();
+      }
+
+      if (request.generation != generation_.load()) {
+        ++g_stale_discards;
+        continue;
+      }
+
       const auto started = std::chrono::steady_clock::now();
-      const std::string cache_key =
-          FrameCacheKey(path, page_number, width, height);
+      const std::string cache_key = FrameCacheKey(
+          request.path, request.page_number, request.width, request.height);
       std::shared_ptr<const DecodedFrame> frame = g_frame_cache.Get(cache_key);
       std::string error;
       bool ok = frame != nullptr;
@@ -357,8 +443,9 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
       } else {
         ++g_cache_misses;
         auto rendered = std::make_shared<DecodedFrame>();
-        ok = RenderWithWindowsPdf(path, page_number, width, height,
-                                  rendered.get(), &error);
+        ok = RenderWithWindowsPdf(
+            request.path, request.page_number, request.width, request.height,
+            rendered.get(), &error);
         if (ok) {
           frame = rendered;
           g_frame_cache.Put(cache_key, frame);
@@ -370,42 +457,28 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
           std::chrono::steady_clock::now() - started);
       g_total_render_ms.fetch_add(elapsed.count());
 
-      const auto self = weak_self.lock();
-      if (!self || generation != self->generation_.load()) {
+      if (request.generation != generation_.load()) {
         ++g_stale_discards;
-        return;
+        continue;
       }
+
       {
-        std::lock_guard<std::mutex> lock(self->mutex_);
-        self->loading_ = false;
+        std::lock_guard<std::mutex> lock(mutex_);
+        loading_ = false;
         if (ok && frame) {
-          self->frame_ = std::move(frame);
-          self->error_.clear();
+          frame_ = std::move(frame);
+          error_.clear();
         } else {
-          self->frame_.reset();
-          self->error_ = std::move(error);
+          frame_.reset();
+          error_ = std::move(error);
         }
       }
-      if (self->window_ != nullptr) {
-        PostMessageW(self->window_, kFrameReadyMessage, 0, 0);
+      if (window_ != nullptr) {
+        PostMessageW(window_, kFrameReadyMessage, 0, 0);
       }
-    }).detach();
-  }
-
-  void Hide() {
-    ++generation_;
-    if (window_ != nullptr) ShowWindow(window_, SW_HIDE);
-  }
-
-  void Destroy() {
-    ++generation_;
-    if (window_ != nullptr) {
-      DestroyWindow(window_);
-      window_ = nullptr;
     }
   }
 
- private:
   static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam,
                                      LPARAM lparam) {
     NativePdfSurface* self = reinterpret_cast<NativePdfSurface*>(
@@ -524,6 +597,12 @@ class NativePdfSurface : public std::enable_shared_from_this<NativePdfSurface> {
   std::shared_ptr<const DecodedFrame> frame_;
   bool loading_ = false;
   std::string error_;
+
+  std::mutex render_mutex_;
+  std::condition_variable render_cv_;
+  std::optional<PendingRender> pending_render_;
+  bool render_stop_ = false;
+  std::thread render_worker_;
 };
 
 class NativePdfSurfaceHost {

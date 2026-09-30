@@ -9,6 +9,7 @@ import 'src/core/backend/backend_config.dart';
 import 'src/core/documents/native_pdf_open_service.dart';
 import 'src/core/storage/local_database.dart';
 import 'src/core/storage/local_database_key_manager.dart';
+import 'src/core/theme/lexpdf_theme.dart';
 import 'src/lexpdf_app.dart';
 
 void main(List<String> args) {
@@ -35,7 +36,11 @@ class _LexPdfBootstrapState extends State<_LexPdfBootstrap> {
   }
 
   Future<_BootstrapData> _initialize() async {
-    await pdfrxFlutterInitialize();
+    // Android uses Mozilla PDF.js in a dedicated WebView process.
+    // PDFium/pdfrx remains a Windows-only dependency at runtime.
+    if (Platform.isWindows) {
+      await pdfrxFlutterInitialize();
+    }
 
     const backend = BackendConfig.fromEnvironment;
     if (backend.hasSupabase) {
@@ -109,17 +114,8 @@ class _StartupFrame extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LexPDF',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF315B8A)),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF8AB4F8),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: LexPdfTheme.light,
+      darkTheme: LexPdfTheme.dark,
       home: Scaffold(
         body: SafeArea(
           child: Center(

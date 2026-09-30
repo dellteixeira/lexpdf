@@ -38,29 +38,20 @@ void main() {
     expect(source, contains('localPosition: _effectiveZoomLocalAnchor()'));
   });
 
-  test(
-    'Notebook separates selection from hand navigation and has zoom presets',
-    () {
-      final screen = File('lib/src/screens/layered_notebook_screen.dart')
-          .readAsStringSync();
-      final controls = File('lib/src/widgets/notebook_ink_controls.dart')
-          .readAsStringSync();
-      final zoom = File('lib/src/widgets/notebook_wordpad_chrome.dart')
-          .readAsStringSync();
+  test('Notebook separates lasso from hand navigation and supports fit/zoom', () {
+    final screen = File(
+      'lib/src/screens/stylus_notebook_editor_screen.dart',
+    ).readAsStringSync();
 
-      expect(screen, contains('bool _handMode = false'));
-      expect(screen, contains('panEnabled: _handMode'));
-      expect(screen, contains('enabled: _textMode && !_handMode'));
-      expect(screen, contains('!_textMode &&'));
-      expect(screen, contains('_pointerMode &&'));
-      expect(screen, contains('!_handMode &&'));
-      expect(screen, contains('_canEditActiveLayer,'));
-      expect(screen, contains('onHandModeChanged'));
-      expect(controls, contains("label: 'Selecionar'"));
-      expect(controls, contains("label: 'Mão'"));
-      expect(zoom, contains('class NotebookWordPadStatusBar'));
-      expect(zoom, contains('onZoomChanged'));
-      expect(zoom, contains("tooltip: 'Ajustar à página'"));
-    },
-  );
+    expect(screen, contains('enum _NotebookTool'));
+    expect(screen, contains('_NotebookTool.lasso'));
+    expect(screen, contains('_NotebookTool.hand'));
+    expect(screen, contains('TransformationController'));
+    expect(screen, contains('panEnabled: _hand'));
+    expect(screen, contains('scaleEnabled: true'));
+    expect(screen, contains('minScale: 0.08'));
+    expect(screen, contains('maxScale: 6'));
+    expect(screen, contains('void _fitPage('));
+    expect(screen, contains('NotebookPaperSize.infer'));
+  });
 }

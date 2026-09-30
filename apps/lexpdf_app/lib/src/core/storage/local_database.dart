@@ -45,7 +45,7 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
   static const _sqliteHeader = <int>[
     0x53,
     0x51,
@@ -608,6 +608,26 @@ class LocalDatabase {
         ]);
         database.userVersion = 11;
         database.execute('COMMIT;');
+        version = 11;
+      } catch (_) {
+        database.execute('ROLLBACK;');
+        rethrow;
+      }
+    }
+
+    if (version < 12) {
+      database.execute('BEGIN IMMEDIATE;');
+      try {
+        database.execute(
+          "ALTER TABLE ink_strokes ADD COLUMN brush TEXT NOT NULL DEFAULT 'round' CHECK(brush IN ('round', 'fountain', 'chisel'));",
+        );
+        database.execute('UPDATE app_metadata SET value = ? WHERE key = ?;', [
+          '12',
+          'schema_version',
+        ]);
+        database.userVersion = 12;
+        database.execute('COMMIT;');
+        version = 12;
       } catch (_) {
         database.execute('ROLLBACK;');
         rethrow;

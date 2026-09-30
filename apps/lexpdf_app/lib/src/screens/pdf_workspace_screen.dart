@@ -24,7 +24,9 @@ import '../core/storage/local_reading_progress_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
 import '../core/storage/local_workspace_ui_preferences.dart';
 import 'ai_context_chat_screen.dart';
+import 'native_pdf_reader_launcher.dart';
 import 'flashcard_center_screen.dart';
+import 'pdf_page_tools_screen.dart';
 import 'pdf_workspace_stylus_screen.dart' as editor;
 
 /// Persistent multi-document shell for the unified PDF editor.
@@ -163,6 +165,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         if (restored.length >= _maxTabs) break;
       }
 
+      final incomingProgress = await _progressStore.get(widget.document.id);
       final incomingIndex = restored.indexWhere(
         (tab) => tab.document.id == widget.document.id,
       );
@@ -171,9 +174,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         restored.add(
           _WorkspaceTab(
             document: widget.document,
-            initialPage: widget.initialPage < 1 ? 1 : widget.initialPage,
+            initialPage:
+                incomingProgress?.pageNumber ??
+                (widget.initialPage < 1 ? 1 : widget.initialPage),
           ),
         );
+      } else if (incomingProgress != null) {
+        restored[incomingIndex].initialPage = incomingProgress.pageNumber;
       }
 
       final active = restored.indexWhere(
@@ -218,7 +225,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final picked = await _picker.pickPdf();
       if (picked == null || !mounted) return;
-      final existing = _tabs.indexWhere((tab) => tab.document.id == picked.id);
+      final resolved =
+          await LocalDocumentCatalog(widget.store.db).resolveLocalDocument(picked);
+      if (!mounted) return;
+      final existing =
+          _tabs.indexWhere((tab) => tab.document.id == resolved.id);
       if (existing >= 0) {
         setState(() => _activeIndex = existing);
         await _saveSession();
@@ -233,7 +244,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return;
       }
       setState(() {
-        _tabs.add(_WorkspaceTab(document: picked, initialPage: 1));
+        _tabs.add(_WorkspaceTab(document: resolved, initialPage: 1));
         _activeIndex = _tabs.length - 1;
       });
       await _saveSession();
@@ -540,7 +551,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Future<void> _startBackgroundIndexing(_WorkspaceTab tab) async {
     final document = tab.document;
     final viewerDocument = tab.viewerDocument;
-    if (viewerDocument == null) return;
+    final androidPath = Platform.isAndroid ? document.localPath : null;
+    if (Platform.isAndroid) {
+      if (androidPath == null ||
+          androidPath.isEmpty ||
+          !File(androidPath).existsSync()) {
+        return;
+      }
+    } else if (viewerDocument == null) {
+      return;
+    }
+
     final existing = _ocrTasks[document.id];
     if (existing?.running == true) return;
     final task = existing ?? _WorkspaceOcrTask();
@@ -553,21 +574,32 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ..progress = null;
     _ocrTasks[document.id] = task;
     try {
-      final summary = await _ocrService.process(
-        documentId: document.id,
-        openedDocument: viewerDocument,
-        resume: true,
-        isCancelled: () => task.cancelRequested,
-        onProgress: (progress) {
-          // Silent by design: background indexing must never repaint or cover
-          // the document while the user is reading.
-          task.progress = progress;
-        },
-      );
+      final summary = Platform.isAndroid
+          ? await _ocrService.process(
+              documentId: document.id,
+              filePath: androidPath,
+              resume: true,
+              isCancelled: () => task.cancelRequested,
+              onProgress: (progress) {
+                // Android reaches this path only after an explicit user action.
+                // Reader startup and idle reading never trigger a second PDF.
+                task.progress = progress;
+              },
+            )
+          : await _ocrService.process(
+              documentId: document.id,
+              openedDocument: viewerDocument,
+              resume: true,
+              isCancelled: () => task.cancelRequested,
+              onProgress: (progress) {
+                // Silent by design: desktop indexing must never repaint or
+                // cover the document while the user is reading.
+                task.progress = progress;
+              },
+            );
       task.summary = summary;
     } catch (error) {
-      // Keep diagnostics internal. Automatic indexing must not interrupt the
-      // reading surface with progress cards, snackbars or error banners.
+      // User-triggered indexing must never destabilize the reading workspace.
       task.error = error;
     } finally {
       task.running = false;
@@ -577,6 +609,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   void _startActiveIndexing() {
     if (_tabs.isEmpty) return;
     unawaited(_startBackgroundIndexing(_tabs[_activeIndex]));
+  }
+
+  Future<void> _openActivePageTools() async {
+    if (_tabs.isEmpty) return;
+    final document = _tabs[_activeIndex].document;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfPageToolsScreen(document: document),
+      ),
+    );
   }
 
   void _cancelActiveIndexing() {
@@ -701,21 +743,48 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       tab.initialPage = page;
       tab.generation += 1;
     });
+    unawaited(
+      _progressStore.save(
+        documentId: tab.document.id,
+        pageNumber: page,
+      ),
+    );
     unawaited(_saveSession());
   }
 
   void _recordVisiblePage(_WorkspaceTab tab, int pageNumber) {
     _markReaderActivity(tab);
-    if (pageNumber < 1 || tab.initialPage == pageNumber) return;
-    tab.initialPage = pageNumber;
+    if (pageNumber < 1) return;
+    if (tab.initialPage != pageNumber) {
+      tab.initialPage = pageNumber;
+    }
+    unawaited(
+      _progressStore.save(
+        documentId: tab.document.id,
+        pageNumber: pageNumber,
+      ),
+    );
     unawaited(_saveSession());
   }
 
   Widget _buildEditorForTab(_WorkspaceTab tab) {
+    final key = ValueKey(
+      'pdf-tab-${tab.document.id}-${tab.generation}',
+    );
+
+    if (Platform.isAndroid) {
+      return NativePdfReaderLauncher(
+        key: key,
+        document: tab.document,
+        initialPage: tab.initialPage,
+        fullScreen: _fullScreen,
+        onToggleFullScreen: _toggleFullScreen,
+        onPageChanged: (pageNumber) => _recordVisiblePage(tab, pageNumber),
+      );
+    }
+
     return editor.PdfWorkspaceScreen(
-      key: ValueKey(
-        'pdf-tab-${tab.document.id}-${tab.generation}',
-      ),
+      key: key,
       document: tab.document,
       store: widget.store,
       annotations: widget.annotations,
@@ -732,10 +801,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildPdfEditorSurface() {
     if (Platform.isAndroid) {
-      // Mobile keeps exactly one native PDFium-backed viewer alive. Restored
-      // tabs keep only lightweight session metadata and are reconstructed at
-      // their saved page when activated. This prevents background tabs from
-      // retaining native page/image caches.
+      // Android delegates PDF rendering to Mozilla PDF.js in an isolated
+      // WebView process. Flutter never mounts pdfrx/PDFium here.
       return _buildEditorForTab(_tabs[_activeIndex]);
     }
 
@@ -832,6 +899,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         shortcut: 'Ctrl+Shift+I',
         icon: Icons.document_scanner_outlined,
         action: _startActiveIndexing,
+      ),
+      _WorkspaceCommand(
+        label: 'Gerenciar páginas',
+        shortcut: '',
+        icon: Icons.view_carousel_outlined,
+        action: () => unawaited(_openActivePageTools()),
       ),
       _WorkspaceCommand(
         label: 'Fechar aba atual',
@@ -1169,6 +1242,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _toggleFullScreen();
       case 'index':
         _startActiveIndexing();
+      case 'pages':
+        unawaited(_openActivePageTools());
       case 'cancel-index':
         _cancelActiveIndexing();
       case 'palette':
@@ -1250,7 +1325,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                       children: [
                         if (showSidePanel) ...[
                           SizedBox(
-                            width: 268,
+                            width: 276,
                             child: _buildWorkspacePanel(),
                           ),
                           const VerticalDivider(width: 1),
@@ -1281,12 +1356,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Widget _buildDesktopMenuBar() {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 36,
+      height: 34,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
           _WorkspaceMenuButton(
@@ -1342,6 +1417,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 'index',
                 'Iniciar/retomar OCR',
                 'Ctrl+Shift+I',
+              ),
+              const _WorkspaceMenuItem(
+                'pages',
+                'Gerenciar páginas',
+                '',
               ),
               const _WorkspaceMenuItem(
                 'palette',
@@ -1405,7 +1485,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 10, 8),
+            padding: const EdgeInsets.fromLTRB(16, 13, 10, 7),
             child: Row(
               children: [
                 const Icon(Icons.space_dashboard_outlined, size: 19),
@@ -1428,10 +1508,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
               decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(10),
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: scheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1463,6 +1544,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             label: 'OCR/indexação manual',
             shortcut: 'Ctrl+Shift+I',
             onTap: _startActiveIndexing,
+          ),
+          _PanelAction(
+            icon: Icons.view_carousel_outlined,
+            label: 'Gerenciar páginas',
+            shortcut: '',
+            onTap: () => unawaited(_openActivePageTools()),
           ),
           _PanelAction(
             icon: Icons.forum_outlined,
@@ -1517,7 +1604,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 return ListTile(
                   dense: true,
                   selected: selected,
-                  selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.55),
+                  selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.32),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -1596,6 +1683,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.view_carousel_outlined),
+                title: const Text('Gerenciar páginas'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_openActivePageTools());
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.forum_outlined),
                 title: const Text('Chat com este PDF'),
                 onTap: () {
@@ -1667,10 +1762,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     return Container(
       height: 28,
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
+        color: scheme.surfaceContainerLowest,
         border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           const Icon(Icons.picture_as_pdf_outlined, size: 14),
@@ -1735,11 +1830,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   final selected = index == _activeIndex;
                   return Material(
                     color: selected
-                        ? scheme.primaryContainer
-                        : scheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(8),
+                        ? scheme.primaryContainer.withValues(alpha: 0.72)
+                        : scheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(7),
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(7),
                       onTap: () => unawaited(_activateTab(index)),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(
@@ -1795,6 +1890,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               onPressed: _showDocumentSearch,
               icon: const Icon(Icons.search, size: 20),
             ),
+            if (sidePanelCapable)
+              IconButton(
+                tooltip: 'OCR/indexação (Ctrl+Shift+I)',
+                visualDensity:
+                    _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
+                onPressed: _startActiveIndexing,
+                icon: const Icon(Icons.document_scanner_outlined, size: 20),
+              ),
+            if (sidePanelCapable)
+              IconButton(
+                tooltip: 'Gerenciar páginas',
+                visualDensity:
+                    _denseToolbar ? VisualDensity.compact : VisualDensity.standard,
+                onPressed: _openActivePageTools,
+                icon: const Icon(Icons.view_carousel_outlined, size: 20),
+              ),
             IconButton(
               tooltip: 'Desfazer (Ctrl+Z)',
               visualDensity:
@@ -1911,8 +2022,12 @@ class _WorkspaceMenuButton extends StatelessWidget {
           ),
       ],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-        child: Text(label),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        child: Text(
+          label,
+          maxLines: 1,
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
       ),
     );
   }
@@ -1936,7 +2051,11 @@ class _PanelAction extends StatelessWidget {
     return ListTile(
       dense: true,
       leading: Icon(icon, size: 20),
-      title: Text(label),
+      title: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: shortcut.isEmpty ? null : _ShortcutBadge(shortcut),
       onTap: onTap,
     );

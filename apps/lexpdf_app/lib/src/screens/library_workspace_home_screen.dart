@@ -13,6 +13,7 @@ import 'cloud_sync_screen.dart';
 import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
 import 'notebook_screen.dart';
+import 'native_office_document_screen.dart';
 import 'pdf_workspace_screen.dart';
 
 enum _HomeSection {
@@ -20,6 +21,7 @@ enum _HomeSection {
   recent,
   favorites,
   notebooks,
+  office,
   flashcards,
   offline,
   cloud,
@@ -53,6 +55,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     (_HomeSection.recent, Icons.history, 'Recentes'),
     (_HomeSection.favorites, Icons.star_border, 'Favoritos'),
     (_HomeSection.notebooks, Icons.edit_note_outlined, 'Cadernos'),
+    (_HomeSection.office, Icons.description_outlined, 'Documentos Office'),
     (_HomeSection.flashcards, Icons.style_outlined, 'Flashcards'),
     (_HomeSection.offline, Icons.offline_pin_outlined, 'Offline'),
     (_HomeSection.cloud, Icons.cloud_outlined, 'Nuvem'),
@@ -70,7 +73,9 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 760;
+    final veryCompact = width < 430;
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -85,13 +90,15 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
               )
             : null,
         automaticallyImplyLeading: false,
-        titleSpacing: compact ? 0 : 24,
+        titleSpacing: compact ? 0 : 22,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 22),
-            const SizedBox(width: 9),
-            const Text('LexPDF'),
+            if (!veryCompact) ...[
+              const SizedBox(width: 9),
+              const Text('LexPDF'),
+            ],
           ],
         ),
         actions: [
@@ -166,10 +173,10 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
                 constraints: const BoxConstraints(maxWidth: 1180),
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
-                    compact ? 18 : 32,
-                    compact ? 22 : 30,
-                    compact ? 18 : 32,
-                    24,
+                    compact ? 16 : 34,
+                    compact ? 20 : 30,
+                    compact ? 16 : 34,
+                    compact ? 20 : 28,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,13 +200,13 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   Widget _buildContent() {
-    if (_section == _HomeSection.notebooks) {
+    if (_section == _HomeSection.office) {
       return _ActionPanel(
-        icon: Icons.edit_note_outlined,
-        title: 'Cadernos',
-        subtitle: 'Escrita, desenhos, formas, texto e imagens.',
-        action: 'Abrir cadernos',
-        onTap: _openNotebook,
+        icon: Icons.description_outlined,
+        title: 'Documentos Office',
+        subtitle: 'Editor nativo DOCX/RTF/TXT, sem WebView e sem dependência de servidor.',
+        action: 'Abrir editor',
+        onTap: _openOffice,
       );
     }
     if (_section == _HomeSection.flashcards) {
@@ -233,6 +240,7 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         final documents = await widget.catalog.list(limit: 500);
         return documents.where((document) => document.hasLocalPath).toList(growable: false);
       case _HomeSection.notebooks:
+      case _HomeSection.office:
       case _HomeSection.flashcards:
       case _HomeSection.cloud:
         return const [];
@@ -270,8 +278,23 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
   }
 
   void _select(_HomeSection section) {
+    final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
+
+    if (section == _HomeSection.notebooks ||
+        section == _HomeSection.office) {
+      final open = section == _HomeSection.notebooks ? _openNotebook : _openOffice;
+      if (hasDrawer) {
+        Navigator.of(context).maybePop().then((_) {
+          if (mounted) unawaited(open());
+        });
+      } else {
+        unawaited(open());
+      }
+      return;
+    }
+
     if (_section != section) setState(() => _section = section);
-    if (Scaffold.maybeOf(context)?.hasDrawer ?? false) {
+    if (hasDrawer) {
       Navigator.of(context).maybePop();
     }
   }
@@ -283,9 +306,11 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
       final picked = await _picker.pickPdf();
       if (picked == null || !mounted) return;
 
-      // Opening the workspace must never wait for catalog/database bookkeeping.
-      unawaited(_rememberDocument(picked));
-      await _openDocument(picked, recordOpen: false);
+      // Resolve the stable identity before entering the workspace so a moved or
+      // renamed PDF keeps its existing reading progress and annotations.
+      final document = await widget.catalog.resolveLocalDocument(picked);
+      unawaited(widget.catalog.markOpened(document.id));
+      await _openDocument(document, recordOpen: false);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -294,12 +319,6 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     } finally {
       if (mounted) setState(() => _picking = false);
     }
-  }
-
-  Future<void> _rememberDocument(DocumentRef document) async {
-    await widget.catalog.upsert(document);
-    await widget.catalog.markOpened(document.id);
-    if (mounted) setState(() {});
   }
 
   Future<void> _openDocument(
@@ -382,6 +401,12 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
         ),
       );
 
+  Future<void> _openOffice() => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const NativeOfficeDocumentScreen(),
+        ),
+      );
+
   void _handleMore(_HomeMoreAction action) {
     switch (action) {
       case _HomeMoreAction.account:
@@ -408,7 +433,7 @@ class _NavigationList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: EdgeInsets.fromLTRB(12, mobile ? 18 : 20, 12, 12),
+      padding: EdgeInsets.fromLTRB(10, mobile ? 16 : 18, 10, 12),
       children: [
         if (mobile)
           const Padding(
@@ -423,11 +448,19 @@ class _NavigationList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 3),
             child: ListTile(
               dense: !mobile,
+              minTileHeight: mobile ? 48 : 42,
               selected: section == item.$1,
-              selectedTileColor: Theme.of(context).colorScheme.surfaceContainerLow,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              selectedTileColor:
+                  Theme.of(context).colorScheme.surfaceContainerLow,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(9),
+              ),
               leading: Icon(item.$2, size: mobile ? 22 : 20),
-              title: Text(item.$3),
+              title: Text(
+                item.$3,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               onTap: () => onSelect(item.$1),
             ),
           ),
@@ -464,6 +497,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Recentes',
       _HomeSection.favorites => 'Favoritos',
       _HomeSection.notebooks => 'Cadernos',
+      _HomeSection.office => 'Documentos Office',
       _HomeSection.flashcards => 'Flashcards',
       _HomeSection.offline => 'Offline',
       _HomeSection.cloud => 'Nuvem',
@@ -473,6 +507,7 @@ class _SectionHeader extends StatelessWidget {
       _HomeSection.recent => 'Documentos realmente abertos por você.',
       _HomeSection.favorites => 'Documentos mantidos por perto.',
       _HomeSection.notebooks => 'Notas manuscritas e conteúdo livre.',
+      _HomeSection.office => 'Editor de documentos nativo, rápido e local-first.',
       _HomeSection.flashcards =>
         'Todos os cartões, organizados por matéria e assunto.',
       _HomeSection.offline => 'Arquivos locais prontos para abrir.',
@@ -482,12 +517,15 @@ class _SectionHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 5),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+        const SizedBox(height: 6),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
         ),
       ],
     );
@@ -502,23 +540,55 @@ class _WorkspaceHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.primaryContainer.withValues(alpha: 0.38),
-      borderRadius: BorderRadius.circular(12),
+      color: scheme.primaryContainer.withValues(alpha: 0.28),
+      borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            Icon(Icons.edit_document, color: scheme.primary),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text('Os PDFs da Biblioteca abrem no espaço completo de leitura e ferramentas.'),
-            ),
-            TextButton.icon(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 520;
+            final message = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.edit_document,
+                    color: scheme.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Os PDFs da Biblioteca abrem no espaço completo de leitura e ferramentas.',
+                  ),
+                ),
+              ],
+            );
+            final action = TextButton.icon(
               onPressed: onOpen,
-              icon: const Icon(Icons.add),
-              label: const Text('Abrir PDF'),
-            ),
-          ],
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Abrir PDF', maxLines: 1),
+            );
+            if (narrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  message,
+                  const SizedBox(height: 6),
+                  Align(alignment: Alignment.centerRight, child: action),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: message),
+                const SizedBox(width: 12),
+                action,
+              ],
+            );
+          },
         ),
       ),
     );
@@ -543,17 +613,17 @@ class _DocumentRow extends StatelessWidget {
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.8)),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         leading: Container(
           width: 38,
           height: 38,
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(9),
           ),
           child: Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 20),
         ),
@@ -603,22 +673,51 @@ class _ActionPanel extends StatelessWidget {
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(18),
-            child: Row(
-              children: [
-                Icon(icon, size: 26),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 430;
+                final content = Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(icon, size: 24),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(subtitle),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+                final button = TextButton(
+                  onPressed: onTap,
+                  child: Text(action, maxLines: 1),
+                );
+                if (narrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(title, style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(subtitle),
+                      content,
+                      const SizedBox(height: 8),
+                      Align(alignment: Alignment.centerRight, child: button),
                     ],
-                  ),
-                ),
-                TextButton(onPressed: onTap, child: Text(action)),
-              ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: content),
+                    const SizedBox(width: 12),
+                    button,
+                  ],
+                );
+              },
             ),
           ),
         ),

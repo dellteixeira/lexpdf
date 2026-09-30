@@ -99,6 +99,50 @@ class _NotebookBackgroundPainter extends CustomPainter {
           );
         }
         return;
+      case InkPageBackground.taskList:
+        const margin = 36.0;
+        for (double y = 52; y < size.height - 24; y += 44) {
+          canvas.drawRect(
+            Rect.fromLTWH(margin, y - 11, 18, 18),
+            Paint()
+              ..color = const Color(0x405F6B7A)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2,
+          );
+          canvas.drawLine(
+            Offset(margin + 34, y),
+            Offset(size.width - margin, y),
+            linePaint,
+          );
+        }
+        return;
+      case InkPageBackground.music:
+        for (double groupTop = 40; groupTop < size.height; groupTop += 120) {
+          for (var line = 0; line < 5; line++) {
+            final y = groupTop + line * 12;
+            canvas.drawLine(Offset(24, y), Offset(size.width - 24, y), linePaint);
+          }
+        }
+        return;
+      case InkPageBackground.isometric:
+        const spacing = 36.0;
+        final tan60 = 1.7320508075688772;
+        for (double x = -size.height / tan60; x < size.width + size.height / tan60; x += spacing) {
+          canvas.drawLine(
+            Offset(x, 0),
+            Offset(x + size.height / tan60, size.height),
+            linePaint,
+          );
+          canvas.drawLine(
+            Offset(x, size.height),
+            Offset(x + size.height / tan60, 0),
+            linePaint,
+          );
+        }
+        for (double y = 0; y < size.height; y += spacing * 0.866) {
+          canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+        }
+        return;
     }
   }
 

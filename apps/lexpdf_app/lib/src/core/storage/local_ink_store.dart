@@ -55,6 +55,34 @@ class LocalInkStore {
     return InkNotebook(id: id, title: normalized, createdAt: now, updatedAt: now);
   }
 
+  Future<InkNotebook> createNotebookConfigured(
+    String title, {
+    required InkPageBackground background,
+    required double width,
+    required double height,
+  }) async {
+    final now = DateTime.now().toUtc();
+    final id = 'notebook-${now.microsecondsSinceEpoch.toRadixString(36)}';
+    final normalized = title.trim().isEmpty ? 'Novo caderno' : title.trim();
+    final iso = now.toIso8601String();
+    db.database.execute(
+      'INSERT INTO notebooks(id, title, created_at, updated_at) VALUES (?, ?, ?, ?);',
+      [id, normalized, iso, iso],
+    );
+    await createPage(
+      id,
+      background: background,
+      width: width,
+      height: height,
+    );
+    return InkNotebook(
+      id: id,
+      title: normalized,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
   Future<void> renameNotebook(String id, String title) async {
     final normalized = title.trim();
     if (normalized.isEmpty) return;
@@ -125,6 +153,7 @@ class LocalInkStore {
           colorValue: stroke.colorValue,
           opacity: stroke.opacity,
           width: stroke.width,
+          brush: stroke.brush,
           points: stroke.points,
           createdAt: stroke.createdAt,
         ),
@@ -137,6 +166,24 @@ class LocalInkStore {
     db.database.execute(
       'UPDATE notebook_pages SET background = ?, updated_at = ? WHERE id = ?;',
       [background.dbValue, DateTime.now().toUtc().toIso8601String(), pageId],
+    );
+  }
+
+  Future<void> updatePageFormat(
+    String pageId, {
+    required double width,
+    required double height,
+    required InkPageBackground background,
+  }) async {
+    db.database.execute(
+      'UPDATE notebook_pages SET width = ?, height = ?, background = ?, updated_at = ? WHERE id = ?;',
+      [
+        width,
+        height,
+        background.dbValue,
+        DateTime.now().toUtc().toIso8601String(),
+        pageId,
+      ],
     );
   }
 
@@ -202,8 +249,8 @@ class LocalInkStore {
   void _insertStroke(InkStroke stroke) {
     db.database.execute('''
       INSERT OR REPLACE INTO ink_strokes(
-        id, page_id, tool, color_value, opacity, width, points_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        id, page_id, tool, color_value, opacity, width, brush, points_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
     ''', [
       stroke.id,
       stroke.pageId,
@@ -211,6 +258,7 @@ class LocalInkStore {
       stroke.colorValue,
       stroke.opacity,
       stroke.width,
+      _brushToDb(stroke.brush),
       stroke.encodePoints(),
       stroke.createdAt.toUtc().toIso8601String(),
     ]);
@@ -230,6 +278,7 @@ class LocalInkStore {
             colorValue: row['color_value'] as int,
             opacity: (row['opacity'] as num).toDouble(),
             width: (row['width'] as num).toDouble(),
+            brush: _brushFromDb(row['brush'] as String),
             points: InkStroke.decodePoints(row['points_json'] as String),
             createdAt: DateTime.parse(row['created_at'] as String),
           ),
@@ -279,5 +328,13 @@ class LocalInkStore {
         'pencil' => InkTool.pencil,
         'highlighter' => InkTool.highlighter,
         _ => throw StateError('Ferramenta de tinta desconhecida: $value'),
+      };
+
+  static String _brushToDb(InkBrush brush) => brush.name;
+
+  static InkBrush _brushFromDb(String value) => switch (value) {
+        'fountain' => InkBrush.fountain,
+        'chisel' => InkBrush.chisel,
+        _ => InkBrush.round,
       };
 }

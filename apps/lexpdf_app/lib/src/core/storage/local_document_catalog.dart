@@ -1,12 +1,138 @@
+import 'dart:io';
+
 import '../documents/document_provider.dart';
+import '../documents/local_document_identity.dart';
 import 'local_database.dart';
 
 class LocalDocumentCatalog {
-  const LocalDocumentCatalog(this.db);
+  LocalDocumentCatalog(this.db) {
+    _ensureIdentitySchema();
+  }
 
   static const String _legacySystemFileProvider = 'i' 'cloud';
 
   final LocalDatabase db;
+  static const LocalDocumentIdentity _identity = LocalDocumentIdentity();
+
+  void _ensureIdentitySchema() {
+    db.database.execute('''
+      CREATE TABLE IF NOT EXISTS local_document_identity_aliases (
+        fingerprint TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    db.database.execute('''
+      CREATE INDEX IF NOT EXISTS local_document_identity_document_idx
+      ON local_document_identity_aliases(document_id);
+    ''');
+  }
+
+  Future<DocumentRef> resolveLocalDocument(DocumentRef incoming) async {
+    if (incoming.provider != DocumentProviderKind.local ||
+        !incoming.hasLocalPath) {
+      await upsert(incoming);
+      return await getById(incoming.id) ?? incoming;
+    }
+
+    final path = incoming.localPath!;
+    var fingerprint = _identity.fingerprintFromId(incoming.id);
+    fingerprint ??= await _identity.fingerprintFile(path);
+
+    final byId = await getById(incoming.id);
+    if (byId != null) {
+      final merged = byId.copyWith(
+        name: incoming.name,
+        localPath: path,
+        availableOffline: true,
+      );
+      await upsert(merged);
+      _upsertIdentityAlias(fingerprint, merged.id);
+      return merged;
+    }
+
+    final byPath = _getByLocalPath(path);
+    if (byPath != null) {
+      final merged = byPath.copyWith(
+        name: incoming.name,
+        localPath: path,
+        availableOffline: true,
+      );
+      await upsert(merged);
+      _upsertIdentityAlias(fingerprint, merged.id);
+      return merged;
+    }
+
+    final aliasedId = _documentIdForFingerprint(fingerprint);
+    if (aliasedId != null) {
+      final aliased = await getById(aliasedId);
+      if (aliased != null) {
+        final merged = aliased.copyWith(
+          name: incoming.name,
+          localPath: path,
+          availableOffline: true,
+        );
+        await upsert(merged);
+        _upsertIdentityAlias(fingerprint, merged.id);
+        return merged;
+      }
+    }
+
+    await upsert(incoming);
+    _upsertIdentityAlias(fingerprint, incoming.id);
+    return await getById(incoming.id) ?? incoming;
+  }
+
+  Future<void> backfillLocalIdentityAliases() async {
+    final documents = await list(limit: 1000);
+    for (final document in documents) {
+      if (document.provider != DocumentProviderKind.local ||
+          !document.hasLocalPath) {
+        continue;
+      }
+      final path = document.localPath!;
+      if (!File(path).existsSync()) continue;
+      try {
+        final fingerprint = await _identity.fingerprintFile(path);
+        _upsertIdentityAlias(fingerprint, document.id);
+      } catch (_) {
+        // Identity backfill is advisory and must never block library startup.
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  DocumentRef? _getByLocalPath(String path) {
+    final rows = db.database.select(
+      'SELECT * FROM documents WHERE local_path = ? LIMIT 1;',
+      [path],
+    );
+    return rows.isEmpty ? null : _fromRow(rows.first);
+  }
+
+  String? _documentIdForFingerprint(String fingerprint) {
+    final rows = db.database.select(
+      'SELECT document_id FROM local_document_identity_aliases '
+      'WHERE fingerprint = ? LIMIT 1;',
+      [fingerprint],
+    );
+    return rows.isEmpty ? null : rows.first['document_id'] as String;
+  }
+
+  void _upsertIdentityAlias(String fingerprint, String documentId) {
+    db.database.execute('''
+      INSERT INTO local_document_identity_aliases(
+        fingerprint, document_id, updated_at
+      ) VALUES (?, ?, ?)
+      ON CONFLICT(fingerprint) DO UPDATE SET
+        document_id = excluded.document_id,
+        updated_at = excluded.updated_at;
+    ''', [
+      fingerprint,
+      documentId,
+      DateTime.now().toUtc().toIso8601String(),
+    ]);
+  }
 
   Future<void> upsert(DocumentRef document) async {
     final now = DateTime.now().toUtc().toIso8601String();

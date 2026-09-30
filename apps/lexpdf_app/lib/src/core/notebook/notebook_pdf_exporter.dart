@@ -186,6 +186,42 @@ class NotebookPdfExporter {
           canvas.drawLine(margin, y, page.width - margin, y);
         }
         return;
+      case InkPageBackground.taskList:
+        canvas
+          ..setStrokeColor(line)
+          ..setLineWidth(1);
+        for (double y = 52; y < page.height - 24; y += 44) {
+          canvas
+            ..drawRect(36, y - 11, 18, 18)
+            ..strokePath()
+            ..drawLine(70, y, page.width - 36, y);
+        }
+        return;
+      case InkPageBackground.music:
+        canvas
+          ..setStrokeColor(line)
+          ..setLineWidth(1);
+        for (double top = 40; top < page.height; top += 120) {
+          for (var index = 0; index < 5; index++) {
+            final y = top + index * 12;
+            canvas.drawLine(24, y, page.width - 24, y);
+          }
+        }
+        return;
+      case InkPageBackground.isometric:
+        canvas
+          ..setStrokeColor(line)
+          ..setLineWidth(1);
+        const spacing = 36.0;
+        const tan60 = 1.7320508075688772;
+        for (double x = -1000; x < page.width + 1000; x += spacing) {
+          canvas.drawLine(x, 0, x + page.height / tan60, page.height);
+          canvas.drawLine(x, page.height, x + page.height / tan60, 0);
+        }
+        for (double y = 0; y < page.height; y += spacing * 0.866) {
+          canvas.drawLine(0, y, page.width, y);
+        }
+        return;
     }
   }
 
