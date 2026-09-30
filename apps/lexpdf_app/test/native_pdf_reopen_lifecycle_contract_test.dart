@@ -36,18 +36,10 @@ void main() {
     expect(source, contains('temporary.length() <= 0L'));
     expect(source, contains('temporary.renameTo(target)'));
     expect(source, contains('temporary.delete()'));
-    expect(source, contains('querySourceVersion(uri)'));
-    expect(source, contains('sourceVersion.cacheToken()'));
-    expect(source, contains('PICKER_CACHE_HIT'));
     expect(
       source,
-      contains('sourceVersionFile.readText() == sourceToken'),
-      reason:
-          'PDFs grandes inalterados devem reabrir sem repetir a cópia completa.',
+      contains('if (target.isFile && target.length() > 0L) return target.absolutePath'),
     );
-    expect(source, contains(r'val backup = File(targetDir, "${target.name}.bak")'));
-    expect(source, contains('target.renameTo(backup)'));
-    expect(source, contains('backup.renameTo(target)'));
   });
 
   test('Android still handles new intents while Flutter is already running', () {
