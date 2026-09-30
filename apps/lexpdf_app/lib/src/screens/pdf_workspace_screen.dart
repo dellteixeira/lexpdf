@@ -632,97 +632,203 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (_tabs.isEmpty) return;
     final tab = _tabs[_activeIndex];
     final controller = TextEditingController();
-    final query = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Pesquisar no PDF'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            hintText: 'Digite uma palavra ou expressão',
-          ),
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Pesquisar'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (!mounted || query == null || query.isEmpty) return;
-
-    final rows = widget.store.db.database.select('''
-      SELECT page_number, content
-      FROM pdf_page_text_index
-      WHERE document_id = ? AND lower(content) LIKE ?
-      ORDER BY page_number
-      LIMIT 200;
-    ''', [tab.document.id, '%${query.toLowerCase()}%']);
-
-    if (!mounted) return;
-    if (rows.isEmpty) {
-      final hasIndex = widget.store.db.database.select('''
-        SELECT 1 FROM pdf_page_text_index WHERE document_id = ? LIMIT 1;
-      ''', [tab.document.id]).isNotEmpty;
-      if (!hasIndex) {
-        unawaited(_startBackgroundIndexing(tab));
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            hasIndex
-                ? 'Nenhuma ocorrência de “$query” foi localizada.'
-                : 'A indexação deste PDF foi iniciada para atender à busca. '
-                    'Tente novamente em alguns instantes.',
-          ),
-        ),
-      );
-      return;
-    }
+    var rows = <dynamic>[];
+    var currentIndex = -1;
+    var searchedQuery = '';
+    var message = 'Digite uma palavra ou frase para pesquisar neste PDF.';
+    var indexingStarted = false;
 
     await showModalBottomSheet<void>(
       context: context,
-      showDragHandle: true,
+      showDragHandle: false,
       isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.70,
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-            itemCount: rows.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final row = rows[index];
-              final page = row['page_number'] as int;
-              final content = row['content'] as String? ?? '';
-              return ListTile(
-                leading: CircleAvatar(child: Text('$page')),
-                title: Text('Página $page'),
-                subtitle: Text(
-                  _searchSnippet(content, query),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _openIndexedSearchPage(page);
-                },
-              );
-            },
-          ),
-        ),
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void openResult(int index) {
+            if (rows.isEmpty) return;
+            final next = index < 0
+                ? rows.length - 1
+                : index >= rows.length
+                    ? 0
+                    : index;
+            final row = rows[next];
+            final page = row['page_number'] as int;
+            setSheetState(() => currentIndex = next);
+            _openIndexedSearchPage(page);
+          }
+
+          void runSearch(String rawValue) {
+            final query = rawValue.trim();
+            if (query.isEmpty) {
+              setSheetState(() {
+                searchedQuery = '';
+                rows = <dynamic>[];
+                currentIndex = -1;
+                message =
+                    'Digite uma palavra ou frase para pesquisar neste PDF.';
+              });
+              return;
+            }
+
+            final nextRows = widget.store.db.database.select('''
+              SELECT page_number, content
+              FROM pdf_page_text_index
+              WHERE document_id = ? AND lower(content) LIKE ?
+              ORDER BY page_number
+              LIMIT 500;
+            ''', [tab.document.id, '%${query.toLowerCase()}%']);
+
+            final hasIndex = widget.store.db.database.select('''
+              SELECT 1
+              FROM pdf_page_text_index
+              WHERE document_id = ?
+              LIMIT 1;
+            ''', [tab.document.id]).isNotEmpty;
+
+            setSheetState(() {
+              searchedQuery = query;
+              rows = nextRows;
+              currentIndex = nextRows.isEmpty ? -1 : 0;
+              message = nextRows.isNotEmpty
+                  ? '${nextRows.length} ocorrência(s) localizada(s)'
+                  : hasIndex
+                      ? 'Nenhuma ocorrência de “$query” foi localizada.'
+                      : 'Preparando o índice de texto deste PDF…';
+            });
+
+            if (nextRows.isNotEmpty) {
+              _openIndexedSearchPage(nextRows.first['page_number'] as int);
+            } else if (!hasIndex && !indexingStarted) {
+              indexingStarted = true;
+              unawaited(_startBackgroundIndexing(tab));
+            }
+          }
+
+          final compact = MediaQuery.sizeOf(context).width < 720;
+          final scheme = Theme.of(context).colorScheme;
+
+          return FractionallySizedBox(
+            heightFactor: compact ? 0.68 : 0.46,
+            child: Material(
+              color: scheme.surface,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            autofocus: true,
+                            textInputAction: TextInputAction.search,
+                            decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.search),
+                              hintText: 'Pesquisar palavra ou frase',
+                              filled: true,
+                              fillColor: scheme.surfaceContainerHighest,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            onSubmitted: runSearch,
+                            onChanged: (value) {
+                              if (value.isEmpty) runSearch(value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          tooltip: 'Pesquisar',
+                          onPressed: () => runSearch(controller.text),
+                          icon: const Icon(Icons.search),
+                        ),
+                        IconButton(
+                          tooltip: 'Fechar pesquisa',
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            rows.isEmpty
+                                ? message
+                                : '${currentIndex + 1} de ${rows.length} · $searchedQuery',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Ocorrência anterior',
+                          onPressed:
+                              rows.isEmpty ? null : () => openResult(currentIndex - 1),
+                          icon: const Icon(Icons.keyboard_arrow_up),
+                        ),
+                        IconButton(
+                          tooltip: 'Próxima ocorrência',
+                          onPressed:
+                              rows.isEmpty ? null : () => openResult(currentIndex + 1),
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: rows.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                message,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.only(bottom: 18),
+                            itemCount: rows.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1, indent: 64),
+                            itemBuilder: (context, index) {
+                              final row = rows[index];
+                              final page = row['page_number'] as int;
+                              final content = row['content'] as String? ?? '';
+                              return ListTile(
+                                selected: index == currentIndex,
+                                leading: CircleAvatar(child: Text('$page')),
+                                title: Text('Página $page'),
+                                subtitle: Text(
+                                  _searchSnippet(content, searchedQuery),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: index == currentIndex
+                                    ? const Icon(Icons.location_on_outlined)
+                                    : null,
+                                onTap: () => openResult(index),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
+    controller.dispose();
   }
 
   String _searchSnippet(String content, String query) {
