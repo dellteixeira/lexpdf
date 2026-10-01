@@ -159,16 +159,20 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
-  test('native PDF toolbar stays unified and compact across orientations', () {
+  test('native PDF toolbar uses adaptive overflow on small portrait screens', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(activity, contains('val unifiedToolbarRow = toolRow()'));
-    expect(activity, contains('val toolbarScroller = HorizontalScrollView(this)'));
-    expect(activity, contains('Configuration.ORIENTATION_LANDSCAPE'));
-    expect(activity, contains('val compactToolbar ='));
-    expect(activity, contains('isFillViewport = false'));
+    expect(activity, contains('val useOverflowMenu = !landscape && screenWidthDp < 600'));
+    expect(activity, contains('PopupMenu(this, anchor)'));
+    expect(activity, contains('button("⋮")'));
+    expect(activity, contains('menu.add("Caneta")'));
+    expect(activity, contains('menu.add("Marca-texto")'));
+    expect(activity, contains('menu.add("Borracha")'));
+    expect(activity, contains('menu.add("Fechar")'));
+    expect(activity, contains('HorizontalScrollView(this).apply'));
     expect(activity, contains('FrameLayout.LayoutParams.WRAP_CONTENT'));
     expect(activity, contains('unifiedToolbarRow.addView(button("Índice")'));
     expect(activity, contains('unifiedToolbarRow.addView(penButton)'));
