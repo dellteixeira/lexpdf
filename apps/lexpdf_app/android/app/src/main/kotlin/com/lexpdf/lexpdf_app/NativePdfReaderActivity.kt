@@ -160,6 +160,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private var currentKind = InkKind.PEN
     private var currentTool = InkTool.PEN
+    private var fingerInkEnabled = false
     private var penColor = Color.rgb(20, 24, 30)
     private var penSize = 3.0f
     private var highlighterColor = Color.argb(72, 255, 224, 64)
@@ -314,6 +315,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Zoom −")
                 menu.add("Zoom +")
                 menu.add("Página inteira")
+                menu.add("Selecionar texto")
                 menu.add("Caneta")
                 menu.add("Marca-texto")
                 menu.add("Borracha")
@@ -325,6 +327,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         "Zoom −" -> js("LexPDF.zoomOut()")
                         "Zoom +" -> js("LexPDF.zoomIn()")
                         "Página inteira" -> js("LexPDF.fitPage()")
+                        "Selecionar texto" -> selectTextMode()
                         "Caneta" -> selectInk(InkKind.PEN)
                         "Marca-texto" -> selectInk(InkKind.HIGHLIGHTER)
                         "Borracha" -> selectEraser()
@@ -413,6 +416,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     contentDescription = "Página inteira"
                 },
             )
+            unifiedToolbarRow.addView(
+                button("Texto") { selectTextMode() }.apply {
+                    contentDescription = "Selecionar texto"
+                },
+            )
             unifiedToolbarRow.addView(penButton)
             unifiedToolbarRow.addView(highlighterButton)
             unifiedToolbarRow.addView(eraserButton)
@@ -469,6 +477,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
             onStylusEvent = { event -> handleStylusEvent(event) }
+            interceptFingerInput = false
         }
 
         webView = WebView(this)
@@ -546,7 +555,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        selectInk(currentKind)
+        selectTextMode()
     }
 
     private fun buildSearchBar(): LinearLayout {
@@ -1014,12 +1023,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:center}
     #wrap{padding:18px 18px 36px;min-width:max-content}
+    #pageHost{position:relative;display:inline-block}
     canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
+    #textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-x pan-y}
+    #textLayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
+    #textLayer span::selection{background:rgba(37,99,235,.34)}
     #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#17191dcc;padding:12px 18px;border-radius:18px;font-size:14px}
   </style>
 </head>
 <body>
-<div id="stage"><div id="wrap"><canvas id="pdf"></canvas></div></div>
+<div id="stage"><div id="wrap"><div id="pageHost"><canvas id="pdf"></canvas><div id="textLayer" aria-label="Texto selecionável do PDF"></div></div></div></div>
 <div id="loading">Abrindo PDF…</div>
 <script type="module">
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs';
@@ -1030,6 +1043,8 @@ const PDF_LENGTH = ${sourceFile.length()};
 const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
 const canvas = document.getElementById('pdf');
 const ctx = canvas.getContext('2d', { alpha: false });
+const textLayer = document.getElementById('textLayer');
+const pageHost = document.getElementById('pageHost');
 const stage = document.getElementById('stage');
 const loading = document.getElementById('loading');
 
@@ -1896,6 +1911,49 @@ async function paintSearchHighlights(page, viewport, renderScale, target) {
   } catch (_) {}
 }
 
+async function renderSelectableTextLayer(page, viewport) {
+  textLayer.replaceChildren();
+  textLayer.style.width = viewport.width + 'px';
+  textLayer.style.height = viewport.height + 'px';
+  pageHost.style.width = viewport.width + 'px';
+  pageHost.style.height = viewport.height + 'px';
+
+  try {
+    const content = await page.getTextContent();
+    for (const item of (content.items || [])) {
+      const text = String(item.str || '');
+      if (!text || !Array.isArray(item.transform)) continue;
+
+      const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+      const fontHeight = Math.max(1, Math.hypot(tx[2], tx[3]));
+      const span = document.createElement('span');
+      span.textContent = text;
+      span.style.left = tx[4] + 'px';
+      span.style.top = (tx[5] - fontHeight) + 'px';
+      span.style.fontSize = fontHeight + 'px';
+      span.style.fontFamily = 'sans-serif';
+
+      const expectedWidth = Math.max(0, Number(item.width || 0) * viewport.scale);
+      if (expectedWidth > 0) {
+        span.dataset.expectedWidth = String(expectedWidth);
+      }
+      textLayer.appendChild(span);
+    }
+
+    requestAnimationFrame(() => {
+      for (const span of textLayer.querySelectorAll('span[data-expected-width]')) {
+        const measured = span.getBoundingClientRect().width;
+        const expected = Number(span.dataset.expectedWidth || 0);
+        if (measured > 0 && expected > 0) {
+          span.style.transform = 'scaleX(' + (expected / measured) + ')';
+        }
+      }
+    });
+  } catch (_) {
+    textLayer.replaceChildren();
+  }
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -1973,6 +2031,8 @@ async function renderPage(target, preserveCenter = false) {
     await renderTask.promise;
     renderTask = null;
 
+    if (token !== renderToken) return;
+    await renderSelectableTextLayer(page, viewport);
     if (token !== renderToken) return;
     await paintSearchHighlights(page, viewport, renderScale, target);
     if (token !== renderToken) return;
@@ -2476,10 +2536,44 @@ function hypot(a,b) {
         wetInkView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
     }
 
+    private fun selectTextMode() {
+        fingerInkEnabled = false
+        currentTool =
+            if (currentKind == InkKind.PEN) InkTool.PEN else InkTool.HIGHLIGHTER
+
+        if (::readerFrame.isInitialized) {
+            readerFrame.interceptFingerInput = false
+        }
+        if (::wetInkView.isInitialized) {
+            wetInkView.cancelUnfinishedStrokes()
+        }
+        strokeStyles.clear()
+
+        if (::penButton.isInitialized) {
+            penButton.text = "Caneta"
+            penButton.alpha = 0.72f
+        }
+        if (::highlighterButton.isInitialized) {
+            highlighterButton.text = "Marca"
+            highlighterButton.alpha = 0.72f
+        }
+        if (::eraserButton.isInitialized) {
+            eraserButton.text = "Borracha"
+            eraserButton.alpha = 0.72f
+        }
+        if (::statusLabel.isInitialized) {
+            statusLabel.text = "Toque: selecionar texto • S Pen continua disponível"
+        }
+    }
+
     private fun selectInk(kind: InkKind) {
         currentKind = kind
         currentTool =
             if (kind == InkKind.PEN) InkTool.PEN else InkTool.HIGHLIGHTER
+        fingerInkEnabled = true
+        if (::readerFrame.isInitialized) {
+            readerFrame.interceptFingerInput = true
+        }
         updateWetInkCompositing(kind)
         val style = currentInkStyle()
 
@@ -2502,14 +2596,18 @@ function hypot(a,b) {
         statusLabel.text =
             when (kind) {
                 InkKind.PEN ->
-                    "S Pen: caneta • ${style.size.roundToInt()} • segure para personalizar"
+                    "Toque/S Pen: caneta • ${style.size.roundToInt()} • segure para personalizar"
                 InkKind.HIGHLIGHTER ->
-                    "S Pen: marca-texto • ${style.size.roundToInt()} • segure para personalizar"
+                    "Toque/S Pen: marca-texto • ${style.size.roundToInt()} • segure para personalizar"
             }
     }
 
     private fun selectEraser() {
         currentTool = InkTool.ERASER
+        fingerInkEnabled = true
+        if (::readerFrame.isInitialized) {
+            readerFrame.interceptFingerInput = true
+        }
         wetInkView.cancelUnfinishedStrokes()
         strokeStyles.clear()
         updateWetInkCompositing(InkKind.PEN)
@@ -2527,7 +2625,7 @@ function hypot(a,b) {
             eraserButton.alpha = 1.0f
         }
         statusLabel.text =
-            "S Pen: borracha de traço • apaga caneta e marca-texto"
+            "Toque/S Pen: borracha de traço • apaga caneta e marca-texto"
     }
 
     private fun eventPointInPage(event: MotionEvent): FloatArray {
@@ -2973,12 +3071,24 @@ function hypot(a,b) {
 
     private class StylusRouterLayout(context: Context) : FrameLayout(context) {
         var onStylusEvent: ((MotionEvent) -> Boolean)? = null
+        var interceptFingerInput: Boolean = false
 
         override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
             if (ev.pointerCount <= 0) return false
+
+            // Keep two-finger gestures available for navigation/zoom even when
+            // a finger ink tool is active.
+            if (ev.pointerCount > 1) return false
+
             val type = ev.getToolType(ev.actionIndex.coerceAtLeast(0))
-            return type == MotionEvent.TOOL_TYPE_STYLUS ||
-                type == MotionEvent.TOOL_TYPE_ERASER
+            return when (type) {
+                MotionEvent.TOOL_TYPE_STYLUS,
+                MotionEvent.TOOL_TYPE_ERASER,
+                -> true
+
+                MotionEvent.TOOL_TYPE_FINGER -> interceptFingerInput
+                else -> false
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {

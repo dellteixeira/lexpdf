@@ -267,16 +267,40 @@ void main() {
     expect(activity, contains('segure para personalizar'));
   });
 
-  test('S Pen is routed to Ink while finger interaction stays in WebView', () {
+  test('text selection is restored with a selectable PDF.js text layer', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('id="textLayer"'));
+    expect(activity, contains('user-select:text'));
+    expect(activity, contains('-webkit-user-select:text'));
+    expect(activity, contains('renderSelectableTextLayer(page, viewport)'));
+    expect(activity, contains('page.getTextContent()'));
+    expect(activity, contains("span.textContent = text"));
+    expect(activity, contains("span::selection"));
+    expect(activity, contains('selectTextMode()'));
+    expect(activity, contains('button("Texto")'));
+    expect(activity, contains('menu.add("Selecionar texto")'));
+  });
+
+  test('S Pen always routes to Ink and finger routes only when an ink tool is active', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(activity, contains('MotionEvent.TOOL_TYPE_STYLUS'));
     expect(activity, contains('MotionEvent.TOOL_TYPE_ERASER'));
+    expect(activity, contains('MotionEvent.TOOL_TYPE_FINGER -> interceptFingerInput'));
+    expect(activity, contains('var interceptFingerInput: Boolean = false'));
+    expect(activity, contains('readerFrame.interceptFingerInput = true'));
+    expect(activity, contains('readerFrame.interceptFingerInput = false'));
+    expect(activity, contains('fingerInkEnabled = true'));
+    expect(activity, contains('fingerInkEnabled = false'));
     expect(activity, contains('wetInkView.startStroke('));
     expect(activity, contains('wetInkView.addToStroke('));
     expect(activity, contains('wetInkView.finishStroke('));
+    expect(activity, contains('if (ev.pointerCount > 1) return false'));
     expect(activity, contains('class StylusRouterLayout'));
   });
 
