@@ -480,7 +480,10 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             interceptFingerInput = false
         }
 
-        webView = WebView(this)
+        webView = WebView(this).apply {
+            isLongClickable = true
+            isHapticFeedbackEnabled = true
+        }
         readerFrame.addView(
             webView,
             FrameLayout.LayoutParams(
@@ -1079,6 +1082,11 @@ let searchInProgress = false;
 let searchQuery = '';
 let searchCaseSensitive = false;
 let searchWholeWord = false;
+
+let textLongPressTimer = 0;
+let textLongPressStartX = 0;
+let textLongPressStartY = 0;
+let textLongPressTriggered = false;
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -1953,6 +1961,110 @@ async function renderSelectableTextLayer(page, viewport) {
     textLayer.replaceChildren();
   }
 }
+
+function clearTextLongPressTimer() {
+  if (textLongPressTimer) {
+    clearTimeout(textLongPressTimer);
+    textLongPressTimer = 0;
+  }
+}
+
+function caretRangeAtPoint(x, y) {
+  if (document.caretRangeFromPoint) {
+    return document.caretRangeFromPoint(x, y);
+  }
+  if (document.caretPositionFromPoint) {
+    const position = document.caretPositionFromPoint(x, y);
+    if (!position) return null;
+    const range = document.createRange();
+    range.setStart(position.offsetNode, position.offset);
+    range.collapse(true);
+    return range;
+  }
+  return null;
+}
+
+function selectWordAtPoint(x, y) {
+  const caret = caretRangeAtPoint(x, y);
+  if (!caret) return false;
+
+  const node = caret.startContainer;
+  if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+  const parent = node.parentElement;
+  if (!parent || !parent.closest('#textLayer')) return false;
+
+  const text = node.textContent || '';
+  if (!text.length) return false;
+
+  let offset = Math.max(0, Math.min(text.length, caret.startOffset));
+  if (offset === text.length && offset > 0) offset--;
+  if (/\s/.test(text[offset] || '') && offset > 0) offset--;
+
+  let start = offset;
+  let end = offset;
+  while (start > 0 && !/\s/.test(text[start - 1])) start--;
+  while (end < text.length && !/\s/.test(text[end])) end++;
+
+  while (start < end && /[.,;:!?()[\]{}"'«»“”‘’]/.test(text[start])) start++;
+  while (end > start && /[.,;:!?()[\]{}"'«»“”‘’]/.test(text[end - 1])) end--;
+
+  if (start >= end) return false;
+
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+
+  const selection = window.getSelection();
+  if (!selection) return false;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+textLayer.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) {
+    clearTextLongPressTimer();
+    textLongPressTriggered = false;
+    return;
+  }
+
+  const touch = e.touches[0];
+  textLongPressStartX = touch.clientX;
+  textLongPressStartY = touch.clientY;
+  textLongPressTriggered = false;
+  clearTextLongPressTimer();
+
+  textLongPressTimer = window.setTimeout(() => {
+    textLongPressTimer = 0;
+    if (selectWordAtPoint(textLongPressStartX, textLongPressStartY)) {
+      textLongPressTriggered = true;
+      singleTouchActive = false;
+    }
+  }, 480);
+}, { passive: true });
+
+textLayer.addEventListener('touchmove', e => {
+  if (!textLongPressTimer || e.touches.length !== 1) return;
+  const touch = e.touches[0];
+  const dx = touch.clientX - textLongPressStartX;
+  const dy = touch.clientY - textLongPressStartY;
+  if (Math.hypot(dx, dy) > 12) {
+    clearTextLongPressTimer();
+  }
+}, { passive: true });
+
+textLayer.addEventListener('touchend', () => {
+  clearTextLongPressTimer();
+  if (textLongPressTriggered) {
+    singleTouchActive = false;
+    textLongPressTriggered = false;
+  }
+}, { passive: true });
+
+textLayer.addEventListener('touchcancel', () => {
+  clearTextLongPressTimer();
+  textLongPressTriggered = false;
+}, { passive: true });
 
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
