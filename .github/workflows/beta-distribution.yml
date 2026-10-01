@@ -163,6 +163,7 @@ jobs:
             apps/lexpdf_app/ANDROID_ARTIFACT_SIZES.txt
             apps/lexpdf_app/RC_MANIFEST_ANDROID.json
           if-no-files-found: error
+          retention-days: 7
 
   windows-installer:
     needs: preflight
@@ -315,3 +316,4 @@ jobs:
             apps/lexpdf_app/WINDOWS_SIGNING_STATUS.txt
             apps/lexpdf_app/RC_MANIFEST_WINDOWS.json
           if-no-files-found: error
+          retention-days: 7
