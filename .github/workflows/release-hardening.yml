@@ -103,6 +103,7 @@ jobs:
             apps/lexpdf_app/build/app/outputs/flutter-apk/app-release.apk
             apps/lexpdf_app/ANDROID_TARGET_SDK.txt
           if-no-files-found: error
+          retention-days: 7
       - name: Build lightweight ABI-specific Android APKs
         run: >-
           flutter build apk --release --split-per-abi
@@ -140,6 +141,7 @@ jobs:
             apps/lexpdf_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             apps/lexpdf_app/ANDROID_TARGET_SDK_ARM64.txt
           if-no-files-found: error
+          retention-days: 7
 
   windows-release:
     needs: prerelease-invariants
@@ -185,6 +187,7 @@ jobs:
           name: lexpdf-windows-release
           path: apps/lexpdf_app/build/windows/x64/runner/Release/**
           if-no-files-found: error
+          retention-days: 7
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -213,6 +216,7 @@ jobs:
           name: lexpdf-windows-installer
           path: apps/lexpdf_app/windows/installer/output/LexPDF-Setup-*-x64.exe
           if-no-files-found: error
+          retention-days: 7
 
   backend-hardening:
     runs-on: ubuntu-24.04
