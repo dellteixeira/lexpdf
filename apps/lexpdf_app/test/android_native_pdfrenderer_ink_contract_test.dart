@@ -267,6 +267,26 @@ void main() {
     expect(activity, contains('segure para personalizar'));
   });
 
+  test('long press explicitly selects the word under the finger', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('isLongClickable = true'));
+    expect(activity, contains('isHapticFeedbackEnabled = true'));
+    expect(activity, contains('let textLongPressTimer = 0'));
+    expect(activity, contains('function caretRangeAtPoint(x, y)'));
+    expect(activity, contains('function selectWordAtPoint(x, y)'));
+    expect(activity, contains("textLayer.addEventListener('touchstart'"));
+    expect(activity, contains("textLayer.addEventListener('touchmove'"));
+    expect(activity, contains("textLayer.addEventListener('touchend'"));
+    expect(activity, contains('window.setTimeout(() =>'));
+    expect(activity, contains('}, 480)'));
+    expect(activity, contains('selection.removeAllRanges()'));
+    expect(activity, contains('selection.addRange(range)'));
+    expect(activity, contains('singleTouchActive = false'));
+  });
+
   test('text selection is restored with a selectable PDF.js text layer', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
