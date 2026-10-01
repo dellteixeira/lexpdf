@@ -159,26 +159,31 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
-  test('landscape keeps every native PDF toolbar control on one row', () {
+  test('native PDF toolbar keeps essential controls reachable without orientation-specific layout', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(
-      activity,
-      contains('Configuration.ORIENTATION_LANDSCAPE'),
-    );
-    expect(
-      activity,
-      contains('val inkRow = if (landscape) navigationRow else toolRow()'),
-    );
-    expect(activity, contains('HorizontalScrollView(this)'));
+    expect(activity, contains('val indexButton = button("Índice")'));
+    expect(activity, contains('val closeButton = button("Fechar")'));
+    expect(activity, contains('val pinnedNavigationRow = toolRow()'));
+    expect(activity, contains('val navigationScroller = HorizontalScrollView(this)'));
+    expect(activity, contains('isFillViewport = false'));
     expect(activity, contains('FrameLayout.LayoutParams.WRAP_CONTENT'));
-    expect(activity, contains('if (landscape) {'));
     expect(
       activity,
-      contains('Portrait preserves the existing two-row'),
+      contains(
+        'LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)',
+      ),
     );
+    expect(activity, contains('pinnedNavigationRow.addView(indexButton)'));
+    expect(activity, contains('pinnedNavigationRow.addView(closeButton)'));
+    expect(activity, contains('root.addView(\n            inkRow,'));
+
+    // The toolbar contract is behavioral: essential controls stay pinned and
+    // navigation remains horizontally scrollable in every orientation.
+    // Do not couple this regression test to an orientation implementation detail.
+    expect(activity, isNot(contains('Configuration.ORIENTATION_LANDSCAPE')));
   });
 
   test('PDF index uses embedded outline destinations from PDF.js', () {

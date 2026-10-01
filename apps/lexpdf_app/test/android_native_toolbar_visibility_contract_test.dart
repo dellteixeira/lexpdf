@@ -3,35 +3,47 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('portrait always exposes Index and Close next to scrolling navigation', () {
+  test('Index and Close stay pinned in every Android orientation', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(source, contains('val indexButton = button("Índice") { showOutlineDialog() }'));
     expect(source, contains('val closeButton = button("Fechar") { finish() }'));
-    expect(source, contains('if (landscape) {\n            navigationRow.addView(indexButton)'));
     expect(source, contains('val pinnedNavigationRow = toolRow()'));
     expect(source, contains('val navigationScroller = HorizontalScrollView(this).apply'));
     expect(source, contains('pinnedNavigationRow.addView(indexButton)'));
     expect(source, contains('pinnedNavigationRow.addView(closeButton)'));
 
-    // Navigation itself may overflow but Index/Close must not be its children
-    // on portrait. Maintain the two existing 48dp rows and one in landscape.
-    final portraitStart = source.indexOf('val pinnedNavigationRow = toolRow()');
-    final portraitEnd = source.indexOf('readerFrame = StylusRouterLayout(this)', portraitStart);
-    expect(portraitStart, greaterThan(0));
-    expect(portraitEnd, greaterThan(portraitStart));
-    final portraitBlock = source.substring(portraitStart, portraitEnd);
+    // Essential commands must never become children of the scrolling navigation
+    // row, otherwise rotation/narrow screens can hide them off-screen.
     expect(
-      portraitBlock.indexOf('navigationScroller,'),
-      lessThan(portraitBlock.indexOf('pinnedNavigationRow.addView(indexButton)')),
+      source,
+      isNot(contains('navigationRow.addView(indexButton)')),
     );
     expect(
-      portraitBlock.indexOf('pinnedNavigationRow.addView(indexButton)'),
-      lessThan(portraitBlock.indexOf('pinnedNavigationRow.addView(closeButton)')),
+      source,
+      isNot(contains('navigationRow.addView(closeButton)')),
     );
-    expect(portraitBlock, contains('root.addView(\n                inkRow,'));
+    expect(
+      source,
+      isNot(contains('val inkRow = if (landscape) navigationRow else toolRow()')),
+    );
+
+    final pinnedStart = source.indexOf('val pinnedNavigationRow = toolRow()');
+    final pinnedEnd = source.indexOf('readerFrame = StylusRouterLayout(this)', pinnedStart);
+    expect(pinnedStart, greaterThan(0));
+    expect(pinnedEnd, greaterThan(pinnedStart));
+    final pinnedBlock = source.substring(pinnedStart, pinnedEnd);
+    expect(
+      pinnedBlock.indexOf('navigationScroller,'),
+      lessThan(pinnedBlock.indexOf('pinnedNavigationRow.addView(indexButton)')),
+    );
+    expect(
+      pinnedBlock.indexOf('pinnedNavigationRow.addView(indexButton)'),
+      lessThan(pinnedBlock.indexOf('pinnedNavigationRow.addView(closeButton)')),
+    );
+    expect(pinnedBlock, contains('root.addView(\n            inkRow,'));
     expect(source, contains('48.dp'));
     expect(source, contains('WindowInsetsCompat.Type.systemBars()'));
     expect(source, contains('requestDisallowInterceptTouchEvent(true)'));

@@ -1,0 +1,21 @@
+name: Actions Runner Diagnostic
+
+on:
+  push:
+    branches:
+      - hotfix/android-reader-smooth-page-scroll
+  workflow_dispatch:
+
+jobs:
+  runner-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm runner startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GitHub Actions runner started successfully."
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner arch: $RUNNER_ARCH"
+          date -u

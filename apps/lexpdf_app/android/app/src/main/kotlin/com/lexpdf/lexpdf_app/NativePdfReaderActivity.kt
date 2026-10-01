@@ -291,8 +291,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 setOnClickListener { onClick() }
             }
 
-        val landscape =
-            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val navigationRow = toolRow()
         navigationRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
@@ -324,16 +322,10 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         // controls exceed the available width on portrait phones.
         val indexButton = button("Índice") { showOutlineDialog() }
         val closeButton = button("Fechar") { finish() }
-        if (landscape) {
-            navigationRow.addView(indexButton)
-            navigationRow.addView(closeButton)
-        }
-
-        // Landscape intentionally reuses the navigation row so every control
-        // stays on one 48dp toolbar. Portrait preserves the existing two-row
-        // layout. A horizontal scroller below prevents wrapping on narrower
-        // landscape devices without stealing a second line from the PDF.
-        val inkRow = if (landscape) navigationRow else toolRow()
+        // Índice and Fechar are pinned outside the horizontally scrollable
+        // navigation controls in every orientation, so rotating the device can
+        // never hide these essential actions.
+        val inkRow = toolRow()
         penButton =
             button("Caneta") {
                 selectInk(InkKind.PEN)
@@ -374,83 +366,50 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
         inkRow.addView(
             statusLabel,
-            if (landscape) {
-                LinearLayout.LayoutParams(
-                    190.dp,
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                )
-            } else {
-                LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    1f,
-                )
-            },
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f,
+            ),
         )
 
-        if (landscape) {
-            val toolbarScroller =
-                HorizontalScrollView(this).apply {
-                    isHorizontalScrollBarEnabled = false
-                    isFillViewport = false
-                    overScrollMode = View.OVER_SCROLL_NEVER
-                    addView(
-                        navigationRow,
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.WRAP_CONTENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                        ),
-                    )
-                }
-            root.addView(
-                toolbarScroller,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
-                ),
-            )
-        } else {
-            // Portrait: pin Índice and Fechar outside the scrolling navigation
-            // controls. They must never disappear behind the right screen edge.
-            // This is still the existing first toolbar row (48dp), not a new row.
-            val pinnedNavigationRow = toolRow().apply {
-                setPadding(0, 0, 6.dp, 0)
-            }
-            val navigationScroller = HorizontalScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                isHorizontalFadingEdgeEnabled = true
-                setFadingEdgeLength(12.dp)
-                isFillViewport = false
-                overScrollMode = View.OVER_SCROLL_NEVER
-                addView(
-                    navigationRow,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                    ),
-                )
-            }
-            pinnedNavigationRow.addView(
-                navigationScroller,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
-            )
-            pinnedNavigationRow.addView(indexButton)
-            pinnedNavigationRow.addView(closeButton)
-            root.addView(
-                pinnedNavigationRow,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
-                ),
-            )
-            root.addView(
-                inkRow,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    48.dp,
+        val pinnedNavigationRow = toolRow().apply {
+            setPadding(0, 0, 6.dp, 0)
+        }
+        val navigationScroller = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(12.dp)
+            isFillViewport = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(
+                navigationRow,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
         }
+        pinnedNavigationRow.addView(
+            navigationScroller,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
+        )
+        pinnedNavigationRow.addView(indexButton)
+        pinnedNavigationRow.addView(closeButton)
+        root.addView(
+            pinnedNavigationRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                48.dp,
+            ),
+        )
+        root.addView(
+            inkRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                48.dp,
+            ),
+        )
 
         searchBar = buildSearchBar()
         root.addView(
@@ -1029,6 +988,8 @@ let pinchStartScale = scale;
 let singleTouchStartX = 0;
 let singleTouchStartY = 0;
 let singleTouchStartScrollTop = 0;
+let singleTouchStartedAtTop = false;
+let singleTouchStartedAtBottom = false;
 let singleTouchActive = false;
 let metricsFrame = 0;
 let rangeTransport = null;
@@ -2039,6 +2000,9 @@ stage.addEventListener('touchstart', e => {
     singleTouchStartX = e.touches[0].clientX;
     singleTouchStartY = e.touches[0].clientY;
     singleTouchStartScrollTop = stage.scrollTop;
+    singleTouchStartedAtTop = stage.scrollTop <= 3;
+    singleTouchStartedAtBottom =
+      stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 3;
   } else {
     singleTouchActive = false;
   }
@@ -2082,14 +2046,15 @@ stage.addEventListener('touchend', e => {
     const atTop = stage.scrollTop <= 3;
     const atBottom =
       stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 3;
-    const normalReadingScale = scale <= 1.30;
-    const barelyScrolled =
-      Math.abs(stage.scrollTop - singleTouchStartScrollTop) < 28;
 
+    // Never turn a page while the user is still scrolling through its content.
+    // A page change requires a NEW deliberate swipe that both starts and ends
+    // at the corresponding boundary. This gives landscape pages room to scroll
+    // naturally to the bottom before advancing.
     if (verticalGesture) {
-      if (dy < 0 && (normalReadingScale || atBottom || barelyScrolled)) {
+      if (dy < 0 && singleTouchStartedAtBottom && atBottom) {
         renderPage(pageNumber + 1);
-      } else if (dy > 0 && (normalReadingScale || atTop || barelyScrolled)) {
+      } else if (dy > 0 && singleTouchStartedAtTop && atTop) {
         renderPage(pageNumber - 1);
       }
     }
