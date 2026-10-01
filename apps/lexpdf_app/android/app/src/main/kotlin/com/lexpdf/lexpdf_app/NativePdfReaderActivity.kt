@@ -1087,6 +1087,9 @@ let textLongPressTimer = 0;
 let textLongPressStartX = 0;
 let textLongPressStartY = 0;
 let textLongPressTriggered = false;
+let textSelectionAnchorRange = null;
+let textSelectionLockScrollTop = 0;
+let textSelectionLockScrollLeft = 0;
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -1984,17 +1987,17 @@ function caretRangeAtPoint(x, y) {
   return null;
 }
 
-function selectWordAtPoint(x, y) {
+function wordRangeAtPoint(x, y) {
   const caret = caretRangeAtPoint(x, y);
-  if (!caret) return false;
+  if (!caret) return null;
 
   const node = caret.startContainer;
-  if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+  if (!node || node.nodeType !== Node.TEXT_NODE) return null;
   const parent = node.parentElement;
-  if (!parent || !parent.closest('#textLayer')) return false;
+  if (!parent || !parent.closest('#textLayer')) return null;
 
   const text = node.textContent || '';
-  if (!text.length) return false;
+  if (!text.length) return null;
 
   let offset = Math.max(0, Math.min(text.length, caret.startOffset));
   if (offset === text.length && offset > 0) offset--;
@@ -2007,18 +2010,57 @@ function selectWordAtPoint(x, y) {
 
   while (start < end && /[.,;:!?()[\]{}"'«»“”‘’]/.test(text[start])) start++;
   while (end > start && /[.,;:!?()[\]{}"'«»“”‘’]/.test(text[end - 1])) end--;
-
-  if (start >= end) return false;
+  if (start >= end) return null;
 
   const range = document.createRange();
   range.setStart(node, start);
   range.setEnd(node, end);
+  return range;
+}
 
+function applySelectionRange(range) {
   const selection = window.getSelection();
-  if (!selection) return false;
+  if (!selection || !range) return false;
   selection.removeAllRanges();
   selection.addRange(range);
   return true;
+}
+
+function selectWordAtPoint(x, y) {
+  const range = wordRangeAtPoint(x, y);
+  if (!range) return false;
+  textSelectionAnchorRange = range.cloneRange();
+  return applySelectionRange(range);
+}
+
+function pointRangeIsBefore(firstRange, secondRange) {
+  const first = firstRange.cloneRange();
+  first.collapse(true);
+  const second = secondRange.cloneRange();
+  second.collapse(true);
+  return first.compareBoundaryPoints(Range.START_TO_START, second) < 0;
+}
+
+function extendSelectionToPoint(x, y) {
+  if (!textSelectionAnchorRange) return false;
+  const target = wordRangeAtPoint(x, y);
+  if (!target) return false;
+
+  const range = document.createRange();
+  if (pointRangeIsBefore(target, textSelectionAnchorRange)) {
+    range.setStart(target.startContainer, target.startOffset);
+    range.setEnd(
+      textSelectionAnchorRange.endContainer,
+      textSelectionAnchorRange.endOffset
+    );
+  } else {
+    range.setStart(
+      textSelectionAnchorRange.startContainer,
+      textSelectionAnchorRange.startOffset
+    );
+    range.setEnd(target.endContainer, target.endOffset);
+  }
+  return applySelectionRange(range);
 }
 
 textLayer.addEventListener('touchstart', e => {
@@ -2038,33 +2080,59 @@ textLayer.addEventListener('touchstart', e => {
     textLongPressTimer = 0;
     if (selectWordAtPoint(textLongPressStartX, textLongPressStartY)) {
       textLongPressTriggered = true;
+      textSelectionLockScrollTop = stage.scrollTop;
+      textSelectionLockScrollLeft = stage.scrollLeft;
       singleTouchActive = false;
     }
   }, 480);
 }, { passive: true });
 
 textLayer.addEventListener('touchmove', e => {
-  if (!textLongPressTimer || e.touches.length !== 1) return;
+  if (e.touches.length !== 1) return;
   const touch = e.touches[0];
+
+  if (textLongPressTriggered) {
+    // After long-press selection begins, the finger controls only the selection.
+    // Keep the PDF fixed in place instead of letting the stage scroll/page.
+    e.preventDefault();
+    e.stopPropagation();
+    stage.scrollTop = textSelectionLockScrollTop;
+    stage.scrollLeft = textSelectionLockScrollLeft;
+    singleTouchActive = false;
+    extendSelectionToPoint(touch.clientX, touch.clientY);
+    return;
+  }
+
+  if (!textLongPressTimer) return;
   const dx = touch.clientX - textLongPressStartX;
   const dy = touch.clientY - textLongPressStartY;
   if (Math.hypot(dx, dy) > 12) {
     clearTextLongPressTimer();
   }
-}, { passive: true });
+}, { passive: false });
 
-textLayer.addEventListener('touchend', () => {
+textLayer.addEventListener('touchend', e => {
   clearTextLongPressTimer();
   if (textLongPressTriggered) {
+    e.preventDefault();
+    e.stopPropagation();
+    stage.scrollTop = textSelectionLockScrollTop;
+    stage.scrollLeft = textSelectionLockScrollLeft;
     singleTouchActive = false;
     textLongPressTriggered = false;
   }
-}, { passive: true });
+}, { passive: false });
 
-textLayer.addEventListener('touchcancel', () => {
+textLayer.addEventListener('touchcancel', e => {
   clearTextLongPressTimer();
+  if (textLongPressTriggered) {
+    e.preventDefault();
+    e.stopPropagation();
+    stage.scrollTop = textSelectionLockScrollTop;
+    stage.scrollLeft = textSelectionLockScrollLeft;
+  }
   textLongPressTriggered = false;
-}, { passive: true });
+}, { passive: false });
 
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
