@@ -2,6 +2,7 @@ package com.lexpdf.lexpdf_app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
@@ -230,6 +231,18 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun buildUi() {
+        val darkUi =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val toolbarBackground =
+            if (darkUi) Color.rgb(35, 38, 44) else Color.rgb(242, 244, 247)
+        val toolbarForeground =
+            if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
+        val toolbarSecondary =
+            if (darkUi) Color.rgb(190, 194, 201) else Color.rgb(65, 68, 74)
+        val compactToolbar =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(18, 20, 24))
@@ -240,7 +253,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(6.dp, 3.dp, 6.dp, 3.dp)
-                setBackgroundColor(Color.rgb(242, 244, 247))
+                setBackgroundColor(toolbarBackground)
             }
 
         fun button(label: String, onClick: () -> Unit): Button =
@@ -250,12 +263,12 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
                 val targetWidthDp =
                     when {
-                        label.length <= 1 -> 42
-                        label == "Ir" -> 48
-                        label.contains("Página") -> 86
-                        label.length <= 5 -> 64
-                        label.length <= 7 -> 72
-                        else -> 80
+                        label.length <= 1 -> if (compactToolbar) 38 else 42
+                        label == "Ir" -> if (compactToolbar) 44 else 48
+                        label.contains("Página") -> if (compactToolbar) 78 else 86
+                        label.length <= 5 -> if (compactToolbar) 58 else 64
+                        label.length <= 7 -> if (compactToolbar) 66 else 72
+                        else -> if (compactToolbar) 74 else 80
                     }
                 minWidth = targetWidthDp.dp
                 minimumWidth = targetWidthDp.dp
@@ -291,41 +304,45 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 setOnClickListener { onClick() }
             }
 
-        val navigationRow = toolRow()
-        navigationRow.addView(button("‹") { js("LexPDF.previousPage()") })
+        // Keep every reader action in one semantic toolbar. The row may scroll
+        // horizontally on narrow screens, but it never splits into a second
+        // toolbar line when the device rotates.
+        val unifiedToolbarRow = toolRow()
+        unifiedToolbarRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
         pageLabel = TextView(this).apply {
             gravity = Gravity.CENTER
             textSize = 14f
-            setTextColor(Color.rgb(30, 33, 38))
+            setTextColor(toolbarForeground)
             text = "…"
             isClickable = true
             isFocusable = true
             setOnClickListener { showPageJumpDialog() }
         }
-        navigationRow.addView(
+        unifiedToolbarRow.addView(
             pageLabel,
-            LinearLayout.LayoutParams(110.dp, LinearLayout.LayoutParams.MATCH_PARENT),
+            LinearLayout.LayoutParams(
+                if (compactToolbar) 96.dp else 110.dp,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+            ),
         )
 
-        navigationRow.addView(button("Ir") { showPageJumpDialog() })
-        navigationRow.addView(button("›") { js("LexPDF.nextPage()") })
-        navigationRow.addView(button("Buscar") { showSearchBar() })
-        navigationRow.addView(button("−") { js("LexPDF.zoomOut()") })
-        navigationRow.addView(button("+") { js("LexPDF.zoomIn()") })
-        navigationRow.addView(
+        // Navigation and document structure.
+        unifiedToolbarRow.addView(button("Ir") { showPageJumpDialog() })
+        unifiedToolbarRow.addView(button("›") { js("LexPDF.nextPage()") })
+        unifiedToolbarRow.addView(button("Buscar") { showSearchBar() })
+        unifiedToolbarRow.addView(button("Índice") { showOutlineDialog() })
+
+        // View controls.
+        unifiedToolbarRow.addView(button("−") { js("LexPDF.zoomOut()") })
+        unifiedToolbarRow.addView(button("+") { js("LexPDF.zoomIn()") })
+        unifiedToolbarRow.addView(
             button("⛶ Página") { js("LexPDF.fitPage()") }.apply {
                 contentDescription = "Página inteira"
             },
         )
-        // Keep these essential commands reachable even when the navigation
-        // controls exceed the available width on portrait phones.
-        val indexButton = button("Índice") { showOutlineDialog() }
-        val closeButton = button("Fechar") { finish() }
-        // Índice and Fechar are pinned outside the horizontally scrollable
-        // navigation controls in every orientation, so rotating the device can
-        // never hide these essential actions.
-        val inkRow = toolRow()
+
+        // Annotation tools.
         penButton =
             button("Caneta") {
                 selectInk(InkKind.PEN)
@@ -351,60 +368,48 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 contentDescription = "Apagar traços da caneta e do marca-texto"
             }
 
-        inkRow.addView(penButton)
-        inkRow.addView(highlighterButton)
-        inkRow.addView(eraserButton)
-        inkRow.addView(button("Desfazer") { undoInk() })
-        inkRow.addView(button("Refazer") { redoInk() })
+        unifiedToolbarRow.addView(penButton)
+        unifiedToolbarRow.addView(highlighterButton)
+        unifiedToolbarRow.addView(eraserButton)
+        unifiedToolbarRow.addView(button("Desfazer") { undoInk() })
+        unifiedToolbarRow.addView(button("Refazer") { redoInk() })
 
         statusLabel = TextView(this).apply {
             textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
-            setTextColor(Color.rgb(65, 68, 74))
-            setPadding(10.dp, 0, 6.dp, 0)
+            setTextColor(toolbarSecondary)
+            setPadding(10.dp, 0, 10.dp, 0)
+            setSingleLine(true)
             text = "PDF.js iniciando…"
         }
-        inkRow.addView(
+        unifiedToolbarRow.addView(
             statusLabel,
             LinearLayout.LayoutParams(
-                0,
+                if (compactToolbar) 126.dp else 150.dp,
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                1f,
             ),
         )
 
-        val pinnedNavigationRow = toolRow().apply {
-            setPadding(0, 0, 6.dp, 0)
-        }
-        val navigationScroller = HorizontalScrollView(this).apply {
+        // Session action belongs to the same toolbar instead of being visually
+        // detached from Index or the other reader commands.
+        unifiedToolbarRow.addView(button("Fechar") { finish() })
+
+        val toolbarScroller = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             isHorizontalFadingEdgeEnabled = true
             setFadingEdgeLength(12.dp)
             isFillViewport = false
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(
-                navigationRow,
+                unifiedToolbarRow,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
         }
-        pinnedNavigationRow.addView(
-            navigationScroller,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f),
-        )
-        pinnedNavigationRow.addView(indexButton)
-        pinnedNavigationRow.addView(closeButton)
         root.addView(
-            pinnedNavigationRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp,
-            ),
-        )
-        root.addView(
-            inkRow,
+            toolbarScroller,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 48.dp,
@@ -493,7 +498,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         // Android 15/16 draw edge-to-edge. Apply actual system bar and cutout
         // insets to the native reader root so Xiaomi/HyperOS status-bar and
         // gesture regions cannot overlap or swallow toolbar button taps.
-        // Keep the 48dp landscape toolbar and PDF reader internals unchanged.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val safe = insets.getInsets(
@@ -509,12 +513,24 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun buildSearchBar(): LinearLayout {
+        val darkUi =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val searchBackground =
+            if (darkUi) Color.rgb(35, 38, 44) else Color.rgb(242, 244, 247)
+        val searchForeground =
+            if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
+        val searchSecondary =
+            if (darkUi) Color.rgb(190, 194, 201) else Color.rgb(90, 94, 101)
+        val searchAccent =
+            if (darkUi) Color.rgb(128, 203, 196) else Color.rgb(0, 121, 107)
+
         val row =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(10.dp, 4.dp, 6.dp, 4.dp)
-                setBackgroundColor(Color.rgb(242, 244, 247))
+                setBackgroundColor(searchBackground)
             }
 
         searchInput =
@@ -522,6 +538,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 hint = "Localizar palavra ou frase"
                 setSingleLine(true)
                 textSize = 15f
+                setTextColor(searchForeground)
+                setHintTextColor(searchSecondary)
+                backgroundTintList = ColorStateList.valueOf(searchAccent)
                 inputType = InputType.TYPE_CLASS_TEXT
                 imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
                 setPadding(8.dp, 0, 8.dp, 0)
@@ -560,7 +579,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             TextView(this).apply {
                 gravity = Gravity.CENTER
                 textSize = 13f
-                setTextColor(Color.rgb(50, 53, 59))
+                setTextColor(searchForeground)
                 text = "0/0"
             }
         row.addView(
