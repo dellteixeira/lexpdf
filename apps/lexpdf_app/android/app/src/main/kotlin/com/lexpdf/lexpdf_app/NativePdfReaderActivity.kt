@@ -1023,12 +1023,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:center}
     #wrap{padding:18px 18px 36px;min-width:max-content}
+    #pageHost{position:relative;display:inline-block}
     canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
+    #textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-x pan-y}
+    #textLayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
+    #textLayer span::selection{background:rgba(37,99,235,.34)}
     #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#17191dcc;padding:12px 18px;border-radius:18px;font-size:14px}
   </style>
 </head>
 <body>
-<div id="stage"><div id="wrap"><canvas id="pdf"></canvas></div></div>
+<div id="stage"><div id="wrap"><div id="pageHost"><canvas id="pdf"></canvas><div id="textLayer" aria-label="Texto selecionável do PDF"></div></div></div></div>
 <div id="loading">Abrindo PDF…</div>
 <script type="module">
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs';
@@ -1039,6 +1043,8 @@ const PDF_LENGTH = ${sourceFile.length()};
 const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
 const canvas = document.getElementById('pdf');
 const ctx = canvas.getContext('2d', { alpha: false });
+const textLayer = document.getElementById('textLayer');
+const pageHost = document.getElementById('pageHost');
 const stage = document.getElementById('stage');
 const loading = document.getElementById('loading');
 
@@ -1905,6 +1911,49 @@ async function paintSearchHighlights(page, viewport, renderScale, target) {
   } catch (_) {}
 }
 
+async function renderSelectableTextLayer(page, viewport) {
+  textLayer.replaceChildren();
+  textLayer.style.width = viewport.width + 'px';
+  textLayer.style.height = viewport.height + 'px';
+  pageHost.style.width = viewport.width + 'px';
+  pageHost.style.height = viewport.height + 'px';
+
+  try {
+    const content = await page.getTextContent();
+    for (const item of (content.items || [])) {
+      const text = String(item.str || '');
+      if (!text || !Array.isArray(item.transform)) continue;
+
+      const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+      const fontHeight = Math.max(1, Math.hypot(tx[2], tx[3]));
+      const span = document.createElement('span');
+      span.textContent = text;
+      span.style.left = tx[4] + 'px';
+      span.style.top = (tx[5] - fontHeight) + 'px';
+      span.style.fontSize = fontHeight + 'px';
+      span.style.fontFamily = 'sans-serif';
+
+      const expectedWidth = Math.max(0, Number(item.width || 0) * viewport.scale);
+      if (expectedWidth > 0) {
+        span.dataset.expectedWidth = String(expectedWidth);
+      }
+      textLayer.appendChild(span);
+    }
+
+    requestAnimationFrame(() => {
+      for (const span of textLayer.querySelectorAll('span[data-expected-width]')) {
+        const measured = span.getBoundingClientRect().width;
+        const expected = Number(span.dataset.expectedWidth || 0);
+        if (measured > 0 && expected > 0) {
+          span.style.transform = 'scaleX(' + (expected / measured) + ')';
+        }
+      }
+    });
+  } catch (_) {
+    textLayer.replaceChildren();
+  }
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -1982,6 +2031,8 @@ async function renderPage(target, preserveCenter = false) {
     await renderTask.promise;
     renderTask = null;
 
+    if (token !== renderToken) return;
+    await renderSelectableTextLayer(page, viewport);
     if (token !== renderToken) return;
     await paintSearchHighlights(page, viewport, renderScale, target);
     if (token !== renderToken) return;
