@@ -160,6 +160,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private var currentKind = InkKind.PEN
     private var currentTool = InkTool.PEN
+    private var fingerInkEnabled = false
     private var penColor = Color.rgb(20, 24, 30)
     private var penSize = 3.0f
     private var highlighterColor = Color.argb(72, 255, 224, 64)
@@ -314,6 +315,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Zoom −")
                 menu.add("Zoom +")
                 menu.add("Página inteira")
+                menu.add("Selecionar texto")
                 menu.add("Caneta")
                 menu.add("Marca-texto")
                 menu.add("Borracha")
@@ -325,6 +327,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         "Zoom −" -> js("LexPDF.zoomOut()")
                         "Zoom +" -> js("LexPDF.zoomIn()")
                         "Página inteira" -> js("LexPDF.fitPage()")
+                        "Selecionar texto" -> selectTextMode()
                         "Caneta" -> selectInk(InkKind.PEN)
                         "Marca-texto" -> selectInk(InkKind.HIGHLIGHTER)
                         "Borracha" -> selectEraser()
@@ -413,6 +416,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     contentDescription = "Página inteira"
                 },
             )
+            unifiedToolbarRow.addView(
+                button("Texto") { selectTextMode() }.apply {
+                    contentDescription = "Selecionar texto"
+                },
+            )
             unifiedToolbarRow.addView(penButton)
             unifiedToolbarRow.addView(highlighterButton)
             unifiedToolbarRow.addView(eraserButton)
@@ -469,6 +477,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         readerFrame = StylusRouterLayout(this).apply {
             setBackgroundColor(Color.rgb(32, 34, 39))
             onStylusEvent = { event -> handleStylusEvent(event) }
+            interceptFingerInput = false
         }
 
         webView = WebView(this)
@@ -546,7 +555,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         }
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        selectInk(currentKind)
+        selectTextMode()
     }
 
     private fun buildSearchBar(): LinearLayout {
