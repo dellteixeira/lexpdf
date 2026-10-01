@@ -3,72 +3,54 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Android native reader keeps one ordered toolbar row in every orientation', () {
+  test('small portrait uses fixed primary actions plus overflow menu', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(source, contains('val unifiedToolbarRow = toolRow()'));
-    expect(source, contains('val toolbarScroller = HorizontalScrollView(this).apply'));
-    expect(source, contains('Configuration.ORIENTATION_LANDSCAPE'));
-    expect(source, contains('val compactToolbar ='));
+    expect(source, contains('val screenWidthDp = resources.configuration.screenWidthDp'));
+    expect(source, contains('val useOverflowMenu = !landscape && screenWidthDp < 600'));
+    expect(source, contains('PopupMenu(this, anchor)'));
+    expect(source, contains('button("⋮")'));
+    expect(source, contains('contentDescription = "Mais opções"'));
 
-    final previous = source.indexOf('unifiedToolbarRow.addView(button("‹")');
-    final jump = source.indexOf('unifiedToolbarRow.addView(button("Ir")');
-    final next = source.indexOf('unifiedToolbarRow.addView(button("›")');
-    final search = source.indexOf('unifiedToolbarRow.addView(button("Buscar")');
-    final index = source.indexOf('unifiedToolbarRow.addView(button("Índice")');
-    final zoomOut = source.indexOf('unifiedToolbarRow.addView(button("−")');
-    final zoomIn = source.indexOf('unifiedToolbarRow.addView(button("+")');
-    final pen = source.indexOf('unifiedToolbarRow.addView(penButton)');
-    final highlight = source.indexOf('unifiedToolbarRow.addView(highlighterButton)');
-    final eraser = source.indexOf('unifiedToolbarRow.addView(eraserButton)');
-    final undo = source.indexOf('unifiedToolbarRow.addView(button("Desfazer")');
-    final redo = source.indexOf('unifiedToolbarRow.addView(button("Refazer")');
-    final close = source.indexOf('unifiedToolbarRow.addView(button("Fechar")');
-
-    for (final position in <int>[
-      previous,
-      jump,
-      next,
-      search,
-      index,
-      zoomOut,
-      zoomIn,
-      pen,
-      highlight,
-      eraser,
-      undo,
-      redo,
-      close,
+    for (final item in <String>[
+      'menu.add("Zoom −")',
+      'menu.add("Zoom +")',
+      'menu.add("Página inteira")',
+      'menu.add("Caneta")',
+      'menu.add("Marca-texto")',
+      'menu.add("Borracha")',
+      'menu.add("Desfazer")',
+      'menu.add("Refazer")',
+      'menu.add("Fechar")',
     ]) {
-      expect(position, greaterThanOrEqualTo(0));
+      expect(source, contains(item));
     }
 
-    expect(previous, lessThan(jump));
-    expect(jump, lessThan(next));
-    expect(next, lessThan(search));
-    expect(search, lessThan(index));
-    expect(index, lessThan(zoomOut));
-    expect(zoomOut, lessThan(zoomIn));
-    expect(zoomIn, lessThan(pen));
-    expect(pen, lessThan(highlight));
-    expect(highlight, lessThan(eraser));
-    expect(eraser, lessThan(undo));
-    expect(undo, lessThan(redo));
-    expect(redo, lessThan(close));
+    expect(source, contains('unifiedToolbarRow.addView(button("Buscar")'));
+    expect(source, contains('unifiedToolbarRow.addView(button("Índice")'));
+    expect(source, contains('if (!useOverflowMenu) {'));
+    expect(source, contains('val toolbarContainer: View ='));
+    expect(source, contains('if (useOverflowMenu) {'));
+  });
 
-    // Regression guard: the toolbar must not be split into navigation and ink
-    // rows, and Index/Close must not be visually detached as pinned siblings.
+  test('large screens and landscape keep full single-row toolbar', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('Configuration.ORIENTATION_LANDSCAPE'));
+    expect(source, contains('val unifiedToolbarRow = toolRow()'));
+    expect(source, contains('HorizontalScrollView(this).apply'));
+    expect(source, contains('unifiedToolbarRow.addView(penButton)'));
+    expect(source, contains('unifiedToolbarRow.addView(highlighterButton)'));
+    expect(source, contains('unifiedToolbarRow.addView(eraserButton)'));
+    expect(source, contains('unifiedToolbarRow.addView(button("Fechar")'));
+
     expect(source, isNot(contains('val pinnedNavigationRow = toolRow()')));
     expect(source, isNot(contains('val navigationRow = toolRow()')));
     expect(source, isNot(contains('val inkRow = toolRow()')));
-    expect(source, isNot(contains('pinnedNavigationRow.addView(indexButton)')));
-    expect(source, isNot(contains('pinnedNavigationRow.addView(closeButton)')));
-
-    expect(source, contains('FrameLayout.LayoutParams.WRAP_CONTENT'));
-    expect(source, contains('WindowInsetsCompat.Type.systemBars()'));
-    expect(source, contains('requestDisallowInterceptTouchEvent(true)'));
   });
 
   test('native search field follows Android light and dark system theme', () {
