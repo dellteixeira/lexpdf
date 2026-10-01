@@ -32,6 +32,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -240,8 +241,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
         val toolbarSecondary =
             if (darkUi) Color.rgb(190, 194, 201) else Color.rgb(65, 68, 74)
-        val compactToolbar =
+        val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val screenWidthDp = resources.configuration.screenWidthDp
+        val useOverflowMenu = !landscape && screenWidthDp < 600
+        val compactToolbar = landscape || useOverflowMenu
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -263,12 +267,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
                 val targetWidthDp =
                     when {
+                        label == "⋮" -> 46
                         label.length <= 1 -> if (compactToolbar) 38 else 42
                         label == "Ir" -> if (compactToolbar) 44 else 48
                         label.contains("Página") -> if (compactToolbar) 78 else 86
                         label.length <= 5 -> if (compactToolbar) 58 else 64
-                        label.length <= 7 -> if (compactToolbar) 66 else 72
-                        else -> if (compactToolbar) 74 else 80
+                        label.length <= 7 -> if (compactToolbar) 64 else 72
+                        else -> if (compactToolbar) 72 else 80
                     }
                 minWidth = targetWidthDp.dp
                 minimumWidth = targetWidthDp.dp
@@ -304,45 +309,36 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 setOnClickListener { onClick() }
             }
 
-        // Keep every reader action in one semantic toolbar. The row may scroll
-        // horizontally on narrow screens, but it never splits into a second
-        // toolbar line when the device rotates.
-        val unifiedToolbarRow = toolRow()
-        unifiedToolbarRow.addView(button("‹") { js("LexPDF.previousPage()") })
-
-        pageLabel = TextView(this).apply {
-            gravity = Gravity.CENTER
-            textSize = 14f
-            setTextColor(toolbarForeground)
-            text = "…"
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showPageJumpDialog() }
+        fun showOverflowMenu(anchor: View) {
+            PopupMenu(this, anchor).apply {
+                menu.add("Zoom −")
+                menu.add("Zoom +")
+                menu.add("Página inteira")
+                menu.add("Caneta")
+                menu.add("Marca-texto")
+                menu.add("Borracha")
+                menu.add("Desfazer")
+                menu.add("Refazer")
+                menu.add("Fechar")
+                setOnMenuItemClickListener { item ->
+                    when (item.title.toString()) {
+                        "Zoom −" -> js("LexPDF.zoomOut()")
+                        "Zoom +" -> js("LexPDF.zoomIn()")
+                        "Página inteira" -> js("LexPDF.fitPage()")
+                        "Caneta" -> selectInk(InkKind.PEN)
+                        "Marca-texto" -> selectInk(InkKind.HIGHLIGHTER)
+                        "Borracha" -> selectEraser()
+                        "Desfazer" -> undoInk()
+                        "Refazer" -> redoInk()
+                        "Fechar" -> finish()
+                        else -> return@setOnMenuItemClickListener false
+                    }
+                    true
+                }
+                show()
+            }
         }
-        unifiedToolbarRow.addView(
-            pageLabel,
-            LinearLayout.LayoutParams(
-                if (compactToolbar) 96.dp else 110.dp,
-                LinearLayout.LayoutParams.MATCH_PARENT,
-            ),
-        )
 
-        // Navigation and document structure.
-        unifiedToolbarRow.addView(button("Ir") { showPageJumpDialog() })
-        unifiedToolbarRow.addView(button("›") { js("LexPDF.nextPage()") })
-        unifiedToolbarRow.addView(button("Buscar") { showSearchBar() })
-        unifiedToolbarRow.addView(button("Índice") { showOutlineDialog() })
-
-        // View controls.
-        unifiedToolbarRow.addView(button("−") { js("LexPDF.zoomOut()") })
-        unifiedToolbarRow.addView(button("+") { js("LexPDF.zoomIn()") })
-        unifiedToolbarRow.addView(
-            button("⛶ Página") { js("LexPDF.fitPage()") }.apply {
-                contentDescription = "Página inteira"
-            },
-        )
-
-        // Annotation tools.
         penButton =
             button("Caneta") {
                 selectInk(InkKind.PEN)
@@ -368,12 +364,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 contentDescription = "Apagar traços da caneta e do marca-texto"
             }
 
-        unifiedToolbarRow.addView(penButton)
-        unifiedToolbarRow.addView(highlighterButton)
-        unifiedToolbarRow.addView(eraserButton)
-        unifiedToolbarRow.addView(button("Desfazer") { undoInk() })
-        unifiedToolbarRow.addView(button("Refazer") { redoInk() })
-
         statusLabel = TextView(this).apply {
             textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
@@ -382,34 +372,84 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             setSingleLine(true)
             text = "PDF.js iniciando…"
         }
+
+        val unifiedToolbarRow = toolRow()
+        unifiedToolbarRow.addView(button("‹") { js("LexPDF.previousPage()") })
+
+        pageLabel = TextView(this).apply {
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTextColor(toolbarForeground)
+            text = "…"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showPageJumpDialog() }
+        }
         unifiedToolbarRow.addView(
-            statusLabel,
+            pageLabel,
             LinearLayout.LayoutParams(
-                if (compactToolbar) 126.dp else 150.dp,
+                if (useOverflowMenu) 76.dp else if (landscape) 96.dp else 110.dp,
                 LinearLayout.LayoutParams.MATCH_PARENT,
             ),
         )
 
-        // Session action belongs to the same toolbar instead of being visually
-        // detached from Index or the other reader commands.
-        unifiedToolbarRow.addView(button("Fechar") { finish() })
+        if (!useOverflowMenu) {
+            unifiedToolbarRow.addView(button("Ir") { showPageJumpDialog() })
+        }
+        unifiedToolbarRow.addView(button("›") { js("LexPDF.nextPage()") })
+        unifiedToolbarRow.addView(button("Buscar") { showSearchBar() })
+        unifiedToolbarRow.addView(button("Índice") { showOutlineDialog() })
 
-        val toolbarScroller = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            isHorizontalFadingEdgeEnabled = true
-            setFadingEdgeLength(12.dp)
-            isFillViewport = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            addView(
-                unifiedToolbarRow,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+        if (useOverflowMenu) {
+            val overflowButton = button("⋮") {}
+            overflowButton.contentDescription = "Mais opções"
+            overflowButton.setOnClickListener { showOverflowMenu(overflowButton) }
+            unifiedToolbarRow.addView(overflowButton)
+        } else {
+            unifiedToolbarRow.addView(button("−") { js("LexPDF.zoomOut()") })
+            unifiedToolbarRow.addView(button("+") { js("LexPDF.zoomIn()") })
+            unifiedToolbarRow.addView(
+                button("⛶ Página") { js("LexPDF.fitPage()") }.apply {
+                    contentDescription = "Página inteira"
+                },
+            )
+            unifiedToolbarRow.addView(penButton)
+            unifiedToolbarRow.addView(highlighterButton)
+            unifiedToolbarRow.addView(eraserButton)
+            unifiedToolbarRow.addView(button("Desfazer") { undoInk() })
+            unifiedToolbarRow.addView(button("Refazer") { redoInk() })
+            unifiedToolbarRow.addView(
+                statusLabel,
+                LinearLayout.LayoutParams(
+                    if (landscape) 126.dp else 150.dp,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
+            unifiedToolbarRow.addView(button("Fechar") { finish() })
         }
+
+        val toolbarContainer: View =
+            if (useOverflowMenu) {
+                unifiedToolbarRow
+            } else {
+                HorizontalScrollView(this).apply {
+                    isHorizontalScrollBarEnabled = false
+                    isHorizontalFadingEdgeEnabled = true
+                    setFadingEdgeLength(12.dp)
+                    isFillViewport = false
+                    overScrollMode = View.OVER_SCROLL_NEVER
+                    addView(
+                        unifiedToolbarRow,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                }
+            }
+
         root.addView(
-            toolbarScroller,
+            toolbarContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 48.dp,
@@ -495,9 +535,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
-        // Android 15/16 draw edge-to-edge. Apply actual system bar and cutout
-        // insets to the native reader root so Xiaomi/HyperOS status-bar and
-        // gesture regions cannot overlap or swallow toolbar button taps.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val safe = insets.getInsets(
