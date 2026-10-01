@@ -277,6 +277,9 @@ void main() {
     expect(activity, contains('let textLongPressTimer = 0'));
     expect(activity, contains('function caretRangeAtPoint(x, y)'));
     expect(activity, contains('function selectWordAtPoint(x, y)'));
+    expect(activity, contains('function extendSelectionToPoint(x, y)'));
+    expect(activity, contains('function pointRangeIsBefore(firstRange, secondRange)'));
+    expect(activity, contains('let textSelectionAnchorRange = null'));
     expect(activity, contains("textLayer.addEventListener('touchstart'"));
     expect(activity, contains("textLayer.addEventListener('touchmove'"));
     expect(activity, contains("textLayer.addEventListener('touchend'"));
@@ -284,6 +287,12 @@ void main() {
     expect(activity, contains('}, 480)'));
     expect(activity, contains('selection.removeAllRanges()'));
     expect(activity, contains('selection.addRange(range)'));
+    expect(activity, contains('e.preventDefault()'));
+    expect(activity, contains('e.stopPropagation()'));
+    expect(activity, contains('stage.scrollTop = textSelectionLockScrollTop'));
+    expect(activity, contains('stage.scrollLeft = textSelectionLockScrollLeft'));
+    expect(activity, contains('extendSelectionToPoint(touch.clientX, touch.clientY)'));
+    expect(activity, contains('}, { passive: false })'));
     expect(activity, contains('singleTouchActive = false'));
   });
 
