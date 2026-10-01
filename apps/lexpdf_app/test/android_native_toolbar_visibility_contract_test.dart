@@ -18,6 +18,7 @@ void main() {
       'menu.add("Zoom −")',
       'menu.add("Zoom +")',
       'menu.add("Página inteira")',
+      'menu.add("Selecionar texto")',
       'menu.add("Caneta")',
       'menu.add("Marca-texto")',
       'menu.add("Borracha")',
@@ -43,6 +44,7 @@ void main() {
     expect(source, contains('Configuration.ORIENTATION_LANDSCAPE'));
     expect(source, contains('val unifiedToolbarRow = toolRow()'));
     expect(source, contains('HorizontalScrollView(this).apply'));
+    expect(source, contains('button("Texto") { selectTextMode() }'));
     expect(source, contains('unifiedToolbarRow.addView(penButton)'));
     expect(source, contains('unifiedToolbarRow.addView(highlighterButton)'));
     expect(source, contains('unifiedToolbarRow.addView(eraserButton)'));
