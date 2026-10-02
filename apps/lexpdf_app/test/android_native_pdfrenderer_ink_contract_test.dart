@@ -352,7 +352,7 @@ void main() {
     expect(activity, contains('"Sublinhar"'));
     expect(activity, contains('"Tachar"'));
     expect(activity, contains('"Marca-texto"'));
-    expect(activity, contains('customSelectionActionModeCallback'));
+    expect(activity, contains('setCustomSelectionActionModeCallback(selectionActionModeCallback())'));
     expect(activity, contains('captureSelectionThen(mode)'));
     expect(activity, contains('LexPDF.captureSelectionForMarkup()'));
     expect(activity, contains("LexPDF.commitCapturedMarkup('underline'"));
