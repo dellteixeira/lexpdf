@@ -341,6 +341,69 @@ void main() {
     expect(activity, contains("textLayer.addEventListener('touchmove'"));
   });
 
+  test('text selection exposes underline strike and highlight actions', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('ACTION_UNDERLINE'));
+    expect(activity, contains('ACTION_STRIKE'));
+    expect(activity, contains('ACTION_HIGHLIGHT'));
+    expect(activity, contains('"Sublinhar"'));
+    expect(activity, contains('"Tachar"'));
+    expect(activity, contains('"Marca-texto"'));
+    expect(activity, contains('customSelectionActionModeCallback'));
+    expect(activity, contains('captureSelectionThen(mode)'));
+    expect(activity, contains('LexPDF.captureSelectionForMarkup()'));
+    expect(activity, contains("LexPDF.commitCapturedMarkup('underline'"));
+    expect(activity, contains("LexPDF.commitCapturedMarkup('strike'"));
+    expect(activity, contains("LexPDF.commitCapturedMarkup('highlight'"));
+  });
+
+  test('selection text markups persist separately from AndroidX Ink sidecar', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('private enum class TextMarkupKind'));
+    expect(activity, contains('private data class TextMarkupRect'));
+    expect(activity, contains('private data class TextMarkup'));
+    expect(activity, contains('pdfjs_text_markup/'));
+    expect(activity, contains('persistTextMarkupsForPage'));
+    expect(activity, contains('loadTextMarkupsForPage'));
+    expect(activity, contains('pushTextMarkupsToViewer'));
+    expect(activity, contains('LexPDF.setTextMarkups('));
+    expect(activity, contains('private const val SIDECAR_VERSION = 3'));
+  });
+
+  test('selection highlight offers a visual multi-color palette', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('showSelectionHighlighterPalette()'));
+    expect(activity, contains('Marca-texto da seleção'));
+    expect(activity, contains('Color.argb(88, 255, 224, 64)'));
+    expect(activity, contains('Color.argb(88, 75, 200, 235)'));
+    expect(activity, contains('Color.argb(88, 245, 105, 175)'));
+    expect(activity, contains('backgroundTintList = ColorStateList.valueOf(color)'));
+    expect(activity, contains('contentDescription = labels[index]'));
+  });
+
+  test('text markup layer stays synchronized with adaptive pinch zoom', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('id="markupLayer"'));
+    expect(activity, contains("markupLayer.style.transform = 'scale(' + ratio + ')'"));
+    expect(activity, contains("markupLayer.style.transformOrigin = '0 0'"));
+    expect(activity, contains("markupLayer.style.transform = ''"));
+    expect(activity, contains('renderTextMarkups()'));
+    expect(activity, contains('keepPinchAnchorAtViewport('));
+    expect(activity, contains('function extendSelectionToPoint(x, y)'));
+  });
+
   test('text selection is restored with a selectable PDF.js text layer', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
