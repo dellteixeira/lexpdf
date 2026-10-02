@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('LexPDF is versioned as the twelfth 1.0.0 release candidate', () {
+  test('LexPDF is versioned as the thirteenth 1.0.0 release candidate', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 1.0.0-rc.12+12'));
+    expect(pubspec, contains('version: 1.0.0-rc.13+13'));
   });
 
   test('release candidate distribution validates Android and Windows policy', () {
