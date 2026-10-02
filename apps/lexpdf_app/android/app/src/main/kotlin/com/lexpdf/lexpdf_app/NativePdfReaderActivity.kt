@@ -503,10 +503,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             interceptFingerInput = false
         }
 
-        webView = WebView(this).apply {
-            isLongClickable = true
-            isHapticFeedbackEnabled = true
-        }
+        webView =
+            SelectionAwareWebView(
+                this,
+                ::selectionActionModeCallback,
+            ).apply {
+                isLongClickable = true
+                isHapticFeedbackEnabled = true
+            }
         readerFrame.addView(
             webView,
             FrameLayout.LayoutParams(
@@ -764,7 +768,6 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         WebView.setWebContentsDebuggingEnabled(false)
         webView.addJavascriptInterface(JsBridge(), "LexPdfBridge")
-        webView.setCustomSelectionActionModeCallback(selectionActionModeCallback())
         webView.webViewClient =
             object : WebViewClient() {
                 override fun shouldInterceptRequest(
@@ -2773,19 +2776,21 @@ function hypot(a,b) {
             .show()
     }
 
-    private fun selectionActionModeCallback(): ActionMode.Callback =
+    private fun selectionActionModeCallback(
+        nativeCallback: ActionMode.Callback,
+    ): ActionMode.Callback =
         object : ActionMode.Callback {
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                menu.add(Menu.NONE, ACTION_UNDERLINE, 90, "Sublinhar")
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                menu.add(Menu.NONE, ACTION_STRIKE, 91, "Tachar")
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                menu.add(Menu.NONE, ACTION_HIGHLIGHT, 92, "Marca-texto")
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                if (!nativeCallback.onCreateActionMode(mode, menu)) return false
+                addSelectionMarkupActions(menu)
                 return true
             }
 
-            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean = false
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                val nativeChanged = nativeCallback.onPrepareActionMode(mode, menu)
+                addSelectionMarkupActions(menu)
+                return nativeChanged
+            }
 
             override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
                 return when (item.itemId) {
@@ -2810,12 +2815,29 @@ function hypot(a,b) {
                         true
                     }
 
-                    else -> false
+                    else -> nativeCallback.onActionItemClicked(mode, item)
                 }
             }
 
-            override fun onDestroyActionMode(mode: ActionMode) = Unit
+            override fun onDestroyActionMode(mode: ActionMode) {
+                nativeCallback.onDestroyActionMode(mode)
+            }
         }
+
+    private fun addSelectionMarkupActions(menu: Menu) {
+        if (menu.findItem(ACTION_UNDERLINE) == null) {
+            menu.add(Menu.NONE, ACTION_UNDERLINE, 90, "Sublinhar")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+        if (menu.findItem(ACTION_STRIKE) == null) {
+            menu.add(Menu.NONE, ACTION_STRIKE, 91, "Tachar")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+        if (menu.findItem(ACTION_HIGHLIGHT) == null) {
+            menu.add(Menu.NONE, ACTION_HIGHLIGHT, 92, "Marca-texto")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+    }
 
     private fun captureSelectionThen(mode: ActionMode, action: () -> Unit) {
         webView.evaluateJavascript("LexPDF.captureSelectionForMarkup()") { result ->
@@ -3751,6 +3773,20 @@ function hypot(a,b) {
 
     private val Int.dp: Int
         get() = (this * resources.displayMetrics.density).roundToInt()
+
+    private class SelectionAwareWebView(
+        context: Context,
+        private val callbackDecorator: (ActionMode.Callback) -> ActionMode.Callback,
+    ) : WebView(context) {
+        override fun startActionMode(callback: ActionMode.Callback): ActionMode? =
+            super.startActionMode(callbackDecorator(callback))
+
+        override fun startActionMode(
+            callback: ActionMode.Callback,
+            type: Int,
+        ): ActionMode? =
+            super.startActionMode(callbackDecorator(callback), type)
+    }
 
     private class StylusRouterLayout(context: Context) : FrameLayout(context) {
         var onStylusEvent: ((MotionEvent) -> Boolean)? = null
