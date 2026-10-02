@@ -97,6 +97,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val ACTION_UNDERLINE = 0x4C5801
         private const val ACTION_STRIKE = 0x4C5802
         private const val ACTION_HIGHLIGHT = 0x4C5803
+        private const val ACTION_REMOVE_MARKUP = 0x4C5804
+        private const val ACTION_UNDO_MARKUP = 0x4C5805
+        private const val ACTION_REDO_MARKUP = 0x4C5806
         @Volatile
         private var webViewDirectoryConfigured = false
     }
@@ -188,6 +191,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var highlighterSize = 18f
     private val currentEntries = mutableListOf<InkEntry>()
     private val currentTextMarkups = mutableListOf<TextMarkup>()
+    private val textMarkupUndoHistory = ArrayDeque<List<TextMarkup>>()
+    private val textMarkupRedoHistory = ArrayDeque<List<TextMarkup>>()
     private val undoHistory = ArrayDeque<InkHistoryAction>()
     private val redoHistory = ArrayDeque<InkHistoryAction>()
     private var eraserGestureActive = false
@@ -980,6 +985,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     currentPageIndex = next
                     undoHistory.clear()
                     redoHistory.clear()
+                    textMarkupUndoHistory.clear()
+                    textMarkupRedoHistory.clear()
                     loadInkForPage(next)
                     loadTextMarkupsForPage(next)
                 }
@@ -1020,9 +1027,56 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             if (rects.isEmpty()) return
 
             runOnUiThread {
+                recordTextMarkupHistory()
                 currentTextMarkups += TextMarkup(kind, colorArgb, rects)
                 persistTextMarkupsForPage(currentPageIndex)
                 pushTextMarkupsToViewer()
+                js("LexPDF.clearTextSelection()")
+            }
+        }
+
+        @JavascriptInterface
+        fun removeTextMarkupRects(rectsJson: String) {
+            val selectionRects = mutableListOf<TextMarkupRect>()
+            try {
+                val array = JSONArray(rectsJson)
+                for (index in 0 until array.length()) {
+                    val obj = array.optJSONObject(index) ?: continue
+                    val width = obj.optDouble("width", 0.0).toFloat()
+                    val height = obj.optDouble("height", 0.0).toFloat()
+                    if (width <= 0f || height <= 0f) continue
+                    selectionRects +=
+                        TextMarkupRect(
+                            x = obj.optDouble("x", 0.0).toFloat(),
+                            y = obj.optDouble("y", 0.0).toFloat(),
+                            width = width,
+                            height = height,
+                        )
+                }
+            } catch (_: Throwable) {
+                return
+            }
+            if (selectionRects.isEmpty()) return
+
+            runOnUiThread {
+                val updated =
+                    currentTextMarkups.mapNotNull { markup ->
+                        val remaining =
+                            markup.rects.filterNot { rect ->
+                                selectionRects.any { selected ->
+                                    textMarkupRectsIntersect(rect, selected)
+                                }
+                            }
+                        if (remaining.isEmpty()) null else markup.copy(rects = remaining)
+                    }
+
+                if (updated != currentTextMarkups) {
+                    recordTextMarkupHistory()
+                    currentTextMarkups.clear()
+                    currentTextMarkups += updated
+                    persistTextMarkupsForPage(currentPageIndex)
+                    pushTextMarkupsToViewer()
+                }
                 js("LexPDF.clearTextSelection()")
             }
         }
@@ -1100,8 +1154,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     #markupLayer{position:absolute;left:0;top:0;overflow:hidden;pointer-events:none}
     #markupLayer .markup{position:absolute;box-sizing:border-box;pointer-events:none}
     #markupLayer .highlight{border-radius:2px}
-    #markupLayer .underline{border-bottom:2px solid}
-    #markupLayer .strike::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:2px solid}
+    #markupLayer .underline::after{content:"";position:absolute;left:0;right:0;bottom:-1px;border-bottom:2px solid currentColor}
+    #markupLayer .strike::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:2px solid currentColor}
     #textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-x pan-y}
     #textLayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
     #textLayer span::selection{background:rgba(37,99,235,.34)}
@@ -2279,11 +2333,16 @@ function renderTextMarkups() {
         node.style.background = color;
       } else {
         node.style.color = color;
-        node.style.borderColor = color;
       }
       markupLayer.appendChild(node);
     }
   }
+}
+
+function removeCapturedMarkups() {
+  if (!capturedSelectionRects.length) return false;
+  LexPdfBridge.removeTextMarkupRects(JSON.stringify(capturedSelectionRects));
+  return true;
 }
 
 function clearTextSelection() {
@@ -2419,6 +2478,7 @@ window.LexPDF = {
   },
   captureSelectionForMarkup,
   commitCapturedMarkup,
+  removeCapturedMarkups,
   clearTextSelection,
   setTextMarkups(markups) {
     currentTextMarkups = Array.isArray(markups) ? markups : [];
@@ -2815,6 +2875,25 @@ function hypot(a,b) {
                         true
                     }
 
+                    ACTION_REMOVE_MARKUP -> {
+                        captureSelectionThen(mode) {
+                            js("LexPDF.removeCapturedMarkups()")
+                        }
+                        true
+                    }
+
+                    ACTION_UNDO_MARKUP -> {
+                        undoTextMarkup()
+                        mode.finish()
+                        true
+                    }
+
+                    ACTION_REDO_MARKUP -> {
+                        redoTextMarkup()
+                        mode.finish()
+                        true
+                    }
+
                     else -> nativeCallback.onActionItemClicked(mode, item)
                 }
             }
@@ -2837,6 +2916,18 @@ function hypot(a,b) {
             menu.add(Menu.NONE, ACTION_HIGHLIGHT, 92, "Marca-texto")
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
         }
+        if (menu.findItem(ACTION_REMOVE_MARKUP) == null) {
+            menu.add(Menu.NONE, ACTION_REMOVE_MARKUP, 93, "Remover marcação")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        }
+        if (textMarkupUndoHistory.isNotEmpty() && menu.findItem(ACTION_UNDO_MARKUP) == null) {
+            menu.add(Menu.NONE, ACTION_UNDO_MARKUP, 94, "Desfazer marcação")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        }
+        if (textMarkupRedoHistory.isNotEmpty() && menu.findItem(ACTION_REDO_MARKUP) == null) {
+            menu.add(Menu.NONE, ACTION_REDO_MARKUP, 95, "Refazer marcação")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+        }
     }
 
     private fun captureSelectionThen(mode: ActionMode, action: () -> Unit) {
@@ -2848,6 +2939,47 @@ function hypot(a,b) {
             }
             mode.finish()
         }
+    }
+
+    private fun textMarkupRectsIntersect(
+        first: TextMarkupRect,
+        second: TextMarkupRect,
+    ): Boolean {
+        val firstRight = first.x + first.width
+        val firstBottom = first.y + first.height
+        val secondRight = second.x + second.width
+        val secondBottom = second.y + second.height
+        return first.x < secondRight &&
+            firstRight > second.x &&
+            first.y < secondBottom &&
+            firstBottom > second.y
+    }
+
+    private fun recordTextMarkupHistory() {
+        textMarkupUndoHistory.addLast(currentTextMarkups.toList())
+        if (textMarkupUndoHistory.size > 100) {
+            textMarkupUndoHistory.removeFirst()
+        }
+        textMarkupRedoHistory.clear()
+    }
+
+    private fun applyTextMarkupSnapshot(snapshot: List<TextMarkup>) {
+        currentTextMarkups.clear()
+        currentTextMarkups += snapshot
+        persistTextMarkupsForPage(currentPageIndex)
+        pushTextMarkupsToViewer()
+    }
+
+    private fun undoTextMarkup() {
+        if (textMarkupUndoHistory.isEmpty()) return
+        textMarkupRedoHistory.addLast(currentTextMarkups.toList())
+        applyTextMarkupSnapshot(textMarkupUndoHistory.removeLast())
+    }
+
+    private fun redoTextMarkup() {
+        if (textMarkupRedoHistory.isEmpty()) return
+        textMarkupUndoHistory.addLast(currentTextMarkups.toList())
+        applyTextMarkupSnapshot(textMarkupRedoHistory.removeLast())
     }
 
     private fun showSelectionHighlighterPalette() {
@@ -3553,6 +3685,8 @@ function hypot(a,b) {
 
     private fun loadTextMarkupsForPage(pageIndex: Int) {
         currentTextMarkups.clear()
+        textMarkupUndoHistory.clear()
+        textMarkupRedoHistory.clear()
         pushTextMarkupsToViewer()
         val source = textMarkupFile(pageIndex)
         if (!source.isFile) return
