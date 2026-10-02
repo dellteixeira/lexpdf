@@ -106,6 +106,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private enum class InkKind { PEN, HIGHLIGHTER }
 
+    private enum class ReaderViewMode { PAGE, CONTINUOUS_VERTICAL, CONTINUOUS_HORIZONTAL }
+
     private enum class TextMarkupKind { HIGHLIGHT, UNDERLINE, STRIKE }
 
     private data class TextMarkupRect(
@@ -181,6 +183,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private val readerChromeHandler = Handler(Looper.getMainLooper())
     private val hideReaderChromeRunnable = Runnable { setReaderChromeVisible(false) }
     private var readerChromeVisible = true
+    private var readerViewMode = ReaderViewMode.PAGE
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
@@ -348,6 +351,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Zoom −")
                 menu.add("Zoom +")
                 menu.add("Página inteira")
+                menu.add("Modo de leitura")
                 menu.add("Selecionar texto")
                 menu.add("Caneta")
                 menu.add("Marca-texto")
@@ -362,6 +366,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         "Zoom −" -> js("LexPDF.zoomOut()")
                         "Zoom +" -> js("LexPDF.zoomIn()")
                         "Página inteira" -> js("LexPDF.fitPage()")
+                        "Modo de leitura" -> showReaderViewModeDialog()
                         "Selecionar texto" -> selectTextMode()
                         "Caneta" -> selectInk(InkKind.PEN)
                         "Marca-texto" -> selectInk(InkKind.HIGHLIGHTER)
@@ -451,6 +456,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             unifiedToolbarRow.addView(
                 button("⛶ Página") { js("LexPDF.fitPage()") }.apply {
                     contentDescription = "Página inteira"
+                },
+            )
+            unifiedToolbarRow.addView(
+                button("Modo") { showReaderViewModeDialog() }.apply {
+                    contentDescription = "Modo de leitura"
                 },
             )
             unifiedToolbarRow.addView(
@@ -647,6 +657,41 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private fun toggleReaderChrome() {
         setReaderChromeVisible(!readerChromeVisible)
+    }
+
+    private fun showReaderViewModeDialog() {
+        val labels =
+            arrayOf(
+                "Página",
+                "Contínuo vertical",
+                "Contínuo horizontal",
+            )
+        val checked =
+            when (readerViewMode) {
+                ReaderViewMode.PAGE -> 0
+                ReaderViewMode.CONTINUOUS_VERTICAL -> 1
+                ReaderViewMode.CONTINUOUS_HORIZONTAL -> 2
+            }
+
+        AlertDialog.Builder(this)
+            .setTitle("Modo de leitura")
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                readerViewMode =
+                    when (which) {
+                        1 -> ReaderViewMode.CONTINUOUS_VERTICAL
+                        2 -> ReaderViewMode.CONTINUOUS_HORIZONTAL
+                        else -> ReaderViewMode.PAGE
+                    }
+                js(
+                    "LexPDF.setViewMode(" +
+                        JSONObject.quote(readerViewMode.name.lowercase()) +
+                        ")",
+                )
+                dialog.dismiss()
+                scheduleReaderChromeAutoHide()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun buildSearchBar(): LinearLayout {
@@ -1266,7 +1311,10 @@ let singleTouchStartY = 0;
 let singleTouchStartScrollTop = 0;
 let singleTouchStartedAtTop = false;
 let singleTouchStartedAtBottom = false;
+let singleTouchStartedAtLeft = false;
+let singleTouchStartedAtRight = false;
 let singleTouchActive = false;
+let readerViewMode = 'page';
 let metricsFrame = 0;
 let rangeTransport = null;
 let rangeFailed = false;
@@ -2574,6 +2622,11 @@ window.LexPDF = {
       Math.max(0.4, (stage.clientHeight - 36) / Math.max(1, pageAtScaleOne.height));
     scale = Math.max(0.4, Math.min(4.0, widthScale, heightScale));
     renderPage(pageNumber, false);
+  },
+  setViewMode(mode) {
+    const allowed = ['page', 'continuous_vertical', 'continuous_horizontal'];
+    readerViewMode = allowed.includes(mode) ? mode : 'page';
+    stage.dataset.viewMode = readerViewMode;
   }
 };
 
@@ -2606,6 +2659,9 @@ stage.addEventListener('touchstart', e => {
     singleTouchStartedAtTop = stage.scrollTop <= 3;
     singleTouchStartedAtBottom =
       stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 3;
+    singleTouchStartedAtLeft = stage.scrollLeft <= 3;
+    singleTouchStartedAtRight =
+      stage.scrollLeft + stage.clientWidth >= stage.scrollWidth - 3;
   } else {
     singleTouchActive = false;
   }
@@ -2732,16 +2788,37 @@ stage.addEventListener('touchend', async e => {
     const touch = e.changedTouches[0];
     const dx = touch.clientX - singleTouchStartX;
     const dy = touch.clientY - singleTouchStartY;
-    const verticalGesture = Math.abs(dy) > 72 && Math.abs(dy) > Math.abs(dx) * 1.15;
+    const verticalGesture =
+      Math.abs(dy) > 72 && Math.abs(dy) > Math.abs(dx) * 1.15;
+    const horizontalGesture =
+      Math.abs(dx) > 72 && Math.abs(dx) > Math.abs(dy) * 1.15;
 
     const atTop = stage.scrollTop <= 3;
     const atBottom =
       stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 3;
+    const atLeft = stage.scrollLeft <= 3;
+    const atRight =
+      stage.scrollLeft + stage.clientWidth >= stage.scrollWidth - 3;
 
-    // Never turn a page while the user is still scrolling through its content.
-    // A page change requires a NEW deliberate swipe that both starts and ends
-    // at the corresponding boundary.
-    if (verticalGesture) {
+    if (readerViewMode === 'continuous_vertical' && verticalGesture) {
+      // Continuous vertical mode permits the page turn as soon as the same
+      // gesture reaches the document edge, removing the extra boundary swipe.
+      if (dy < 0 && atBottom) {
+        renderPage(pageNumber + 1);
+      } else if (dy > 0 && atTop) {
+        renderPage(pageNumber - 1);
+      }
+    } else if (readerViewMode === 'continuous_horizontal' && horizontalGesture) {
+      // Preserve free horizontal pan at zoom: only turn when the gesture reaches
+      // the corresponding horizontal boundary.
+      if (dx < 0 && atRight) {
+        renderPage(pageNumber + 1);
+      } else if (dx > 0 && atLeft) {
+        renderPage(pageNumber - 1);
+      }
+    } else if (readerViewMode === 'page' && verticalGesture) {
+      // Original fallback: page mode still requires a NEW deliberate swipe
+      // that starts and ends at the corresponding vertical boundary.
       if (dy < 0 && singleTouchStartedAtBottom && atBottom) {
         renderPage(pageNumber + 1);
       } else if (dy > 0 && singleTouchStartedAtTop && atTop) {
