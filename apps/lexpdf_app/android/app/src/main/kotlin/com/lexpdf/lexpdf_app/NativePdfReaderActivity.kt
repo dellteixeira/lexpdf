@@ -1024,9 +1024,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <style>
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
-    #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:center}
-    #wrap{padding:18px 18px 36px;min-width:max-content}
-    #pageHost{position:relative;display:inline-block}
+    #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain}
+    #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:18px 18px 36px}
+    #pageHost{position:relative;display:block;margin:0 auto}
     canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
     #textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-x pan-y}
     #textLayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
@@ -1064,6 +1064,8 @@ let pinchAnchorPageX = 0;
 let pinchAnchorPageY = 0;
 let pinchAnchorViewportX = 0;
 let pinchAnchorViewportY = 0;
+let pinchLastMidpointX = 0;
+let pinchLastMidpointY = 0;
 let singleTouchStartX = 0;
 let singleTouchStartY = 0;
 let singleTouchStartScrollTop = 0;
@@ -2322,14 +2324,39 @@ stage.addEventListener('touchstart', e => {
     const hostRect = pageHost.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
 
-    // Anchor the exact PDF point below the midpoint of both fingers.
+    // Store the exact PDF point below the midpoint in unscaled page units.
     pinchAnchorPageX = (midpointX - hostRect.left) / Math.max(0.0001, scale);
     pinchAnchorPageY = (midpointY - hostRect.top) / Math.max(0.0001, scale);
     pinchAnchorViewportX = midpointX - stageRect.left;
     pinchAnchorViewportY = midpointY - stageRect.top;
+    pinchLastMidpointX = pinchAnchorViewportX;
+    pinchLastMidpointY = pinchAnchorViewportY;
   }
   scheduleMetricsSync();
 }, { passive: true });
+
+function clampStageScroll(left, top) {
+  const maxLeft = Math.max(0, stage.scrollWidth - stage.clientWidth);
+  const maxTop = Math.max(0, stage.scrollHeight - stage.clientHeight);
+  stage.scrollLeft = Math.max(0, Math.min(maxLeft, left));
+  stage.scrollTop = Math.max(0, Math.min(maxTop, top));
+}
+
+function keepPinchAnchorAtViewport(scaleValue, viewportX, viewportY) {
+  const hostRect = pageHost.getBoundingClientRect();
+  const stageRect = stage.getBoundingClientRect();
+  const hostContentLeft =
+    hostRect.left - stageRect.left + stage.scrollLeft;
+  const hostContentTop =
+    hostRect.top - stageRect.top + stage.scrollTop;
+
+  const targetLeft =
+    hostContentLeft + pinchAnchorPageX * scaleValue - viewportX;
+  const targetTop =
+    hostContentTop + pinchAnchorPageY * scaleValue - viewportY;
+
+  clampStageScroll(targetLeft, targetTop);
+}
 
 stage.addEventListener('touchmove', e => {
   scheduleMetricsSync();
@@ -2344,36 +2371,27 @@ stage.addEventListener('touchmove', e => {
     );
     pinchPreviewScale = next;
 
-    const ratio = next / pinchStartScale;
     const midpointX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const midpointY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    const hostRect = pageHost.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    pinchLastMidpointX = midpointX - stageRect.left;
+    pinchLastMidpointY = midpointY - stageRect.top;
 
-    // Grow the layout box during preview so both horizontal edges remain
-    // reachable while pinching. Scale canvas and text layer together.
+    // Increase the actual scrollable layout size while previewing the zoom.
+    // This avoids an unreachable left/right edge on portrait screens.
     pageHost.style.width = (pageAtScaleOne.width * next) + 'px';
     pageHost.style.height = (pageAtScaleOne.height * next) + 'px';
+
+    const ratio = next / pinchStartScale;
     canvas.style.transformOrigin = '0 0';
     textLayer.style.transformOrigin = '0 0';
     canvas.style.transform = 'scale(' + ratio + ')';
     textLayer.style.transform = 'scale(' + ratio + ')';
 
-    // Keep the exact anchored PDF point under the current midpoint.
-    const stageRect = stage.getBoundingClientRect();
-    const desiredX = midpointX - stageRect.left;
-    const desiredY = midpointY - stageRect.top;
-    const hostContentLeft =
-      hostRect.left - stageRect.left + stage.scrollLeft;
-    const hostContentTop =
-      hostRect.top - stageRect.top + stage.scrollTop;
-
-    stage.scrollLeft = Math.max(
-      0,
-      hostContentLeft + pinchAnchorPageX * next - desiredX
-    );
-    stage.scrollTop = Math.max(
-      0,
-      hostContentTop + pinchAnchorPageY * next - desiredY
+    keepPinchAnchorAtViewport(
+      next,
+      pinchLastMidpointX,
+      pinchLastMidpointY
     );
   }
 }, { passive: false });
@@ -2381,32 +2399,26 @@ stage.addEventListener('touchmove', e => {
 stage.addEventListener('touchend', async e => {
   if (pinchStartDistance > 0 && e.touches.length < 2) {
     const finalScale = pinchPreviewScale;
+
     canvas.style.transform = '';
     canvas.style.transformOrigin = '';
     textLayer.style.transform = '';
     textLayer.style.transformOrigin = '';
 
     pinchStartDistance = 0;
-    pinchPreviewScale = finalScale;
     singleTouchActive = false;
-
     scale = finalScale;
+
     await renderPage(pageNumber, true);
 
-    // After the high-quality rerender, restore the same anchored PDF point
-    // under the same viewport coordinate so neither edge becomes inaccessible.
+    // PDF.js-style center preservation: after scale changes, scroll the
+    // container so the same PDF point remains under the gesture center.
     requestAnimationFrame(() => {
-      const hostRect = pageHost.getBoundingClientRect();
-      const stageRect = stage.getBoundingClientRect();
-      const anchorContentX =
-        hostRect.left - stageRect.left + stage.scrollLeft +
-        pinchAnchorPageX * scale;
-      const anchorContentY =
-        hostRect.top - stageRect.top + stage.scrollTop +
-        pinchAnchorPageY * scale;
-
-      stage.scrollLeft = Math.max(0, anchorContentX - pinchAnchorViewportX);
-      stage.scrollTop = Math.max(0, anchorContentY - pinchAnchorViewportY);
+      keepPinchAnchorAtViewport(
+        scale,
+        pinchLastMidpointX,
+        pinchLastMidpointY
+      );
       settleMetrics();
     });
     return;
@@ -2424,8 +2436,7 @@ stage.addEventListener('touchend', async e => {
 
     // Never turn a page while the user is still scrolling through its content.
     // A page change requires a NEW deliberate swipe that both starts and ends
-    // at the corresponding boundary. This gives landscape pages room to scroll
-    // naturally to the bottom before advancing.
+    // at the corresponding boundary.
     if (verticalGesture) {
       if (dy < 0 && singleTouchStartedAtBottom && atBottom) {
         renderPage(pageNumber + 1);

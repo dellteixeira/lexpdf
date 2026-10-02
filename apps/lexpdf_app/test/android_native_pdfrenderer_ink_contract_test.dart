@@ -296,7 +296,7 @@ void main() {
     expect(activity, contains('singleTouchActive = false'));
   });
 
-  test('pinch zoom preserves the two-finger focal point and horizontal reach', () {
+  test('pinch zoom preserves focal point and keeps free two-axis pan', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
@@ -304,17 +304,24 @@ void main() {
     expect(activity, contains('let pinchPreviewScale = scale'));
     expect(activity, contains('let pinchAnchorPageX = 0'));
     expect(activity, contains('let pinchAnchorPageY = 0'));
-    expect(activity, contains('let pinchAnchorViewportX = 0'));
-    expect(activity, contains('let pinchAnchorViewportY = 0'));
+    expect(activity, contains('let pinchLastMidpointX = 0'));
+    expect(activity, contains('let pinchLastMidpointY = 0'));
+    expect(activity, contains('function clampStageScroll(left, top)'));
+    expect(activity, contains('stage.scrollWidth - stage.clientWidth'));
+    expect(activity, contains('stage.scrollHeight - stage.clientHeight'));
+    expect(activity, contains('function keepPinchAnchorAtViewport('));
     expect(activity, contains('pageHost.style.width = (pageAtScaleOne.width * next)'));
     expect(activity, contains('pageHost.style.height = (pageAtScaleOne.height * next)'));
     expect(activity, contains("canvas.style.transform = 'scale(' + ratio + ')'"));
     expect(activity, contains("textLayer.style.transform = 'scale(' + ratio + ')'"));
-    expect(activity, contains('stage.scrollLeft = Math.max('));
-    expect(activity, contains('stage.scrollTop = Math.max('));
     expect(activity, contains('await renderPage(pageNumber, true)'));
-    expect(activity, contains('pinchAnchorPageX * scale'));
-    expect(activity, contains('pinchAnchorPageY * scale'));
+    expect(activity, contains('keepPinchAnchorAtViewport('));
+    expect(activity, contains('#wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%'));
+    expect(activity, contains('#pageHost{position:relative;display:block;margin:0 auto}'));
+    expect(
+      activity,
+      isNot(contains('justify-content:center')),
+    );
     expect(
       activity,
       isNot(contains("canvas.style.transformOrigin = 'center top'")),
