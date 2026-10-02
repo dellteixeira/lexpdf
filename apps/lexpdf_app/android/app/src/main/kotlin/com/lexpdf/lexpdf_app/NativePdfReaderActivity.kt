@@ -1458,6 +1458,8 @@ let singleTouchStartedAtLeft = false;
 let singleTouchStartedAtRight = false;
 let singleTouchActive = false;
 let readerViewMode = 'page';
+let smartFitWidthEnabled = true;
+let readerMarginPx = 12;
 const VIRTUAL_WINDOW_RADIUS = 1;
 const VIRTUAL_PREVIEW_MAX_PIXELS = 1500000;
 const virtualPageWindow = new Map();
@@ -2642,6 +2644,22 @@ function settleMetrics() {
   setTimeout(scheduleMetricsSync, 220);
 }
 
+function fitWidthScaleFor(pageWidth) {
+  const wrapStyle = getComputedStyle(document.getElementById('wrap'));
+  const horizontalPadding =
+    (parseFloat(wrapStyle.paddingLeft) || readerMarginPx) +
+    (parseFloat(wrapStyle.paddingRight) || readerMarginPx);
+  // Keep a tiny safety inset so device-pixel rounding never creates a
+  // 1-2 px horizontal overflow that would make the page look off-center.
+  const availableWidth = Math.max(1, stage.clientWidth - horizontalPadding - 2);
+  return Math.max(0.4, Math.min(4.0, availableWidth / Math.max(1, pageWidth)));
+}
+
+function centerPageHorizontally() {
+  const overflow = Math.max(0, stage.scrollWidth - stage.clientWidth);
+  stage.scrollLeft = overflow > 0 ? overflow / 2 : 0;
+}
+
 function virtualPageKey(page, scaleValue = scale) {
   return page + '@' + Number(scaleValue).toFixed(3);
 }
@@ -2786,6 +2804,15 @@ async function renderPage(target, preserveCenter = false) {
 
     const base = page.getViewport({ scale: 1.0 });
     pageAtScaleOne = { width: base.width, height: base.height };
+    const pageChanged = pageNumber !== target;
+
+    // Recalculate width for every newly opened page. PDF files may mix page
+    // sizes, so inheriting the previous page scale causes visible lateral drift.
+    if (!preserveCenter && smartFitWidthEnabled) {
+      scale = fitWidthScaleFor(base.width);
+      clearVirtualPageWindow();
+    }
+
     const viewport = page.getViewport({ scale });
 
     const outputScale = Math.min(window.devicePixelRatio || 1, 2);
@@ -2822,7 +2849,6 @@ async function renderPage(target, preserveCenter = false) {
     renderTextMarkups();
     await paintSearchHighlights(page, viewport, renderScale, target);
     if (token !== renderToken) return;
-    const pageChanged = pageNumber !== target;
     pageNumber = target;
     page.cleanup();
     if (pageChanged && !preserveCenter) {
@@ -2831,6 +2857,9 @@ async function renderPage(target, preserveCenter = false) {
     }
     loading.style.display = 'none';
     requestAnimationFrame(() => {
+      if (!preserveCenter && smartFitWidthEnabled) {
+        centerPageHorizontally();
+      }
       settleMetrics();
       LexPdfBridge.pageChanged(pageNumber);
       LexPdfBridge.rendered(pageNumber);
@@ -2900,17 +2929,7 @@ window.LexPDF = {
     renderPage(pageNumber, false);
   },
   fitWidth() {
-    const wrapStyle = getComputedStyle(document.getElementById('wrap'));
-    const horizontalPadding =
-      (parseFloat(wrapStyle.paddingLeft) || 0) +
-      (parseFloat(wrapStyle.paddingRight) || 0);
-    const widthScale =
-      Math.max(
-        0.4,
-        (stage.clientWidth - horizontalPadding) /
-          Math.max(1, pageAtScaleOne.width)
-      );
-    scale = Math.max(0.4, Math.min(4.0, widthScale));
+    scale = fitWidthScaleFor(pageAtScaleOne.width);
     clearVirtualPageWindow();
     renderPage(pageNumber, false);
   },
@@ -2930,6 +2949,8 @@ window.LexPDF = {
           : '';
 
     const safeMargin = Math.max(4, Math.min(36, Number(marginDp) || 12));
+    readerMarginPx = safeMargin;
+    smartFitWidthEnabled = Boolean(smartFitWidth);
     const wrap = document.getElementById('wrap');
     wrap.style.paddingLeft = safeMargin + 'px';
     wrap.style.paddingRight = safeMargin + 'px';
