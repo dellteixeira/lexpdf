@@ -2786,26 +2786,23 @@ function hypot(a,b) {
             override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
                 return when (item.itemId) {
                     ACTION_UNDERLINE -> {
-                        captureSelectionThen {
+                        captureSelectionThen(mode) {
                             val color = Color.argb(255, 35, 105, 210)
                             js("LexPDF.commitCapturedMarkup('underline', $color)")
                         }
-                        mode.finish()
                         true
                     }
 
                     ACTION_STRIKE -> {
-                        captureSelectionThen {
+                        captureSelectionThen(mode) {
                             val color = Color.argb(255, 210, 55, 55)
                             js("LexPDF.commitCapturedMarkup('strike', $color)")
                         }
-                        mode.finish()
                         true
                     }
 
                     ACTION_HIGHLIGHT -> {
-                        captureSelectionThen { showSelectionHighlighterPalette() }
-                        mode.finish()
+                        captureSelectionThen(mode) { showSelectionHighlighterPalette() }
                         true
                     }
 
@@ -2816,13 +2813,14 @@ function hypot(a,b) {
             override fun onDestroyActionMode(mode: ActionMode) = Unit
         }
 
-    private fun captureSelectionThen(action: () -> Unit) {
+    private fun captureSelectionThen(mode: ActionMode, action: () -> Unit) {
         webView.evaluateJavascript("LexPDF.captureSelectionForMarkup()") { result ->
             if (result == "true") {
                 action()
             } else {
                 Toast.makeText(this, "Selecione um trecho de texto.", Toast.LENGTH_SHORT).show()
             }
+            mode.finish()
         }
     }
 
