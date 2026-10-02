@@ -296,6 +296,44 @@ void main() {
     expect(activity, contains('singleTouchActive = false'));
   });
 
+  test('pinch zoom preserves the two-finger focal point and horizontal reach', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('let pinchPreviewScale = scale'));
+    expect(activity, contains('let pinchAnchorPageX = 0'));
+    expect(activity, contains('let pinchAnchorPageY = 0'));
+    expect(activity, contains('let pinchAnchorViewportX = 0'));
+    expect(activity, contains('let pinchAnchorViewportY = 0'));
+    expect(activity, contains('pageHost.style.width = (pageAtScaleOne.width * next)'));
+    expect(activity, contains('pageHost.style.height = (pageAtScaleOne.height * next)'));
+    expect(activity, contains("canvas.style.transform = 'scale(' + ratio + ')'"));
+    expect(activity, contains("textLayer.style.transform = 'scale(' + ratio + ')'"));
+    expect(activity, contains('stage.scrollLeft = Math.max('));
+    expect(activity, contains('stage.scrollTop = Math.max('));
+    expect(activity, contains('await renderPage(pageNumber, true)'));
+    expect(activity, contains('pinchAnchorPageX * scale'));
+    expect(activity, contains('pinchAnchorPageY * scale'));
+    expect(
+      activity,
+      isNot(contains("canvas.style.transformOrigin = 'center top'")),
+    );
+  });
+
+  test('pinch zoom does not remove natural drag text selection', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('function extendSelectionToPoint(x, y)'));
+    expect(activity, contains('let textSelectionAnchorRange = null'));
+    expect(activity, contains('stage.scrollTop = textSelectionLockScrollTop'));
+    expect(activity, contains('stage.scrollLeft = textSelectionLockScrollLeft'));
+    expect(activity, contains('extendSelectionToPoint(touch.clientX, touch.clientY)'));
+    expect(activity, contains("textLayer.addEventListener('touchmove'"));
+  });
+
   test('text selection is restored with a selectable PDF.js text layer', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
