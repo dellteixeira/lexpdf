@@ -80,6 +80,35 @@ void main() {
     expect(source, isNot(contains('justify-content:center')));
   });
 
+  test('reader exposes page vertical and horizontal navigation modes', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('private enum class ReaderViewMode'));
+    expect(source, contains('ReaderViewMode.PAGE'));
+    expect(source, contains('ReaderViewMode.CONTINUOUS_VERTICAL'));
+    expect(source, contains('ReaderViewMode.CONTINUOUS_HORIZONTAL'));
+    expect(source, contains('showReaderViewModeDialog()'));
+    expect(source, contains('menu.add("Modo de leitura")'));
+    expect(source, contains('button("Modo")'));
+    expect(source, contains('"Contínuo vertical"'));
+    expect(source, contains('"Contínuo horizontal"'));
+    expect(source, contains('LexPDF.setViewMode('));
+    expect(source, contains("readerViewMode === 'continuous_vertical'"));
+    expect(source, contains("readerViewMode === 'continuous_horizontal'"));
+    expect(source, contains("readerViewMode === 'page'"));
+    expect(source, contains('singleTouchStartedAtBottom && atBottom'));
+    expect(source, contains('singleTouchStartedAtTop && atTop'));
+    expect(source, contains('dx < 0 && atRight'));
+    expect(source, contains('dx > 0 && atLeft'));
+
+    // Horizontal mode must not remove free pan or the focal pinch implementation.
+    expect(source, contains('keepPinchAnchorAtViewport('));
+    expect(source, contains('stage.scrollWidth - stage.clientWidth'));
+    expect(source, contains('stage.scrollHeight - stage.clientHeight'));
+  });
+
   test('native search field follows Android light and dark system theme', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
