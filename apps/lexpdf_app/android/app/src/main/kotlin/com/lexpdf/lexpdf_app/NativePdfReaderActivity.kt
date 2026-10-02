@@ -1059,6 +1059,11 @@ let renderTask = null;
 let pageAtScaleOne = { width: 1, height: 1 };
 let pinchStartDistance = 0;
 let pinchStartScale = scale;
+let pinchPreviewScale = scale;
+let pinchAnchorPageX = 0;
+let pinchAnchorPageY = 0;
+let pinchAnchorViewportX = 0;
+let pinchAnchorViewportY = 0;
 let singleTouchStartX = 0;
 let singleTouchStartY = 0;
 let singleTouchStartScrollTop = 0;
@@ -2304,8 +2309,24 @@ stage.addEventListener('touchstart', e => {
   }
 
   if (e.touches.length === 2) {
+    clearTextLongPressTimer();
+    textLongPressTriggered = false;
+    textSelectionAnchorRange = null;
+
     pinchStartDistance = hypot(e.touches[0], e.touches[1]);
     pinchStartScale = scale;
+    pinchPreviewScale = scale;
+
+    const midpointX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midpointY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const hostRect = pageHost.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+
+    // Anchor the exact PDF point below the midpoint of both fingers.
+    pinchAnchorPageX = (midpointX - hostRect.left) / Math.max(0.0001, scale);
+    pinchAnchorPageY = (midpointY - hostRect.top) / Math.max(0.0001, scale);
+    pinchAnchorViewportX = midpointX - stageRect.left;
+    pinchAnchorViewportY = midpointY - stageRect.top;
   }
   scheduleMetricsSync();
 }, { passive: true });
@@ -2314,22 +2335,70 @@ stage.addEventListener('touchmove', e => {
   scheduleMetricsSync();
 
   if (e.touches.length === 2 && pinchStartDistance > 0) {
-    const d = hypot(e.touches[0], e.touches[1]);
-    const next = Math.max(0.65, Math.min(4.0, pinchStartScale * d / pinchStartDistance));
-    canvas.style.transformOrigin = 'center top';
-    canvas.style.transform = 'scale(' + (next / scale) + ')';
-  }
-}, { passive: true });
+    e.preventDefault();
 
-stage.addEventListener('touchend', e => {
+    const d = hypot(e.touches[0], e.touches[1]);
+    const next = Math.max(
+      0.65,
+      Math.min(4.0, pinchStartScale * d / pinchStartDistance)
+    );
+    pinchPreviewScale = next;
+
+    const ratio = next / pinchStartScale;
+    const midpointX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midpointY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const hostRect = pageHost.getBoundingClientRect();
+
+    // Preview the whole PDF surface (canvas + text layer), never the canvas alone.
+    pageHost.style.transformOrigin =
+      ((pinchAnchorPageX * pinchStartScale)) + 'px ' +
+      ((pinchAnchorPageY * pinchStartScale)) + 'px';
+    pageHost.style.transform = 'scale(' + ratio + ')';
+
+    // Keep the focal PDF point under the current midpoint during the gesture.
+    const stageRect = stage.getBoundingClientRect();
+    const desiredX = midpointX - stageRect.left;
+    const desiredY = midpointY - stageRect.top;
+    const anchorContentX =
+      hostRect.left - stageRect.left + stage.scrollLeft +
+      pinchAnchorPageX * pinchStartScale;
+    const anchorContentY =
+      hostRect.top - stageRect.top + stage.scrollTop +
+      pinchAnchorPageY * pinchStartScale;
+    stage.scrollLeft = Math.max(0, anchorContentX * ratio - desiredX);
+    stage.scrollTop = Math.max(0, anchorContentY * ratio - desiredY);
+  }
+}, { passive: false });
+
+stage.addEventListener('touchend', async e => {
   if (pinchStartDistance > 0 && e.touches.length < 2) {
-    const m = canvas.style.transform.match(/scale\(([^)]+)\)/);
-    if (m) scale = Math.max(0.65, Math.min(4.0, scale * Number(m[1])));
-    canvas.style.transform = '';
+    const finalScale = pinchPreviewScale;
+    pageHost.style.transform = '';
+    pageHost.style.transformOrigin = '';
+
     pinchStartDistance = 0;
+    pinchPreviewScale = finalScale;
     singleTouchActive = false;
-    renderPage(pageNumber, true);
-    settleMetrics();
+
+    scale = finalScale;
+    await renderPage(pageNumber, true);
+
+    // After the high-quality rerender, restore the same anchored PDF point
+    // under the same viewport coordinate so neither edge becomes inaccessible.
+    requestAnimationFrame(() => {
+      const hostRect = pageHost.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      const anchorContentX =
+        hostRect.left - stageRect.left + stage.scrollLeft +
+        pinchAnchorPageX * scale;
+      const anchorContentY =
+        hostRect.top - stageRect.top + stage.scrollTop +
+        pinchAnchorPageY * scale;
+
+      stage.scrollLeft = Math.max(0, anchorContentX - pinchAnchorViewportX);
+      stage.scrollTop = Math.max(0, anchorContentY - pinchAnchorViewportY);
+      settleMetrics();
+    });
     return;
   }
 
