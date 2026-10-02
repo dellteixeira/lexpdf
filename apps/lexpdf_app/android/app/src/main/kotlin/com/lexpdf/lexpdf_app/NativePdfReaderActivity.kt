@@ -1069,6 +1069,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         @JavascriptInterface
         fun rendered(page: Int) {
             runOnUiThread {
+                pushTextMarkupsToViewer()
                 statusLabel.text =
                     "PDF.js • página $page • S Pen: ${currentEntries.size} traço(s)"
                 PdfCrashDiagnostics.mark(
@@ -2772,8 +2773,11 @@ function hypot(a,b) {
         object : ActionMode.Callback {
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
                 menu.add(Menu.NONE, ACTION_UNDERLINE, 90, "Sublinhar")
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 menu.add(Menu.NONE, ACTION_STRIKE, 91, "Tachar")
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 menu.add(Menu.NONE, ACTION_HIGHLIGHT, 92, "Marca-texto")
+                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 return true
             }
 
@@ -2850,16 +2854,66 @@ function hypot(a,b) {
                 "Coral",
             )
 
-        AlertDialog.Builder(this)
-            .setTitle("Marca-texto da seleção")
-            .setItems(labels) { _, which ->
-                val color = colors[which]
-                js("LexPDF.commitCapturedMarkup('highlight', $color)")
+        val paletteContainer =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(18.dp, 12.dp, 18.dp, 6.dp)
             }
-            .setNegativeButton("Cancelar") { _, _ ->
-                js("LexPDF.clearTextSelection()")
+
+        for (rowStart in colors.indices step 5) {
+            val row =
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                }
+            for (index in rowStart until minOf(rowStart + 5, colors.size)) {
+                val color = colors[index]
+                val swatch =
+                    Button(this).apply {
+                        text = ""
+                        minWidth = 0
+                        minimumWidth = 0
+                        setPadding(0, 0, 0, 0)
+                        backgroundTintList = ColorStateList.valueOf(color)
+                        contentDescription = labels[index]
+                    }
+                row.addView(
+                    swatch,
+                    LinearLayout.LayoutParams(48.dp, 44.dp).apply {
+                        marginStart = 4.dp
+                        marginEnd = 4.dp
+                        topMargin = 4.dp
+                        bottomMargin = 4.dp
+                    },
+                )
             }
-            .show()
+            paletteContainer.addView(row)
+        }
+
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle("Marca-texto da seleção")
+                .setView(paletteContainer)
+                .setNegativeButton("Cancelar") { _, _ ->
+                    js("LexPDF.clearTextSelection()")
+                }
+                .create()
+
+        for (rowIndex in 0 until paletteContainer.childCount) {
+            val row = paletteContainer.getChildAt(rowIndex) as? LinearLayout ?: continue
+            for (buttonIndex in 0 until row.childCount) {
+                val button = row.getChildAt(buttonIndex) as? Button ?: continue
+                button.setOnClickListener {
+                    val index = rowIndex * 5 + buttonIndex
+                    if (index in colors.indices) {
+                        val color = colors[index]
+                        js("LexPDF.commitCapturedMarkup('highlight', $color)")
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun loadInkPreferences() {
