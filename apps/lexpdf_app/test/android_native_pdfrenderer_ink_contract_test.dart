@@ -362,6 +362,31 @@ void main() {
     expect(activity, contains("LexPDF.commitCapturedMarkup('highlight'"));
   });
 
+  test('underline renders below text and text markups are reversible', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(
+      activity,
+      contains('#markupLayer .underline::after{content:"";position:absolute;left:0;right:0;bottom:-1px;border-bottom:2px solid currentColor}'),
+    );
+    expect(activity, contains('ACTION_REMOVE_MARKUP'));
+    expect(activity, contains('ACTION_UNDO_MARKUP'));
+    expect(activity, contains('ACTION_REDO_MARKUP'));
+    expect(activity, contains('"Remover marcação"'));
+    expect(activity, contains('"Desfazer marcação"'));
+    expect(activity, contains('"Refazer marcação"'));
+    expect(activity, contains('function removeCapturedMarkups()'));
+    expect(activity, contains('removeTextMarkupRects(rectsJson: String)'));
+    expect(activity, contains('textMarkupRectsIntersect('));
+    expect(activity, contains('recordTextMarkupHistory()'));
+    expect(activity, contains('undoTextMarkup()'));
+    expect(activity, contains('redoTextMarkup()'));
+    expect(activity, contains('menu.add("Desfazer marcação")'));
+    expect(activity, contains('menu.add("Refazer marcação")'));
+  });
+
   test('selection text markups persist separately from AndroidX Ink sidecar', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
