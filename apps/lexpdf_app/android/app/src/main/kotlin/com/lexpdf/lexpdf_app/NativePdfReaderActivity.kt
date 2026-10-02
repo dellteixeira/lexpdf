@@ -764,7 +764,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         WebView.setWebContentsDebuggingEnabled(false)
         webView.addJavascriptInterface(JsBridge(), "LexPdfBridge")
-        webView.customSelectionActionModeCallback = selectionActionModeCallback()
+        webView.setCustomSelectionActionModeCallback(selectionActionModeCallback())
         webView.webViewClient =
             object : WebViewClient() {
                 override fun shouldInterceptRequest(
