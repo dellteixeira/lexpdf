@@ -1315,6 +1315,10 @@ let singleTouchStartedAtLeft = false;
 let singleTouchStartedAtRight = false;
 let singleTouchActive = false;
 let readerViewMode = 'page';
+const VIRTUAL_WINDOW_RADIUS = 1;
+const VIRTUAL_PREVIEW_MAX_PIXELS = 1500000;
+const virtualPageWindow = new Map();
+let virtualWindowGeneration = 0;
 let metricsFrame = 0;
 let rangeTransport = null;
 let rangeFailed = false;
@@ -2495,11 +2499,138 @@ function settleMetrics() {
   setTimeout(scheduleMetricsSync, 220);
 }
 
+function virtualPageKey(page, scaleValue = scale) {
+  return page + '@' + Number(scaleValue).toFixed(3);
+}
+
+function clearVirtualPageWindow() {
+  virtualWindowGeneration++;
+  virtualPageWindow.clear();
+}
+
+function pruneVirtualPageWindow(center) {
+  const keepPages = new Set();
+  for (let offset = -VIRTUAL_WINDOW_RADIUS; offset <= VIRTUAL_WINDOW_RADIUS; offset++) {
+    const candidate = center + offset;
+    if (pdf && candidate >= 1 && candidate <= pdf.numPages) {
+      keepPages.add(candidate);
+    }
+  }
+
+  for (const [key, entry] of virtualPageWindow.entries()) {
+    if (!keepPages.has(entry.page) || Math.abs(entry.scale - scale) > 0.001) {
+      virtualPageWindow.delete(key);
+    }
+  }
+}
+
+async function renderVirtualPreview(target, generation) {
+  if (!pdf || readerViewMode === 'page') return;
+  if (target < 1 || target > pdf.numPages) return;
+
+  const key = virtualPageKey(target);
+  if (virtualPageWindow.has(key)) return;
+
+  try {
+    const page = await pdf.getPage(target);
+    if (generation !== virtualWindowGeneration || readerViewMode === 'page') {
+      page.cleanup();
+      return;
+    }
+
+    const viewport = page.getViewport({ scale });
+    let renderScale = Math.min(window.devicePixelRatio || 1, 1.25);
+    let pixelWidth = Math.max(1, Math.floor(viewport.width * renderScale));
+    let pixelHeight = Math.max(1, Math.floor(viewport.height * renderScale));
+    const pixels = pixelWidth * pixelHeight;
+    if (pixels > VIRTUAL_PREVIEW_MAX_PIXELS) {
+      renderScale *= Math.sqrt(VIRTUAL_PREVIEW_MAX_PIXELS / pixels);
+      pixelWidth = Math.max(1, Math.floor(viewport.width * renderScale));
+      pixelHeight = Math.max(1, Math.floor(viewport.height * renderScale));
+    }
+
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = pixelWidth;
+    previewCanvas.height = pixelHeight;
+    const previewContext = previewCanvas.getContext('2d', { alpha: false });
+    if (!previewContext) {
+      page.cleanup();
+      return;
+    }
+
+    await page.render({
+      canvasContext: previewContext,
+      viewport,
+      transform: renderScale === 1
+        ? null
+        : [renderScale, 0, 0, renderScale, 0, 0],
+      background: '#ffffff'
+    }).promise;
+    page.cleanup();
+
+    if (generation !== virtualWindowGeneration || readerViewMode === 'page') return;
+
+    virtualPageWindow.set(key, {
+      page: target,
+      scale,
+      canvas: previewCanvas,
+      width: viewport.width,
+      height: viewport.height,
+      pixelWidth,
+      pixelHeight
+    });
+    pruneVirtualPageWindow(pageNumber);
+  } catch (_) {}
+}
+
+function scheduleVirtualPageWindow(center) {
+  if (!pdf || readerViewMode === 'page') {
+    clearVirtualPageWindow();
+    return;
+  }
+
+  const generation = ++virtualWindowGeneration;
+  pruneVirtualPageWindow(center);
+
+  for (let offset = -VIRTUAL_WINDOW_RADIUS; offset <= VIRTUAL_WINDOW_RADIUS; offset++) {
+    const target = center + offset;
+    if (target === center || target < 1 || target > pdf.numPages) continue;
+    void renderVirtualPreview(target, generation);
+  }
+}
+
+function promoteVirtualPreview(target) {
+  if (readerViewMode === 'page') return false;
+  const preview = virtualPageWindow.get(virtualPageKey(target));
+  if (!preview) return false;
+
+  canvas.width = preview.pixelWidth;
+  canvas.height = preview.pixelHeight;
+  canvas.style.width = preview.width + 'px';
+  canvas.style.height = preview.height + 'px';
+  pageHost.style.width = preview.width + 'px';
+  pageHost.style.height = preview.height + 'px';
+
+  // The preview is visual-only. Interactive text/markup layers are rebuilt by
+  // the normal renderer immediately afterwards for the promoted current page.
+  textLayer.replaceChildren();
+  markupLayer.replaceChildren();
+  textLayer.style.width = preview.width + 'px';
+  textLayer.style.height = preview.height + 'px';
+  markupLayer.style.width = preview.width + 'px';
+  markupLayer.style.height = preview.height + 'px';
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(preview.canvas, 0, 0, canvas.width, canvas.height);
+  return true;
+}
+
 async function renderPage(target, preserveCenter = false) {
   if (!pdf) return;
   target = Math.max(1, Math.min(pdf.numPages, target));
   const token = ++renderToken;
-  loading.style.display = 'block';
+  const previewPromoted = target !== pageNumber && promoteVirtualPreview(target);
+  loading.style.display = previewPromoted ? 'none' : 'block';
 
   if (renderTask) {
     try { renderTask.cancel(); } catch (_) {}
@@ -2560,6 +2691,7 @@ async function renderPage(target, preserveCenter = false) {
       settleMetrics();
       LexPdfBridge.pageChanged(pageNumber);
       LexPdfBridge.rendered(pageNumber);
+      scheduleVirtualPageWindow(pageNumber);
     });
   } catch (e) {
     if (e?.name === 'RenderingCancelledException') return;
@@ -2627,6 +2759,11 @@ window.LexPDF = {
     const allowed = ['page', 'continuous_vertical', 'continuous_horizontal'];
     readerViewMode = allowed.includes(mode) ? mode : 'page';
     stage.dataset.viewMode = readerViewMode;
+    if (readerViewMode === 'page') {
+      clearVirtualPageWindow();
+    } else {
+      scheduleVirtualPageWindow(pageNumber);
+    }
   }
 };
 
@@ -2852,6 +2989,7 @@ function hypot(a,b) {
     pdf = await task.promise;
     LexPdfBridge.ready(pdf.numPages);
     await renderPage(pageNumber);
+    scheduleVirtualPageWindow(pageNumber);
     void loadNavigationMetadata();
   } catch (e) {
     loading.style.display = 'none';
