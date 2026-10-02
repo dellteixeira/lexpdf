@@ -109,6 +109,33 @@ void main() {
     expect(source, contains('stage.scrollHeight - stage.clientHeight'));
   });
 
+  test('reading intelligence persists theme margin fit width and view mode', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('private enum class ReaderTheme'));
+    expect(source, contains('ReaderTheme.NORMAL'));
+    expect(source, contains('ReaderTheme.NIGHT'));
+    expect(source, contains('ReaderTheme.SEPIA'));
+    expect(source, contains('READING_PREFS'));
+    expect(source, contains('PREF_READER_VIEW_MODE'));
+    expect(source, contains('PREF_READER_THEME'));
+    expect(source, contains('PREF_READER_MARGIN_DP'));
+    expect(source, contains('PREF_SMART_FIT_WIDTH'));
+    expect(source, contains('loadReadingPreferences()'));
+    expect(source, contains('saveReadingPreferences()'));
+    expect(source, contains('showReadingPreferencesDialog()'));
+    expect(source, contains('LexPDF.fitWidth()'));
+    expect(source, contains('applyReadingPreferencesToViewer()'));
+    expect(source, contains('LexPDF.applyReadingPreferences('));
+    expect(source, contains("normalizedTheme === 'night'"));
+    expect(source, contains("normalizedTheme === 'sepia'"));
+    expect(source, contains("wrap.style.paddingLeft = safeMargin + 'px'"));
+    expect(source, contains('smartFitWidthEnabled'));
+    expect(source, contains('saveReadingPreferences()\n        super.onPause()'));
+  });
+
   test('native search field follows Android light and dark system theme', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
