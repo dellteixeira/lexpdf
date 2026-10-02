@@ -2540,8 +2540,10 @@ stage.addEventListener('touchmove', e => {
 
     const ratio = next / pinchStartScale;
     canvas.style.transformOrigin = '0 0';
+    markupLayer.style.transformOrigin = '0 0';
     textLayer.style.transformOrigin = '0 0';
     canvas.style.transform = 'scale(' + ratio + ')';
+    markupLayer.style.transform = 'scale(' + ratio + ')';
     textLayer.style.transform = 'scale(' + ratio + ')';
 
     keepPinchAnchorAtViewport(
@@ -2558,6 +2560,8 @@ stage.addEventListener('touchend', async e => {
 
     canvas.style.transform = '';
     canvas.style.transformOrigin = '';
+    markupLayer.style.transform = '';
+    markupLayer.style.transformOrigin = '';
     textLayer.style.transform = '';
     textLayer.style.transformOrigin = '';
 
