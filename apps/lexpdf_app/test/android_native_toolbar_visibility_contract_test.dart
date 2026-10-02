@@ -32,7 +32,7 @@ void main() {
     expect(source, contains('unifiedToolbarRow.addView(button("Buscar")'));
     expect(source, contains('unifiedToolbarRow.addView(button("Índice")'));
     expect(source, contains('if (!useOverflowMenu) {'));
-    expect(source, contains('val toolbarContainer: View ='));
+    expect(source, contains('toolbarContainer ='));
     expect(source, contains('if (useOverflowMenu) {'));
   });
 
@@ -53,6 +53,31 @@ void main() {
     expect(source, isNot(contains('val pinnedNavigationRow = toolRow()')));
     expect(source, isNot(contains('val navigationRow = toolRow()')));
     expect(source, isNot(contains('val inkRow = toolRow()')));
+  });
+
+  test('reading-first shell auto-hides chrome without changing the renderer', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('private lateinit var readingPageIndicator: TextView'));
+    expect(source, contains('private lateinit var toolbarContainer: View'));
+    expect(source, contains('hideReaderChromeRunnable'));
+    expect(source, contains('scheduleReaderChromeAutoHide()'));
+    expect(source, contains('readerChromeHandler.postDelayed(hideReaderChromeRunnable, 3200L)'));
+    expect(source, contains('toolbarContainer.visibility = if (visible) View.VISIBLE else View.GONE'));
+    expect(source, contains('readingPageIndicator.visibility = if (visible) View.GONE else View.VISIBLE'));
+    expect(source, contains('fun readerChromeTap()'));
+    expect(source, contains('LexPdfBridge.readerChromeTap()'));
+    expect(source, contains('target === canvas'));
+    expect(source, contains('readingPageIndicator.text = label'));
+
+    expect(source, contains('PDFDataRangeTransport'));
+    expect(source, contains('private const val RANGE_CHUNK_SIZE = 512 * 1024'));
+    expect(source, contains('keepPinchAnchorAtViewport('));
+    expect(source, contains('ACTION_UNDO_MARKUP'));
+    expect(source, contains('ACTION_REDO_MARKUP'));
+    expect(source, isNot(contains('justify-content:center')));
   });
 
   test('native search field follows Android light and dark system theme', () {
