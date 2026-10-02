@@ -90,6 +90,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val RANGE_CHUNK_SIZE = 512 * 1024
         private const val SIDECAR_VERSION = 3
         private const val INK_PREFS = "native_reader_ink"
+        private const val READING_PREFS = "native_reader_reading"
+        private const val PREF_READER_VIEW_MODE = "reader_view_mode"
+        private const val PREF_READER_THEME = "reader_theme"
+        private const val PREF_READER_MARGIN_DP = "reader_margin_dp"
+        private const val PREF_SMART_FIT_WIDTH = "smart_fit_width"
         private const val PREF_PEN_COLOR = "pen_color"
         private const val PREF_PEN_SIZE = "pen_size"
         private const val PREF_HIGHLIGHT_COLOR = "highlight_color"
@@ -107,6 +112,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private enum class InkKind { PEN, HIGHLIGHTER }
 
     private enum class ReaderViewMode { PAGE, CONTINUOUS_VERTICAL, CONTINUOUS_HORIZONTAL }
+
+    private enum class ReaderTheme { NORMAL, NIGHT, SEPIA }
 
     private enum class TextMarkupKind { HIGHLIGHT, UNDERLINE, STRIKE }
 
@@ -184,6 +191,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private val hideReaderChromeRunnable = Runnable { setReaderChromeVisible(false) }
     private var readerChromeVisible = true
     private var readerViewMode = ReaderViewMode.PAGE
+    private var readerTheme = ReaderTheme.NORMAL
+    private var readerMarginDp = 12
+    private var smartFitWidthEnabled = true
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
@@ -236,6 +246,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         rangeReader = RandomAccessFile(sourceFile, "r")
         loadInkPreferences()
+        loadReadingPreferences()
 
         currentPageIndex =
             (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1).coerceAtLeast(0)
@@ -352,6 +363,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Zoom +")
                 menu.add("Página inteira")
                 menu.add("Modo de leitura")
+                menu.add("Preferências de leitura")
+                menu.add("Ajustar à largura")
                 menu.add("Selecionar texto")
                 menu.add("Caneta")
                 menu.add("Marca-texto")
@@ -367,6 +380,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         "Zoom +" -> js("LexPDF.zoomIn()")
                         "Página inteira" -> js("LexPDF.fitPage()")
                         "Modo de leitura" -> showReaderViewModeDialog()
+                        "Preferências de leitura" -> showReadingPreferencesDialog()
+                        "Ajustar à largura" -> js("LexPDF.fitWidth()")
                         "Selecionar texto" -> selectTextMode()
                         "Caneta" -> selectInk(InkKind.PEN)
                         "Marca-texto" -> selectInk(InkKind.HIGHLIGHTER)
@@ -461,6 +476,16 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             unifiedToolbarRow.addView(
                 button("Modo") { showReaderViewModeDialog() }.apply {
                     contentDescription = "Modo de leitura"
+                },
+            )
+            unifiedToolbarRow.addView(
+                button("Largura") { js("LexPDF.fitWidth()") }.apply {
+                    contentDescription = "Ajustar à largura"
+                },
+            )
+            unifiedToolbarRow.addView(
+                button("Leitura") { showReadingPreferencesDialog() }.apply {
+                    contentDescription = "Preferências de leitura"
                 },
             )
             unifiedToolbarRow.addView(
@@ -687,11 +712,128 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         JSONObject.quote(readerViewMode.name.lowercase()) +
                         ")",
                 )
+                saveReadingPreferences()
+                if (smartFitWidthEnabled && readerViewMode != ReaderViewMode.PAGE) {
+                    js("LexPDF.fitWidth()")
+                }
                 dialog.dismiss()
                 scheduleReaderChromeAutoHide()
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+
+    private fun showReadingPreferencesDialog() {
+        val themes = arrayOf("Normal", "Noturno", "Sépia")
+        val themeIndex =
+            when (readerTheme) {
+                ReaderTheme.NORMAL -> 0
+                ReaderTheme.NIGHT -> 1
+                ReaderTheme.SEPIA -> 2
+            }
+
+        val container =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(20.dp, 12.dp, 20.dp, 4.dp)
+            }
+
+        val fitToggle =
+            android.widget.CheckBox(this).apply {
+                text = "Fit Width inteligente em modos contínuos"
+                isChecked = smartFitWidthEnabled
+            }
+        container.addView(fitToggle)
+
+        val marginLabel =
+            TextView(this).apply {
+                text = "Margem de leitura: $readerMarginDp dp"
+                setPadding(0, 14.dp, 0, 4.dp)
+            }
+        container.addView(marginLabel)
+
+        val marginSeek =
+            SeekBar(this).apply {
+                max = 32
+                progress = (readerMarginDp - 4).coerceIn(0, 32)
+                setOnSeekBarChangeListener(
+                    object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                            marginLabel.text = "Margem de leitura: ${progress + 4} dp"
+                        }
+                        override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                        override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                    },
+                )
+            }
+        container.addView(marginSeek)
+
+        AlertDialog.Builder(this)
+            .setTitle("Preferências de leitura")
+            .setSingleChoiceItems(themes, themeIndex) { _, which ->
+                readerTheme =
+                    when (which) {
+                        1 -> ReaderTheme.NIGHT
+                        2 -> ReaderTheme.SEPIA
+                        else -> ReaderTheme.NORMAL
+                    }
+                applyReadingPreferencesToViewer()
+            }
+            .setView(container)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Aplicar") { _, _ ->
+                smartFitWidthEnabled = fitToggle.isChecked
+                readerMarginDp = (marginSeek.progress + 4).coerceIn(4, 36)
+                saveReadingPreferences()
+                applyReadingPreferencesToViewer()
+                if (smartFitWidthEnabled && readerViewMode != ReaderViewMode.PAGE) {
+                    js("LexPDF.fitWidth()")
+                }
+                scheduleReaderChromeAutoHide()
+            }
+            .show()
+    }
+
+    private fun loadReadingPreferences() {
+        val prefs = getSharedPreferences(READING_PREFS, Context.MODE_PRIVATE)
+        readerViewMode =
+            runCatching {
+                ReaderViewMode.valueOf(
+                    prefs.getString(PREF_READER_VIEW_MODE, ReaderViewMode.PAGE.name)
+                        ?: ReaderViewMode.PAGE.name,
+                )
+            }.getOrDefault(ReaderViewMode.PAGE)
+        readerTheme =
+            runCatching {
+                ReaderTheme.valueOf(
+                    prefs.getString(PREF_READER_THEME, ReaderTheme.NORMAL.name)
+                        ?: ReaderTheme.NORMAL.name,
+                )
+            }.getOrDefault(ReaderTheme.NORMAL)
+        readerMarginDp = prefs.getInt(PREF_READER_MARGIN_DP, 12).coerceIn(4, 36)
+        smartFitWidthEnabled = prefs.getBoolean(PREF_SMART_FIT_WIDTH, true)
+    }
+
+    private fun saveReadingPreferences() {
+        getSharedPreferences(READING_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_READER_VIEW_MODE, readerViewMode.name)
+            .putString(PREF_READER_THEME, readerTheme.name)
+            .putInt(PREF_READER_MARGIN_DP, readerMarginDp)
+            .putBoolean(PREF_SMART_FIT_WIDTH, smartFitWidthEnabled)
+            .apply()
+    }
+
+    private fun applyReadingPreferencesToViewer() {
+        if (!::webView.isInitialized) return
+        js(
+            "LexPDF.applyReadingPreferences(" +
+                JSONObject.quote(readerViewMode.name.lowercase()) + "," +
+                JSONObject.quote(readerTheme.name.lowercase()) + "," +
+                readerMarginDp + "," +
+                smartFitWidthEnabled +
+                ")",
+        )
     }
 
     private fun buildSearchBar(): LinearLayout {
@@ -985,6 +1127,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 pageCount = totalPages
                 statusLabel.text = "PDF.js • ${sourceFile.length() / (1024 * 1024)} MB"
                 updatePageLabel()
+                applyReadingPreferencesToViewer()
                 scheduleReaderChromeAutoHide()
                 PdfCrashDiagnostics.mark(
                     this@NativePdfReaderActivity,
@@ -2753,7 +2896,54 @@ window.LexPDF = {
     const heightScale =
       Math.max(0.4, (stage.clientHeight - 36) / Math.max(1, pageAtScaleOne.height));
     scale = Math.max(0.4, Math.min(4.0, widthScale, heightScale));
+    clearVirtualPageWindow();
     renderPage(pageNumber, false);
+  },
+  fitWidth() {
+    const wrapStyle = getComputedStyle(document.getElementById('wrap'));
+    const horizontalPadding =
+      (parseFloat(wrapStyle.paddingLeft) || 0) +
+      (parseFloat(wrapStyle.paddingRight) || 0);
+    const widthScale =
+      Math.max(
+        0.4,
+        (stage.clientWidth - horizontalPadding) /
+          Math.max(1, pageAtScaleOne.width)
+      );
+    scale = Math.max(0.4, Math.min(4.0, widthScale));
+    clearVirtualPageWindow();
+    renderPage(pageNumber, false);
+  },
+  applyReadingPreferences(mode, theme, marginDp, smartFitWidth) {
+    const allowedModes = ['page', 'continuous_vertical', 'continuous_horizontal'];
+    readerViewMode = allowedModes.includes(mode) ? mode : 'page';
+    stage.dataset.viewMode = readerViewMode;
+
+    const normalizedTheme =
+      ['normal', 'night', 'sepia'].includes(theme) ? theme : 'normal';
+    document.body.dataset.readerTheme = normalizedTheme;
+    canvas.style.filter =
+      normalizedTheme === 'night'
+        ? 'invert(0.92) hue-rotate(180deg) brightness(0.92) contrast(0.94)'
+        : normalizedTheme === 'sepia'
+          ? 'sepia(0.24) saturate(0.92) brightness(0.97)'
+          : '';
+
+    const safeMargin = Math.max(4, Math.min(36, Number(marginDp) || 12));
+    const wrap = document.getElementById('wrap');
+    wrap.style.paddingLeft = safeMargin + 'px';
+    wrap.style.paddingRight = safeMargin + 'px';
+    wrap.style.paddingTop = safeMargin + 'px';
+    wrap.style.paddingBottom = Math.max(28, safeMargin + 18) + 'px';
+
+    if (readerViewMode === 'page') {
+      clearVirtualPageWindow();
+    } else {
+      scheduleVirtualPageWindow(pageNumber);
+      if (smartFitWidth) {
+        requestAnimationFrame(() => window.LexPDF.fitWidth());
+      }
+    }
   },
   setViewMode(mode) {
     const allowed = ['page', 'continuous_vertical', 'continuous_horizontal'];
@@ -4161,6 +4351,7 @@ function hypot(a,b) {
 
     override fun onPause() {
         publishLastPageResult()
+        saveReadingPreferences()
         super.onPause()
     }
 
@@ -4187,6 +4378,8 @@ function hypot(a,b) {
         }
         pendingSearchRunnable?.let { searchHandler.removeCallbacks(it) }
         pendingSearchRunnable = null
+        readerChromeHandler.removeCallbacks(hideReaderChromeRunnable)
+        saveReadingPreferences()
         try {
             rangeReader?.close()
             rangeReader = null
