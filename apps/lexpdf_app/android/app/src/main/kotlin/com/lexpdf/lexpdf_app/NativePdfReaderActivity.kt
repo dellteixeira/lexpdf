@@ -2349,32 +2349,42 @@ stage.addEventListener('touchmove', e => {
     const midpointY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const hostRect = pageHost.getBoundingClientRect();
 
-    // Preview the whole PDF surface (canvas + text layer), never the canvas alone.
-    pageHost.style.transformOrigin =
-      ((pinchAnchorPageX * pinchStartScale)) + 'px ' +
-      ((pinchAnchorPageY * pinchStartScale)) + 'px';
-    pageHost.style.transform = 'scale(' + ratio + ')';
+    // Grow the layout box during preview so both horizontal edges remain
+    // reachable while pinching. Scale canvas and text layer together.
+    pageHost.style.width = (pageAtScaleOne.width * next) + 'px';
+    pageHost.style.height = (pageAtScaleOne.height * next) + 'px';
+    canvas.style.transformOrigin = '0 0';
+    textLayer.style.transformOrigin = '0 0';
+    canvas.style.transform = 'scale(' + ratio + ')';
+    textLayer.style.transform = 'scale(' + ratio + ')';
 
-    // Keep the focal PDF point under the current midpoint during the gesture.
+    // Keep the exact anchored PDF point under the current midpoint.
     const stageRect = stage.getBoundingClientRect();
     const desiredX = midpointX - stageRect.left;
     const desiredY = midpointY - stageRect.top;
-    const anchorContentX =
-      hostRect.left - stageRect.left + stage.scrollLeft +
-      pinchAnchorPageX * pinchStartScale;
-    const anchorContentY =
-      hostRect.top - stageRect.top + stage.scrollTop +
-      pinchAnchorPageY * pinchStartScale;
-    stage.scrollLeft = Math.max(0, anchorContentX * ratio - desiredX);
-    stage.scrollTop = Math.max(0, anchorContentY * ratio - desiredY);
+    const hostContentLeft =
+      hostRect.left - stageRect.left + stage.scrollLeft;
+    const hostContentTop =
+      hostRect.top - stageRect.top + stage.scrollTop;
+
+    stage.scrollLeft = Math.max(
+      0,
+      hostContentLeft + pinchAnchorPageX * next - desiredX
+    );
+    stage.scrollTop = Math.max(
+      0,
+      hostContentTop + pinchAnchorPageY * next - desiredY
+    );
   }
 }, { passive: false });
 
 stage.addEventListener('touchend', async e => {
   if (pinchStartDistance > 0 && e.touches.length < 2) {
     const finalScale = pinchPreviewScale;
-    pageHost.style.transform = '';
-    pageHost.style.transformOrigin = '';
+    canvas.style.transform = '';
+    canvas.style.transformOrigin = '';
+    textLayer.style.transform = '';
+    textLayer.style.transformOrigin = '';
 
     pinchStartDistance = 0;
     pinchPreviewScale = finalScale;
