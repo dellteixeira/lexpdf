@@ -349,6 +349,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Borracha")
                 menu.add("Desfazer")
                 menu.add("Refazer")
+                menu.add("Desfazer marcação")
+                menu.add("Refazer marcação")
                 menu.add("Fechar")
                 setOnMenuItemClickListener { item ->
                     when (item.title.toString()) {
@@ -361,6 +363,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                         "Borracha" -> selectEraser()
                         "Desfazer" -> undoInk()
                         "Refazer" -> redoInk()
+                        "Desfazer marcação" -> undoTextMarkup()
+                        "Refazer marcação" -> redoTextMarkup()
                         "Fechar" -> finish()
                         else -> return@setOnMenuItemClickListener false
                     }
