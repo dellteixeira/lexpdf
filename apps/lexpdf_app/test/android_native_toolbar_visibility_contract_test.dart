@@ -136,6 +136,27 @@ void main() {
     expect(source, contains('saveReadingPreferences()\n        super.onPause()'));
   });
 
+  test('smart fit width recalculates and recenters every changed page', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('function fitWidthScaleFor(pageWidth)'));
+    expect(source, contains('function centerPageHorizontally()'));
+    expect(source, contains('let smartFitWidthEnabled = true'));
+    expect(source, contains('let readerMarginPx = 12'));
+    expect(source, contains('if (!preserveCenter && smartFitWidthEnabled)'));
+    expect(source, contains('scale = fitWidthScaleFor(base.width)'));
+    expect(source, contains('centerPageHorizontally()'));
+    expect(source, contains('stage.scrollLeft = overflow > 0 ? overflow / 2 : 0'));
+    expect(source, contains('const availableWidth = Math.max(1, stage.clientWidth - horizontalPadding - 2)'));
+    expect(source, contains('smartFitWidthEnabled = Boolean(smartFitWidth)'));
+
+    // Pinch/zoom rerenders keep their focal center and are not overridden by fit width.
+    expect(source, contains('renderPage(pageNumber, true)'));
+    expect(source, contains('keepPinchAnchorAtViewport('));
+  });
+
   test('native search field follows Android light and dark system theme', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
