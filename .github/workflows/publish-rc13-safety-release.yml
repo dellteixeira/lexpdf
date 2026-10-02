@@ -1,0 +1,58 @@
+name: Publish RC13 Safety Release
+
+on:
+  push:
+    branches:
+      - ops/publish-rc13-safety-release-2026-10-02
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish safety release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 7e4b62d2df189d2aed051f00d0d4f607203fd1a0
+          TAG: backup-1.0.0-rc.13-2026-10-02
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            exit 0
+          fi
+
+          cat > BACKUP-MANIFEST.md <<'EOF'
+          # LexPDF Safety Restore Point — RC13
+
+          - Frozen source: `develop`
+          - Snapshot commit: `7e4b62d2df189d2aed051f00d0d4f607203fd1a0`
+          - Permanent backup branch: `backup/release-1.0.0-rc.13-2026-10-02`
+          - App version: `1.0.0-rc.13+13`
+          - Official distribution workflow run: `37015329522`
+          - Android official artifact: `11230291940` — `LexPDF-1.0.0-rc.13-Android`
+          - Windows official artifact: `11229648323` — `LexPDF-1.0.0-rc.13-Windows-Installer`
+
+          ## Validated baseline
+
+          This checkpoint freezes the reader state approved before the new e-reader-inspired visual redesign work.
+
+          Preserved capabilities include:
+          - PDF.js reader in isolated `:pdfreader` process
+          - range transport / streaming
+          - adaptive pinch zoom and free X/Y pan
+          - natural long-press + drag text selection
+          - search and index
+          - AndroidX Ink, S Pen and finger ink
+          - underline, strikeout and text-selection highlights
+          - text markup persistence
+          - adaptive toolbar
+          - Windows support
+
+          GitHub automatically provides source ZIP/TAR archives for this release tag.
+          EOF
+
+          gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$TARGET_SHA"             --title "LexPDF Safety Restore Point — RC13 — 2026-10-02"             --prerelease             --notes-file BACKUP-MANIFEST.md             BACKUP-MANIFEST.md
