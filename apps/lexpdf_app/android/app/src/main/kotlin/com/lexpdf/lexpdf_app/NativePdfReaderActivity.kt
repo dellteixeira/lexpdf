@@ -164,6 +164,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private lateinit var penInkView: DryInkView
     private lateinit var wetInkView: InProgressStrokesView
     private lateinit var pageLabel: TextView
+    private lateinit var readingPageIndicator: TextView
+    private lateinit var toolbarContainer: View
     private lateinit var statusLabel: TextView
     private lateinit var penButton: Button
     private lateinit var highlighterButton: Button
@@ -176,6 +178,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var searchWholeWord = false
     private var searchCaseSensitive = false
     private var pendingSearchRunnable: Runnable? = null
+    private val readerChromeHandler = Handler(Looper.getMainLooper())
+    private val hideReaderChromeRunnable = Runnable { setReaderChromeVisible(false) }
+    private var readerChromeVisible = true
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
@@ -265,7 +270,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         val toolbarBackground =
-            if (darkUi) Color.rgb(35, 38, 44) else Color.rgb(242, 244, 247)
+            if (darkUi) Color.rgb(27, 29, 34) else Color.rgb(248, 249, 251)
         val toolbarForeground =
             if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
         val toolbarSecondary =
@@ -278,7 +283,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(18, 20, 24))
+            setBackgroundColor(Color.rgb(20, 22, 26))
         }
 
         fun toolRow(): LinearLayout =
@@ -468,7 +473,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             unifiedToolbarRow.addView(button("Fechar") { finish() })
         }
 
-        val toolbarContainer: View =
+        toolbarContainer =
             if (useOverflowMenu) {
                 unifiedToolbarRow
             } else {
@@ -507,7 +512,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         searchBar.visibility = View.GONE
 
         readerFrame = StylusRouterLayout(this).apply {
-            setBackgroundColor(Color.rgb(32, 34, 39))
+            setBackgroundColor(Color.rgb(24, 26, 31))
             onStylusEvent = { event -> handleStylusEvent(event) }
             interceptFingerInput = false
         }
@@ -574,6 +579,28 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             ),
         )
 
+        readingPageIndicator = TextView(this).apply {
+            gravity = Gravity.CENTER
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(168, 24, 26, 31))
+            setPadding(12.dp, 5.dp, 12.dp, 5.dp)
+            isClickable = false
+            isFocusable = false
+            visibility = View.GONE
+            text = "…"
+        }
+        readerFrame.addView(
+            readingPageIndicator,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            ).apply {
+                bottomMargin = 14.dp
+            },
+        )
+
         root.addView(
             readerFrame,
             LinearLayout.LayoutParams(
@@ -595,6 +622,31 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
         selectTextMode()
+        scheduleReaderChromeAutoHide()
+    }
+
+    private fun setReaderChromeVisible(visible: Boolean, autoHide: Boolean = true) {
+        if (!::toolbarContainer.isInitialized || !::readingPageIndicator.isInitialized) return
+        if (!visible && ::searchBar.isInitialized && searchBar.visibility == View.VISIBLE) return
+
+        readerChromeHandler.removeCallbacks(hideReaderChromeRunnable)
+        readerChromeVisible = visible
+        toolbarContainer.visibility = if (visible) View.VISIBLE else View.GONE
+        readingPageIndicator.visibility = if (visible) View.GONE else View.VISIBLE
+
+        if (visible && autoHide) {
+            scheduleReaderChromeAutoHide()
+        }
+    }
+
+    private fun scheduleReaderChromeAutoHide() {
+        readerChromeHandler.removeCallbacks(hideReaderChromeRunnable)
+        if (::searchBar.isInitialized && searchBar.visibility == View.VISIBLE) return
+        readerChromeHandler.postDelayed(hideReaderChromeRunnable, 3200L)
+    }
+
+    private fun toggleReaderChrome() {
+        setReaderChromeVisible(!readerChromeVisible)
     }
 
     private fun buildSearchBar(): LinearLayout {
@@ -691,6 +743,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     }
 
     private fun showSearchBar() {
+        setReaderChromeVisible(true, autoHide = false)
         searchBar.visibility = View.VISIBLE
         searchInput.requestFocus()
         searchInput.selectAll()
@@ -709,6 +762,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         searchBar.visibility = View.GONE
         searchCountLabel.text = "0/0"
         js("LexPDF.clearSearch()")
+        scheduleReaderChromeAutoHide()
     }
 
     private fun scheduleNativeSearch() {
@@ -886,6 +940,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 pageCount = totalPages
                 statusLabel.text = "PDF.js • ${sourceFile.length() / (1024 * 1024)} MB"
                 updatePageLabel()
+                scheduleReaderChromeAutoHide()
                 PdfCrashDiagnostics.mark(
                     this@NativePdfReaderActivity,
                     "JS05_DOCUMENT_READY",
@@ -976,6 +1031,13 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 } catch (_: Exception) {
                     searchCountLabel.text = "0/0"
                 }
+            }
+        }
+
+        @JavascriptInterface
+        fun readerChromeTap() {
+            runOnUiThread {
+                toggleReaderChrome()
             }
         }
 
@@ -1150,11 +1212,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <style>
-    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202227;color:#fff;font-family:sans-serif}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#181a1f;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain}
-    #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:18px 18px 36px}
+    #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:12px 12px 34px}
     #pageHost{position:relative;display:block;margin:0 auto}
-    canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
+    canvas{display:block;background:white;box-shadow:0 6px 28px #0007}
     #markupLayer{position:absolute;left:0;top:0;overflow:hidden;pointer-events:none}
     #markupLayer .markup{position:absolute;box-sizing:border-box;pointer-events:none}
     #markupLayer .highlight{border-radius:2px}
@@ -2518,6 +2580,21 @@ window.LexPDF = {
 stage.addEventListener('scroll', () => {
   scheduleMetricsSync();
 }, { passive: true });
+
+stage.addEventListener('click', e => {
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  const target = e.target;
+  if (
+    target === stage ||
+    target === document.getElementById('wrap') ||
+    target === pageHost ||
+    target === canvas
+  ) {
+    LexPdfBridge.readerChromeTap();
+  }
+});
+
 window.addEventListener('resize', settleMetrics);
 
 stage.addEventListener('touchstart', e => {
@@ -2723,13 +2800,17 @@ function hypot(a,b) {
     private fun updatePageLabel() {
         val physical = currentPageIndex + 1
         val logical = logicalPageLabel(currentPageIndex)
-        pageLabel.text =
+        val label =
             when {
                 pageCount <= 0 -> "$physical / …"
                 logical != null && logical != physical.toString() ->
                     "$logical · $physical / $pageCount"
                 else -> "$physical / $pageCount"
             }
+        pageLabel.text = label
+        if (::readingPageIndicator.isInitialized) {
+            readingPageIndicator.text = label
+        }
     }
 
     private fun showPageJumpDialog() {
