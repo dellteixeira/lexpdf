@@ -19,6 +19,9 @@ import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -91,11 +94,29 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         private const val PREF_PEN_SIZE = "pen_size"
         private const val PREF_HIGHLIGHT_COLOR = "highlight_color"
         private const val PREF_HIGHLIGHT_SIZE = "highlight_size"
+        private const val ACTION_UNDERLINE = 0x4C5801
+        private const val ACTION_STRIKE = 0x4C5802
+        private const val ACTION_HIGHLIGHT = 0x4C5803
         @Volatile
         private var webViewDirectoryConfigured = false
     }
 
     private enum class InkKind { PEN, HIGHLIGHTER }
+
+    private enum class TextMarkupKind { HIGHLIGHT, UNDERLINE, STRIKE }
+
+    private data class TextMarkupRect(
+        val x: Float,
+        val y: Float,
+        val width: Float,
+        val height: Float,
+    )
+
+    private data class TextMarkup(
+        val kind: TextMarkupKind,
+        val colorArgb: Int,
+        val rects: List<TextMarkupRect>,
+    )
 
     private enum class InkTool { PEN, HIGHLIGHTER, ERASER }
 
@@ -166,6 +187,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     private var highlighterColor = Color.argb(72, 255, 224, 64)
     private var highlighterSize = 18f
     private val currentEntries = mutableListOf<InkEntry>()
+    private val currentTextMarkups = mutableListOf<TextMarkup>()
     private val undoHistory = ArrayDeque<InkHistoryAction>()
     private val redoHistory = ArrayDeque<InkHistoryAction>()
     private var eraserGestureActive = false
@@ -215,6 +237,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         buildUi()
         configureWebView()
         loadInkForPage(currentPageIndex)
+        loadTextMarkupsForPage(currentPageIndex)
         PdfCrashDiagnostics.mark(this, "JS03_BEFORE_LOAD_VIEWER")
         webView.loadUrl(VIEWER_URL)
     }
@@ -480,10 +503,14 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             interceptFingerInput = false
         }
 
-        webView = WebView(this).apply {
-            isLongClickable = true
-            isHapticFeedbackEnabled = true
-        }
+        webView =
+            SelectionAwareWebView(
+                this,
+                ::selectionActionModeCallback,
+            ).apply {
+                isLongClickable = true
+                isHapticFeedbackEnabled = true
+            }
         readerFrame.addView(
             webView,
             FrameLayout.LayoutParams(
@@ -949,13 +976,54 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 val next = (page - 1).coerceAtLeast(0)
                 if (next != currentPageIndex) {
                     persistInkForPage(currentPageIndex)
+                    persistTextMarkupsForPage(currentPageIndex)
                     currentPageIndex = next
                     undoHistory.clear()
                     redoHistory.clear()
                     loadInkForPage(next)
+                    loadTextMarkupsForPage(next)
                 }
                 publishLastPageResult()
                 updatePageLabel()
+            }
+        }
+
+        @JavascriptInterface
+        fun addTextMarkup(kindText: String, colorArgb: Int, rectsJson: String) {
+            val kind =
+                when (kindText.lowercase()) {
+                    "highlight" -> TextMarkupKind.HIGHLIGHT
+                    "underline" -> TextMarkupKind.UNDERLINE
+                    "strike" -> TextMarkupKind.STRIKE
+                    else -> return
+                }
+
+            val rects = mutableListOf<TextMarkupRect>()
+            try {
+                val array = JSONArray(rectsJson)
+                for (index in 0 until array.length()) {
+                    val obj = array.optJSONObject(index) ?: continue
+                    val width = obj.optDouble("width", 0.0).toFloat()
+                    val height = obj.optDouble("height", 0.0).toFloat()
+                    if (width <= 0f || height <= 0f) continue
+                    rects +=
+                        TextMarkupRect(
+                            x = obj.optDouble("x", 0.0).toFloat(),
+                            y = obj.optDouble("y", 0.0).toFloat(),
+                            width = width,
+                            height = height,
+                        )
+                }
+            } catch (_: Throwable) {
+                return
+            }
+            if (rects.isEmpty()) return
+
+            runOnUiThread {
+                currentTextMarkups += TextMarkup(kind, colorArgb, rects)
+                persistTextMarkupsForPage(currentPageIndex)
+                pushTextMarkupsToViewer()
+                js("LexPDF.clearTextSelection()")
             }
         }
 
@@ -1004,6 +1072,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         @JavascriptInterface
         fun rendered(page: Int) {
             runOnUiThread {
+                pushTextMarkupsToViewer()
                 statusLabel.text =
                     "PDF.js • página $page • S Pen: ${currentEntries.size} traço(s)"
                 PdfCrashDiagnostics.mark(
@@ -1028,6 +1097,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
     #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:18px 18px 36px}
     #pageHost{position:relative;display:block;margin:0 auto}
     canvas{display:block;background:white;box-shadow:0 3px 18px #0008}
+    #markupLayer{position:absolute;left:0;top:0;overflow:hidden;pointer-events:none}
+    #markupLayer .markup{position:absolute;box-sizing:border-box;pointer-events:none}
+    #markupLayer .highlight{border-radius:2px}
+    #markupLayer .underline{border-bottom:2px solid}
+    #markupLayer .strike::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:2px solid}
     #textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-x pan-y}
     #textLayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
     #textLayer span::selection{background:rgba(37,99,235,.34)}
@@ -1035,7 +1109,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
   </style>
 </head>
 <body>
-<div id="stage"><div id="wrap"><div id="pageHost"><canvas id="pdf"></canvas><div id="textLayer" aria-label="Texto selecionável do PDF"></div></div></div></div>
+<div id="stage"><div id="wrap"><div id="pageHost"><canvas id="pdf"></canvas><div id="markupLayer"></div><div id="textLayer" aria-label="Texto selecionável do PDF"></div></div></div></div>
 <div id="loading">Abrindo PDF…</div>
 <script type="module">
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs';
@@ -1047,6 +1121,7 @@ const RANGE_CHUNK_SIZE = ${RANGE_CHUNK_SIZE};
 const canvas = document.getElementById('pdf');
 const ctx = canvas.getContext('2d', { alpha: false });
 const textLayer = document.getElementById('textLayer');
+const markupLayer = document.getElementById('markupLayer');
 const pageHost = document.getElementById('pageHost');
 const stage = document.getElementById('stage');
 const loading = document.getElementById('loading');
@@ -1097,6 +1172,8 @@ let textLongPressTriggered = false;
 let textSelectionAnchorRange = null;
 let textSelectionLockScrollTop = 0;
 let textSelectionLockScrollLeft = 0;
+let capturedSelectionRects = [];
+let currentTextMarkups = [];
 
 class NativePdfRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   constructor(length) {
@@ -2141,6 +2218,80 @@ textLayer.addEventListener('touchcancel', e => {
   textLongPressTriggered = false;
 }, { passive: false });
 
+function captureSelectionForMarkup() {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    capturedSelectionRects = [];
+    return false;
+  }
+  const hostRect = pageHost.getBoundingClientRect();
+  const rects = [];
+  for (let rangeIndex = 0; rangeIndex < selection.rangeCount; rangeIndex++) {
+    const range = selection.getRangeAt(rangeIndex);
+    for (const rect of range.getClientRects()) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      rects.push({
+        x: (rect.left - hostRect.left) / scale,
+        y: (rect.top - hostRect.top) / scale,
+        width: rect.width / scale,
+        height: rect.height / scale
+      });
+    }
+  }
+  capturedSelectionRects = rects;
+  return rects.length > 0;
+}
+
+function commitCapturedMarkup(kind, colorArgb) {
+  if (!capturedSelectionRects.length) return false;
+  LexPdfBridge.addTextMarkup(
+    String(kind),
+    Number(colorArgb),
+    JSON.stringify(capturedSelectionRects)
+  );
+  return true;
+}
+
+function argbToCss(color) {
+  const value = Number(color) >>> 0;
+  const a = ((value >>> 24) & 255) / 255;
+  const r = (value >>> 16) & 255;
+  const g = (value >>> 8) & 255;
+  const b = value & 255;
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+
+function renderTextMarkups() {
+  markupLayer.replaceChildren();
+  markupLayer.style.width = (pageAtScaleOne.width * scale) + 'px';
+  markupLayer.style.height = (pageAtScaleOne.height * scale) + 'px';
+
+  for (const markup of currentTextMarkups) {
+    const color = argbToCss(markup.colorArgb);
+    for (const rect of (markup.rects || [])) {
+      const node = document.createElement('div');
+      node.className = 'markup ' + markup.kind;
+      node.style.left = (Number(rect.x) * scale) + 'px';
+      node.style.top = (Number(rect.y) * scale) + 'px';
+      node.style.width = (Number(rect.width) * scale) + 'px';
+      node.style.height = (Number(rect.height) * scale) + 'px';
+      if (markup.kind === 'highlight') {
+        node.style.background = color;
+      } else {
+        node.style.color = color;
+        node.style.borderColor = color;
+      }
+      markupLayer.appendChild(node);
+    }
+  }
+}
+
+function clearTextSelection() {
+  const selection = window.getSelection();
+  if (selection) selection.removeAllRanges();
+  capturedSelectionRects = [];
+}
+
 function reportMetrics() {
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
@@ -2221,6 +2372,7 @@ async function renderPage(target, preserveCenter = false) {
     if (token !== renderToken) return;
     await renderSelectableTextLayer(page, viewport);
     if (token !== renderToken) return;
+    renderTextMarkups();
     await paintSearchHighlights(page, viewport, renderScale, target);
     if (token !== renderToken) return;
     const pageChanged = pageNumber !== target;
@@ -2264,6 +2416,13 @@ window.LexPDF = {
   },
   previousSearchMatch() {
     goToSearchMatch(searchCurrentIndex - 1);
+  },
+  captureSelectionForMarkup,
+  commitCapturedMarkup,
+  clearTextSelection,
+  setTextMarkups(markups) {
+    currentTextMarkups = Array.isArray(markups) ? markups : [];
+    renderTextMarkups();
   },
   clearSearch() {
     searchGeneration++;
@@ -2384,8 +2543,10 @@ stage.addEventListener('touchmove', e => {
 
     const ratio = next / pinchStartScale;
     canvas.style.transformOrigin = '0 0';
+    markupLayer.style.transformOrigin = '0 0';
     textLayer.style.transformOrigin = '0 0';
     canvas.style.transform = 'scale(' + ratio + ')';
+    markupLayer.style.transform = 'scale(' + ratio + ')';
     textLayer.style.transform = 'scale(' + ratio + ')';
 
     keepPinchAnchorAtViewport(
@@ -2402,6 +2563,8 @@ stage.addEventListener('touchend', async e => {
 
     canvas.style.transform = '';
     canvas.style.transformOrigin = '';
+    markupLayer.style.transform = '';
+    markupLayer.style.transformOrigin = '';
     textLayer.style.transform = '';
     textLayer.style.transformOrigin = '';
 
@@ -2611,6 +2774,170 @@ function hypot(a,b) {
             }
             .setNegativeButton("Fechar", null)
             .show()
+    }
+
+    private fun selectionActionModeCallback(
+        nativeCallback: ActionMode.Callback,
+    ): ActionMode.Callback =
+        object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                if (!nativeCallback.onCreateActionMode(mode, menu)) return false
+                addSelectionMarkupActions(menu)
+                return true
+            }
+
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                val nativeChanged = nativeCallback.onPrepareActionMode(mode, menu)
+                addSelectionMarkupActions(menu)
+                return nativeChanged
+            }
+
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                return when (item.itemId) {
+                    ACTION_UNDERLINE -> {
+                        captureSelectionThen(mode) {
+                            val color = Color.argb(255, 35, 105, 210)
+                            js("LexPDF.commitCapturedMarkup('underline', $color)")
+                        }
+                        true
+                    }
+
+                    ACTION_STRIKE -> {
+                        captureSelectionThen(mode) {
+                            val color = Color.argb(255, 210, 55, 55)
+                            js("LexPDF.commitCapturedMarkup('strike', $color)")
+                        }
+                        true
+                    }
+
+                    ACTION_HIGHLIGHT -> {
+                        captureSelectionThen(mode) { showSelectionHighlighterPalette() }
+                        true
+                    }
+
+                    else -> nativeCallback.onActionItemClicked(mode, item)
+                }
+            }
+
+            override fun onDestroyActionMode(mode: ActionMode) {
+                nativeCallback.onDestroyActionMode(mode)
+            }
+        }
+
+    private fun addSelectionMarkupActions(menu: Menu) {
+        if (menu.findItem(ACTION_UNDERLINE) == null) {
+            menu.add(Menu.NONE, ACTION_UNDERLINE, 90, "Sublinhar")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+        if (menu.findItem(ACTION_STRIKE) == null) {
+            menu.add(Menu.NONE, ACTION_STRIKE, 91, "Tachar")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+        if (menu.findItem(ACTION_HIGHLIGHT) == null) {
+            menu.add(Menu.NONE, ACTION_HIGHLIGHT, 92, "Marca-texto")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+        }
+    }
+
+    private fun captureSelectionThen(mode: ActionMode, action: () -> Unit) {
+        webView.evaluateJavascript("LexPDF.captureSelectionForMarkup()") { result ->
+            if (result == "true") {
+                action()
+            } else {
+                Toast.makeText(this, "Selecione um trecho de texto.", Toast.LENGTH_SHORT).show()
+            }
+            mode.finish()
+        }
+    }
+
+    private fun showSelectionHighlighterPalette() {
+        val colors =
+            intArrayOf(
+                Color.argb(88, 255, 224, 64),
+                Color.argb(88, 255, 188, 70),
+                Color.argb(88, 255, 140, 80),
+                Color.argb(88, 115, 225, 120),
+                Color.argb(88, 80, 220, 175),
+                Color.argb(88, 75, 200, 235),
+                Color.argb(88, 105, 150, 245),
+                Color.argb(88, 175, 120, 235),
+                Color.argb(88, 245, 105, 175),
+                Color.argb(88, 240, 105, 105),
+            )
+        val labels =
+            arrayOf(
+                "Amarelo",
+                "Âmbar",
+                "Laranja",
+                "Verde",
+                "Menta",
+                "Azul claro",
+                "Azul",
+                "Violeta",
+                "Rosa",
+                "Coral",
+            )
+
+        val paletteContainer =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(18.dp, 12.dp, 18.dp, 6.dp)
+            }
+
+        for (rowStart in colors.indices step 5) {
+            val row =
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                }
+            for (index in rowStart until minOf(rowStart + 5, colors.size)) {
+                val color = colors[index]
+                val swatch =
+                    Button(this).apply {
+                        text = ""
+                        minWidth = 0
+                        minimumWidth = 0
+                        setPadding(0, 0, 0, 0)
+                        backgroundTintList = ColorStateList.valueOf(color)
+                        contentDescription = labels[index]
+                    }
+                row.addView(
+                    swatch,
+                    LinearLayout.LayoutParams(48.dp, 44.dp).apply {
+                        marginStart = 4.dp
+                        marginEnd = 4.dp
+                        topMargin = 4.dp
+                        bottomMargin = 4.dp
+                    },
+                )
+            }
+            paletteContainer.addView(row)
+        }
+
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle("Marca-texto da seleção")
+                .setView(paletteContainer)
+                .setNegativeButton("Cancelar") { _, _ ->
+                    js("LexPDF.clearTextSelection()")
+                }
+                .create()
+
+        for (rowIndex in 0 until paletteContainer.childCount) {
+            val row = paletteContainer.getChildAt(rowIndex) as? LinearLayout ?: continue
+            for (buttonIndex in 0 until row.childCount) {
+                val button = row.getChildAt(buttonIndex) as? Button ?: continue
+                button.setOnClickListener {
+                    val index = rowIndex * 5 + buttonIndex
+                    if (index in colors.indices) {
+                        val color = colors[index]
+                        js("LexPDF.commitCapturedMarkup('highlight', $color)")
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun loadInkPreferences() {
@@ -3165,6 +3492,113 @@ function hypot(a,b) {
         return inverse
     }
 
+    private fun textMarkupFile(pageIndex: Int): File {
+        val documentKey = sourceFile.absolutePath.hashCode().toUInt().toString(16)
+        val directory = File(filesDir, "pdfjs_text_markup/$documentKey").apply { mkdirs() }
+        return File(directory, "page_${pageIndex + 1}.json")
+    }
+
+    private fun textMarkupsJson(values: List<TextMarkup>): JSONArray =
+        JSONArray().apply {
+            values.forEach { markup ->
+                put(
+                    JSONObject().apply {
+                        put("kind", markup.kind.name.lowercase())
+                        put("colorArgb", markup.colorArgb)
+                        put(
+                            "rects",
+                            JSONArray().apply {
+                                markup.rects.forEach { rect ->
+                                    put(
+                                        JSONObject().apply {
+                                            put("x", rect.x)
+                                            put("y", rect.y)
+                                            put("width", rect.width)
+                                            put("height", rect.height)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    },
+                )
+            }
+        }
+
+    private fun pushTextMarkupsToViewer() {
+        val payload = textMarkupsJson(currentTextMarkups).toString()
+        js("LexPDF.setTextMarkups($payload)")
+    }
+
+    private fun persistTextMarkupsForPage(pageIndex: Int) {
+        val snapshot = currentTextMarkups.toList()
+        ioExecutor.execute {
+            val target = textMarkupFile(pageIndex)
+            if (snapshot.isEmpty()) {
+                target.delete()
+                return@execute
+            }
+            val temp = File(target.parentFile, "${target.name}.tmp")
+            try {
+                temp.writeText(textMarkupsJson(snapshot).toString())
+                if (!temp.renameTo(target)) {
+                    temp.copyTo(target, overwrite = true)
+                    temp.delete()
+                }
+            } catch (_: Throwable) {
+                temp.delete()
+            }
+        }
+    }
+
+    private fun loadTextMarkupsForPage(pageIndex: Int) {
+        currentTextMarkups.clear()
+        pushTextMarkupsToViewer()
+        val source = textMarkupFile(pageIndex)
+        if (!source.isFile) return
+
+        ioExecutor.execute {
+            val loaded = mutableListOf<TextMarkup>()
+            try {
+                val array = JSONArray(source.readText())
+                for (index in 0 until array.length()) {
+                    val obj = array.optJSONObject(index) ?: continue
+                    val kind =
+                        when (obj.optString("kind")) {
+                            "highlight" -> TextMarkupKind.HIGHLIGHT
+                            "underline" -> TextMarkupKind.UNDERLINE
+                            "strike" -> TextMarkupKind.STRIKE
+                            else -> continue
+                        }
+                    val rectArray = obj.optJSONArray("rects") ?: continue
+                    val rects = mutableListOf<TextMarkupRect>()
+                    for (rectIndex in 0 until rectArray.length()) {
+                        val rect = rectArray.optJSONObject(rectIndex) ?: continue
+                        rects +=
+                            TextMarkupRect(
+                                rect.optDouble("x").toFloat(),
+                                rect.optDouble("y").toFloat(),
+                                rect.optDouble("width").toFloat(),
+                                rect.optDouble("height").toFloat(),
+                            )
+                    }
+                    if (rects.isNotEmpty()) {
+                        loaded += TextMarkup(kind, obj.optInt("colorArgb"), rects)
+                    }
+                }
+            } catch (_: Throwable) {
+                loaded.clear()
+            }
+
+            runOnUiThread {
+                if (pageIndex != currentPageIndex || isFinishing) return@runOnUiThread
+                currentTextMarkups.clear()
+                currentTextMarkups += loaded
+                pushTextMarkupsToViewer()
+            }
+        }
+    }
+
     private fun sidecarFile(pageIndex: Int): File {
         val documentKey = sourceFile.absolutePath.hashCode().toUInt().toString(16)
         val directory = File(filesDir, "pdfjs_ink/$documentKey").apply { mkdirs() }
@@ -3310,6 +3744,7 @@ function hypot(a,b) {
         PdfCrashDiagnostics.mark(this, "JSZ_ON_DESTROY")
         try {
             persistInkForPage(currentPageIndex)
+            persistTextMarkupsForPage(currentPageIndex)
         } catch (_: Throwable) {
         }
         try {
@@ -3338,6 +3773,20 @@ function hypot(a,b) {
 
     private val Int.dp: Int
         get() = (this * resources.displayMetrics.density).roundToInt()
+
+    private class SelectionAwareWebView(
+        context: Context,
+        private val callbackDecorator: (ActionMode.Callback) -> ActionMode.Callback,
+    ) : WebView(context) {
+        override fun startActionMode(callback: ActionMode.Callback): ActionMode? =
+            super.startActionMode(callbackDecorator(callback))
+
+        override fun startActionMode(
+            callback: ActionMode.Callback,
+            type: Int,
+        ): ActionMode? =
+            super.startActionMode(callbackDecorator(callback), type)
+    }
 
     private class StylusRouterLayout(context: Context) : FrameLayout(context) {
         var onStylusEvent: ((MotionEvent) -> Boolean)? = null
