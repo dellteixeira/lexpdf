@@ -292,8 +292,12 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val screenWidthDp = resources.configuration.screenWidthDp
-        val useOverflowMenu = !landscape && screenWidthDp < 600
-        val compactToolbar = landscape || useOverflowMenu
+
+        // The toolbar now adapts to actual usable width instead of orientation.
+        // Samsung tablets in landscape can still be too narrow for the full
+        // reading/annotation toolset, which previously clipped controls offscreen.
+        val useOverflowMenu = screenWidthDp < 1100
+        val compactToolbar = useOverflowMenu
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
