@@ -296,6 +296,32 @@ void main() {
     expect(activity, contains('singleTouchActive = false'));
   });
 
+  test('continuous reader uses a bounded virtual page window', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('const VIRTUAL_WINDOW_RADIUS = 1'));
+    expect(activity, contains('const VIRTUAL_PREVIEW_MAX_PIXELS = 1500000'));
+    expect(activity, contains('const virtualPageWindow = new Map()'));
+    expect(activity, contains('function scheduleVirtualPageWindow(center)'));
+    expect(activity, contains('function renderVirtualPreview(target, generation)'));
+    expect(activity, contains('function promoteVirtualPreview(target)'));
+    expect(activity, contains('function pruneVirtualPageWindow(center)'));
+    expect(activity, contains('function clearVirtualPageWindow()'));
+    expect(activity, contains('target !== pageNumber && promoteVirtualPreview(target)'));
+    expect(activity, contains("readerViewMode === 'page'"));
+    expect(activity, contains('scheduleVirtualPageWindow(pageNumber)'));
+
+    // Neighbour previews are visual-only; the current page still rebuilds the
+    // proven interactive text/markup layers through the normal renderer.
+    expect(activity, contains('textLayer.replaceChildren()'));
+    expect(activity, contains('markupLayer.replaceChildren()'));
+    expect(activity, contains('await renderSelectableTextLayer(page, viewport)'));
+    expect(activity, contains('renderTextMarkups()'));
+    expect(activity, contains('LexPdfBridge.pageChanged(pageNumber)'));
+  });
+
   test('pinch zoom preserves focal point and keeps free two-axis pan', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
