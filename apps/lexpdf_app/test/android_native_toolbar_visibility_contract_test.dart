@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('small portrait uses fixed primary actions plus overflow menu', () {
+  test('narrow Android widths use fixed primary actions plus overflow menu', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(source, contains('val screenWidthDp = resources.configuration.screenWidthDp'));
-    expect(source, contains('val useOverflowMenu = !landscape && screenWidthDp < 600'));
+    expect(source, contains('val useOverflowMenu = screenWidthDp < 1100'));
     expect(source, contains('PopupMenu(this, anchor)'));
     expect(source, contains('button("⋮")'));
     expect(source, contains('contentDescription = "Mais opções"'));
@@ -36,12 +36,14 @@ void main() {
     expect(source, contains('if (useOverflowMenu) {'));
   });
 
-  test('large screens and landscape keep full single-row toolbar', () {
+  test('only very wide Android screens keep the full single-row toolbar', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(source, contains('Configuration.ORIENTATION_LANDSCAPE'));
+    expect(source, contains('val screenWidthDp = resources.configuration.screenWidthDp'));
+    expect(source, contains('val useOverflowMenu = screenWidthDp < 1100'));
     expect(source, contains('val unifiedToolbarRow = toolRow()'));
     expect(source, contains('HorizontalScrollView(this).apply'));
     expect(source, contains('button("Texto") { selectTextMode() }'));
@@ -78,6 +80,18 @@ void main() {
     expect(source, contains('ACTION_UNDO_MARKUP'));
     expect(source, contains('ACTION_REDO_MARKUP'));
     expect(source, isNot(contains('justify-content:center')));
+  });
+
+  test('landscape tablets still fall back to compact overflow when width is constrained', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('val useOverflowMenu = screenWidthDp < 1100'));
+    expect(source, contains('val compactToolbar = useOverflowMenu'));
+    expect(source, isNot(contains('!landscape && screenWidthDp < 600')));
+    expect(source, contains('button("⋮")'));
+    expect(source, contains('contentDescription = "Mais opções"'));
   });
 
   test('reader exposes page vertical and horizontal navigation modes', () {
