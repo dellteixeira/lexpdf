@@ -159,13 +159,15 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
-  test('native PDF toolbar uses adaptive overflow on small portrait screens', () {
+  test('native PDF toolbar uses width-aware adaptive overflow', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(activity, contains('val unifiedToolbarRow = toolRow()'));
-    expect(activity, contains('val useOverflowMenu = !landscape && screenWidthDp < 600'));
+    expect(activity, contains('val useOverflowMenu = screenWidthDp < 1100'));
+    expect(activity, contains('val compactToolbar = useOverflowMenu'));
+    expect(activity, isNot(contains('!landscape && screenWidthDp < 600')));
     expect(activity, contains('PopupMenu(this, anchor)'));
     expect(activity, contains('button("⋮")'));
     expect(activity, contains('menu.add("Caneta")'));
