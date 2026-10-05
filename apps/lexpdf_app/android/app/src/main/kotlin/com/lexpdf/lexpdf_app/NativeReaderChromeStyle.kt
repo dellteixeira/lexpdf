@@ -45,8 +45,6 @@ internal object NativeReaderChromeStyle {
         val paddingBottom = button.paddingBottom
         val minimumWidth = button.minimumWidth
         val minimumHeight = button.minimumHeight
-        val minWidth = button.minWidth
-        val minHeight = button.minHeight
         val radius = 7f * button.resources.displayMetrics.density
         val rippleColor =
             Color.argb(
@@ -73,8 +71,6 @@ internal object NativeReaderChromeStyle {
         button.stateListAnimator = null
         button.minimumWidth = minimumWidth
         button.minimumHeight = minimumHeight
-        button.minWidth = minWidth
-        button.minHeight = minHeight
         button.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom)
     }
 
