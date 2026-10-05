@@ -377,6 +377,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 menu.add("Desfazer marcação")
                 menu.add("Refazer marcação")
                 menu.add("Fechar")
+                NativeReaderChromeStyle.markActiveTool(menu, activeInkToolTitle())
                 setOnMenuItemClickListener { item ->
                     when (item.title.toString()) {
                         "Zoom −" -> js("LexPDF.zoomOut()")
@@ -3805,6 +3806,7 @@ function hypot(a,b) {
         if (::statusLabel.isInitialized) {
             statusLabel.text = "Toque: selecionar texto • S Pen continua disponível"
         }
+        updateInkToolAppearance()
     }
 
     private fun selectInk(kind: InkKind) {
@@ -3841,6 +3843,7 @@ function hypot(a,b) {
                 InkKind.HIGHLIGHTER ->
                     "Toque/S Pen: marca-texto • ${style.size.roundToInt()} • segure para personalizar"
             }
+        updateInkToolAppearance()
     }
 
     private fun selectEraser() {
@@ -3867,6 +3870,32 @@ function hypot(a,b) {
         }
         statusLabel.text =
             "Toque/S Pen: borracha de traço • apaga caneta e marca-texto"
+        updateInkToolAppearance()
+    }
+
+    // Derive presentation from the existing input mode; do not introduce a
+    // second selected-tool state or change S Pen/finger routing.
+    private fun activeInkToolTitle(): String =
+        if (!fingerInkEnabled) {
+            "Selecionar texto"
+        } else {
+            when (currentTool) {
+                InkTool.PEN -> "Caneta"
+                InkTool.HIGHLIGHTER -> "Marca-texto"
+                InkTool.ERASER -> "Borracha"
+            }
+        }
+
+    private fun updateInkToolAppearance() {
+        if (::penButton.isInitialized) {
+            penButton.isSelected = fingerInkEnabled && currentTool == InkTool.PEN
+        }
+        if (::highlighterButton.isInitialized) {
+            highlighterButton.isSelected = fingerInkEnabled && currentTool == InkTool.HIGHLIGHTER
+        }
+        if (::eraserButton.isInitialized) {
+            eraserButton.isSelected = fingerInkEnabled && currentTool == InkTool.ERASER
+        }
     }
 
     private fun eventPointInPage(event: MotionEvent): FloatArray {
