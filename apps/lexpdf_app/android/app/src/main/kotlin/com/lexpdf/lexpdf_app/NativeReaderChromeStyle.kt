@@ -140,10 +140,30 @@ internal object NativeReaderChromeStyle {
     }
 
     private class ControlIconSpan(private val glyph: String, private val size: Float) : ReplacementSpan() {
-        override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int =
-            size.roundToInt()
+        override fun getSize(
+            paint: Paint,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            fm: Paint.FontMetricsInt?,
+        ): Int {
+            // A span covering the entire label must supply line metrics to
+            // Android. Copy the original font metrics without resizing it.
+            if (fm != null) paint.getFontMetricsInt(fm)
+            return size.roundToInt()
+        }
 
-        override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint,
+        ) {
             val metrics = paint.fontMetrics
             val centerY = y + (metrics.ascent + metrics.descent) / 2f
             val iconPaint = Paint(paint).apply {
