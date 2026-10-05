@@ -357,6 +357,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                     }
                     false
                 }
+                NativeReaderChromeStyle.applyControlIcon(this, label)
                 setOnClickListener { onClick() }
             }
 
@@ -441,6 +442,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         unifiedToolbarRow.addView(button("‹") { js("LexPDF.previousPage()") })
 
         pageLabel = TextView(this).apply {
+            NativeReaderChromeStyle.applyPageTypography(this)
             gravity = Gravity.CENTER
             textSize = 14f
             setTextColor(toolbarForeground)
@@ -921,6 +923,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 minimumWidth = 44.dp
                 setSingleLine(true)
                 setPadding(5.dp, 0, 5.dp, 0)
+                NativeReaderChromeStyle.applyControlIcon(this, label, searchControls = true)
                 setOnClickListener { action() }
             }
 

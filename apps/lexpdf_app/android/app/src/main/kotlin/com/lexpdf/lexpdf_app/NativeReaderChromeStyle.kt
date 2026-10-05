@@ -2,11 +2,19 @@ package com.lexpdf.lexpdf_app
 
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import android.view.Menu
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ReplacementSpan
 import android.widget.Button
+import android.widget.TextView
 import kotlin.math.roundToInt
 
 /** Presentation only: never changes reader geometry, input handlers or PDF colors. */
@@ -46,6 +54,7 @@ internal object NativeReaderChromeStyle {
     }
 
     fun applyButton(button: Button, palette: Palette) {
+        button.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         // Replacing an OEM drawable must not replace its padding or minimum
         // dimensions. The activity still owns all toolbar sizing and handlers.
         val paddingLeft = button.paddingLeft
@@ -99,6 +108,84 @@ internal object NativeReaderChromeStyle {
         button.minimumWidth = minimumWidth
         button.minimumHeight = minimumHeight
         button.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom)
+    }
+
+    fun applyPageTypography(label: TextView) {
+        label.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        label.fontFeatureSettings = "'tnum'"
+    }
+
+    fun applyControlIcon(button: Button, label: String, searchControls: Boolean = false) {
+        val description = when (label) {
+            "‹" -> if (searchControls) "Resultado anterior" else "Página anterior"
+            "›" -> if (searchControls) "Próximo resultado" else "Próxima página"
+            "−" -> "Diminuir zoom"
+            "+" -> "Aumentar zoom"
+            "⋮" -> "Mais opções"
+            "⋯" -> "Opções de busca"
+            "×" -> "Fechar busca"
+            else -> return
+        }
+        // Keep the original label, line metrics and button geometry. Only its
+        // painted glyph changes; TalkBack receives the full action name.
+        button.contentDescription = description
+        button.text = SpannableString(label).apply {
+            setSpan(
+                ControlIconSpan(label, 18f * button.resources.displayMetrics.density),
+                0,
+                length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+    }
+
+    private class ControlIconSpan(private val glyph: String, private val size: Float) : ReplacementSpan() {
+        override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int =
+            size.roundToInt()
+
+        override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+            val metrics = paint.fontMetrics
+            val centerY = y + (metrics.ascent + metrics.descent) / 2f
+            val iconPaint = Paint(paint).apply {
+                isAntiAlias = true
+                style = Paint.Style.STROKE
+                strokeWidth = 2f
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+            }
+            val saveCount = canvas.save()
+            canvas.translate(x, centerY - size / 2f)
+            canvas.scale(size / 24f, size / 24f)
+            when (glyph) {
+                "‹", "›" -> {
+                    val edge = if (glyph == "‹") 15f else 9f
+                    val tip = if (glyph == "‹") 9f else 15f
+                    val path = Path().apply {
+                        moveTo(edge, 5f)
+                        lineTo(tip, 12f)
+                        lineTo(edge, 19f)
+                    }
+                    canvas.drawPath(path, iconPaint)
+                }
+                "−", "+" -> {
+                    canvas.drawLine(5f, 12f, 19f, 12f, iconPaint)
+                    if (glyph == "+") canvas.drawLine(12f, 5f, 12f, 19f, iconPaint)
+                }
+                "×" -> {
+                    canvas.drawLine(6f, 6f, 18f, 18f, iconPaint)
+                    canvas.drawLine(18f, 6f, 6f, 18f, iconPaint)
+                }
+                "⋮", "⋯" -> {
+                    iconPaint.style = Paint.Style.FILL
+                    for (position in floatArrayOf(5f, 12f, 19f)) {
+                        val cx = if (glyph == "⋮") 12f else position
+                        val cy = if (glyph == "⋮") position else 12f
+                        canvas.drawCircle(cx, cy, 1.6f, iconPaint)
+                    }
+                }
+            }
+            canvas.restoreToCount(saveCount)
+        }
     }
 
     fun markActiveTool(menu: Menu, activeTitle: String) {
