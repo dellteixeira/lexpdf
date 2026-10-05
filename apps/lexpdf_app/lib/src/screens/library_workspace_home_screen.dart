@@ -9,6 +9,7 @@ import '../core/storage/local_document_catalog.dart';
 import '../core/storage/local_ink_store.dart';
 import '../core/storage/local_pdf_navigation_store.dart';
 import '../core/storage/local_text_annotation_store.dart';
+import '../core/theme/lexpdf_home_theme.dart';
 import 'cloud_sync_screen.dart';
 import 'flashcard_center_screen.dart';
 import 'global_search_screen.dart';
@@ -76,125 +77,129 @@ class _LibraryWorkspaceHomeScreenState extends State<LibraryWorkspaceHomeScreen>
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 760;
     final veryCompact = width < 430;
-    final scheme = Theme.of(context).colorScheme;
+    final homeTheme = LexPdfHomeTheme.from(Theme.of(context));
+    final scheme = homeTheme.colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: compact
-            ? Builder(
-                builder: (context) => IconButton(
-                  tooltip: 'Menu',
-                  onPressed: () => Scaffold.of(context).openDrawer(),
-                  icon: const Icon(Icons.menu),
+    return Theme(
+      data: homeTheme,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: compact
+              ? Builder(
+                  builder: (context) => IconButton(
+                    tooltip: 'Menu',
+                    onPressed: () => Scaffold.of(context).openDrawer(),
+                    icon: const Icon(Icons.menu),
+                  ),
+                )
+              : null,
+          automaticallyImplyLeading: false,
+          titleSpacing: compact ? 0 : 22,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 22),
+              if (!veryCompact) ...[
+                const SizedBox(width: 9),
+                const Text('LexPDF'),
+              ],
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Flashcards',
+              onPressed: () => _select(_HomeSection.flashcards),
+              icon: const Icon(Icons.style_outlined),
+            ),
+            IconButton(
+              tooltip: 'Buscar',
+              onPressed: _openSearch,
+              icon: const Icon(Icons.search),
+            ),
+            IconButton(
+              tooltip: 'Abrir PDF em Trabalhar com PDF',
+              onPressed: _picking ? null : _pickPdf,
+              icon: _picking
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add),
+            ),
+            PopupMenuButton<_HomeMoreAction>(
+              tooltip: 'Mais opções',
+              icon: const Icon(Icons.more_vert),
+              onSelected: _handleMore,
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: _HomeMoreAction.account,
+                  child: _MenuLabel(icon: Icons.person_outline, label: 'Conta'),
+                ),
+                PopupMenuItem(
+                  value: _HomeMoreAction.print,
+                  child: _MenuLabel(
+                    icon: Icons.print_outlined,
+                    label: 'Imprimir PDF',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        drawer: compact
+            ? Drawer(
+                child: SafeArea(
+                  child: _NavigationList(
+                    section: _section,
+                    onSelect: _select,
+                    mobile: true,
+                  ),
                 ),
               )
             : null,
-        automaticallyImplyLeading: false,
-        titleSpacing: compact ? 0 : 22,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
+        body: Row(
           children: [
-            Icon(Icons.picture_as_pdf_outlined, color: scheme.primary, size: 22),
-            if (!veryCompact) ...[
-              const SizedBox(width: 9),
-              const Text('LexPDF'),
-            ],
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Flashcards',
-            onPressed: () => _select(_HomeSection.flashcards),
-            icon: const Icon(Icons.style_outlined),
-          ),
-          IconButton(
-            tooltip: 'Buscar',
-            onPressed: _openSearch,
-            icon: const Icon(Icons.search),
-          ),
-          IconButton(
-            tooltip: 'Abrir PDF em Trabalhar com PDF',
-            onPressed: _picking ? null : _pickPdf,
-            icon: _picking
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.add),
-          ),
-          PopupMenuButton<_HomeMoreAction>(
-            tooltip: 'Mais opções',
-            icon: const Icon(Icons.more_vert),
-            onSelected: _handleMore,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _HomeMoreAction.account,
-                child: _MenuLabel(icon: Icons.person_outline, label: 'Conta'),
-              ),
-              PopupMenuItem(
-                value: _HomeMoreAction.print,
-                child: _MenuLabel(
-                  icon: Icons.print_outlined,
-                  label: 'Imprimir PDF',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      drawer: compact
-          ? Drawer(
-              child: SafeArea(
+            if (!compact)
+              SizedBox(
+                width: 204,
                 child: _NavigationList(
                   section: _section,
                   onSelect: _select,
-                  mobile: true,
+                  mobile: false,
                 ),
               ),
-            )
-          : null,
-      body: Row(
-        children: [
-          if (!compact)
-            SizedBox(
-              width: 204,
-              child: _NavigationList(
-                section: _section,
-                onSelect: _select,
-                mobile: false,
-              ),
-            ),
-          if (!compact) const VerticalDivider(width: 1),
-          Expanded(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1180),
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    compact ? 16 : 34,
-                    compact ? 20 : 30,
-                    compact ? 16 : 34,
-                    compact ? 20 : 28,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SectionHeader(section: _section),
-                      const SizedBox(height: 12),
-                      if (_section == _HomeSection.library) ...[
-                        _WorkspaceHint(onOpen: _picking ? null : _pickPdf),
-                        const SizedBox(height: 14),
+            if (!compact) const VerticalDivider(width: 1),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1180),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 16 : 34,
+                      compact ? 20 : 30,
+                      compact ? 16 : 34,
+                      compact ? 20 : 28,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SectionHeader(section: _section),
+                        const SizedBox(height: 12),
+                        if (_section == _HomeSection.library) ...[
+                          _WorkspaceHint(onOpen: _picking ? null : _pickPdf),
+                          const SizedBox(height: 14),
+                        ],
+                        Expanded(child: _buildContent()),
                       ],
-                      Expanded(child: _buildContent()),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -451,7 +456,7 @@ class _NavigationList extends StatelessWidget {
               minTileHeight: mobile ? 48 : 42,
               selected: section == item.$1,
               selectedTileColor:
-                  Theme.of(context).colorScheme.surfaceContainerLow,
+                  Theme.of(context).colorScheme.primaryContainer,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(9),
               ),
@@ -540,7 +545,7 @@ class _WorkspaceHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.primaryContainer.withValues(alpha: 0.28),
+      color: scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
