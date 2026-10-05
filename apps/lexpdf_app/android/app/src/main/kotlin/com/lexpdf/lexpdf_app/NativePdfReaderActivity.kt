@@ -283,12 +283,10 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         val darkUi =
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
-        val toolbarBackground =
-            if (darkUi) Color.rgb(27, 29, 34) else Color.rgb(248, 249, 251)
-        val toolbarForeground =
-            if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
-        val toolbarSecondary =
-            if (darkUi) Color.rgb(190, 194, 201) else Color.rgb(65, 68, 74)
+        val chromePalette = NativeReaderChromeStyle.palette(darkUi)
+        val toolbarBackground = chromePalette.surface
+        val toolbarForeground = chromePalette.foreground
+        val toolbarSecondary = chromePalette.secondary
         val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val screenWidthDp = resources.configuration.screenWidthDp
@@ -316,6 +314,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             Button(this).apply {
                 text = label
                 isAllCaps = false
+                NativeReaderChromeStyle.applyButton(this, chromePalette)
 
                 val targetWidthDp =
                     when {
@@ -621,8 +620,8 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         readingPageIndicator = TextView(this).apply {
             gravity = Gravity.CENTER
             textSize = 12f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.argb(168, 24, 26, 31))
+            setTextColor(toolbarForeground)
+            background = NativeReaderChromeStyle.roundedSurface(toolbarBackground, 7.dp.toFloat())
             setPadding(12.dp, 5.dp, 12.dp, 5.dp)
             isClickable = false
             isFocusable = false
@@ -844,14 +843,11 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         val darkUi =
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
-        val searchBackground =
-            if (darkUi) Color.rgb(35, 38, 44) else Color.rgb(242, 244, 247)
-        val searchForeground =
-            if (darkUi) Color.rgb(244, 246, 249) else Color.rgb(30, 33, 38)
-        val searchSecondary =
-            if (darkUi) Color.rgb(190, 194, 201) else Color.rgb(90, 94, 101)
-        val searchAccent =
-            if (darkUi) Color.rgb(128, 203, 196) else Color.rgb(0, 121, 107)
+        val chromePalette = NativeReaderChromeStyle.palette(darkUi)
+        val searchBackground = chromePalette.controlSurface
+        val searchForeground = chromePalette.foreground
+        val searchSecondary = chromePalette.secondary
+        val searchAccent = chromePalette.accent
 
         val row =
             LinearLayout(this).apply {
@@ -919,6 +915,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             Button(this).apply {
                 text = label
                 isAllCaps = false
+                NativeReaderChromeStyle.applyButton(this, chromePalette)
                 minWidth = 44.dp
                 minimumWidth = 44.dp
                 setSingleLine(true)
