@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Reader-only overlays retain native lists, actions and dialog sizing. -->
+    <style name="NativeReaderDialogTheme" parent="ThemeOverlay.AppCompat.Dialog.Alert">
+        <item name="android:colorBackground">@color/native_reader_surface</item>
+        <item name="android:textColorPrimary">@color/native_reader_foreground</item>
+        <item name="android:textColorSecondary">@color/native_reader_secondary</item>
+        <item name="colorAccent">@color/native_reader_accent</item>
+        <item name="textColorAlertDialogListItem">@color/native_reader_foreground</item>
+        <item name="colorControlNormal">@color/native_reader_secondary</item>
+        <item name="colorControlActivated">@color/native_reader_accent</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="textAppearanceLarge">@style/NativeReaderDialogTitle</item>
+        <item name="buttonBarPositiveButtonStyle">@style/NativeReaderDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/NativeReaderDialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/NativeReaderDialogButton</item>
+    </style>
+    <style name="NativeReaderDialogTitle" parent="TextAppearance.AppCompat.Title">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/native_reader_foreground</item>
+    </style>
+    <style name="NativeReaderDialogButton" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="textAllCaps">false</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/native_reader_action_text</item>
+    </style>
+    <style name="NativeReaderPopupMenu" parent="@android:style/Widget.Material.PopupMenu">
+        <item name="android:popupBackground">@drawable/native_reader_menu_surface</item>
+    </style>
+    <style name="NativeReaderMenuText" parent="@android:style/TextAppearance.Material.Widget.PopupMenu.Large">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textColor">@color/native_reader_foreground</item>
+    </style>
+</resources>

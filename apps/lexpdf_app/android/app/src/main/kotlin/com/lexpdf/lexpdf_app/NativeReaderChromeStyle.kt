@@ -14,6 +14,7 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ReplacementSpan
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import kotlin.math.roundToInt
 
@@ -113,6 +114,29 @@ internal object NativeReaderChromeStyle {
     fun applyPageTypography(label: TextView) {
         label.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         label.fontFeatureSettings = "'tnum'"
+    }
+
+    fun applySearchField(input: EditText, palette: Palette) {
+        val paddingLeft = input.paddingLeft
+        val paddingTop = input.paddingTop
+        val paddingRight = input.paddingRight
+        val paddingBottom = input.paddingBottom
+        val minimumWidth = input.minimumWidth
+        val minimumHeight = input.minimumHeight
+        val density = input.resources.displayMetrics.density
+        val borderWidth = density.roundToInt().coerceAtLeast(1)
+        fun surface(border: Int) = roundedSurface(palette.surface, 7f * density).apply {
+            setStroke(borderWidth, border)
+        }
+        input.backgroundTintList = null
+        input.background = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), surface(palette.accent))
+            addState(intArrayOf(), surface(palette.outline))
+        }
+        input.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        input.minimumWidth = minimumWidth
+        input.minimumHeight = minimumHeight
+        input.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom)
     }
 
     fun applyControlIcon(button: Button, label: String, searchControls: Boolean = false) {

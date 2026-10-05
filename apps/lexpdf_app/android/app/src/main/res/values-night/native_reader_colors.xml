@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="native_reader_surface">#222731</color>
+    <color name="native_reader_foreground">#EDF0F5</color>
+    <color name="native_reader_secondary">#B0BAC8</color>
+    <color name="native_reader_accent">#B4CFFF</color>
+    <color name="native_reader_outline">#394354</color>
+</resources>

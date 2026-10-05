@@ -871,6 +871,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
                 inputType = InputType.TYPE_CLASS_TEXT
                 imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
                 setPadding(8.dp, 0, 8.dp, 0)
+                NativeReaderChromeStyle.applySearchField(this, chromePalette)
                 addTextChangedListener(
                     object : TextWatcher {
                         override fun beforeTextChanged(
@@ -904,6 +905,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
         searchCountLabel =
             TextView(this).apply {
+                NativeReaderChromeStyle.applyPageTypography(this)
                 gravity = Gravity.CENTER
                 textSize = 13f
                 setTextColor(searchForeground)
