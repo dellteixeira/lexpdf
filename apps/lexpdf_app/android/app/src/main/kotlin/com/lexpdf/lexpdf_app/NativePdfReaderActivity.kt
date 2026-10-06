@@ -626,24 +626,39 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
             setTextColor(toolbarForeground)
             background = NativeReaderChromeStyle.roundedSurface(toolbarBackground, 7.dp.toFloat())
             setPadding(12.dp, 5.dp, 12.dp, 5.dp)
-            isClickable = false
-            isFocusable = false
+            minimumHeight = 48.dp
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Mostrar ferramentas"
+            setOnClickListener { setReaderChromeVisible(true) }
             visibility = View.GONE
-            text = "…"
+            text = "Ferramentas ↑"
         }
-        readerFrame.addView(
+        // This control is a sibling above the ink router: finger and S Pen
+        // taps must reach it even while a drawing tool intercepts page input.
+        val readerViewport = FrameLayout(this).apply {
+            addView(
+                readerFrame,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+        readerViewport.addView(
             readingPageIndicator,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+                Gravity.TOP or Gravity.END,
             ).apply {
-                bottomMargin = 14.dp
+                topMargin = 8.dp
+                marginEnd = 12.dp
             },
         )
 
         root.addView(
-            readerFrame,
+            readerViewport,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -1409,7 +1424,7 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
   <style>
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#181a1f;color:#fff;font-family:sans-serif}
     #stage{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain}
-    #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:12px 12px 34px}
+    #wrap{box-sizing:border-box;width:max-content;min-width:100%;min-height:100%;padding:12px}
     #pageHost{position:relative;display:block;margin:0 auto}
     canvas{display:block;background:white;box-shadow:0 6px 28px #0007}
     #markupLayer{position:absolute;left:0;top:0;overflow:hidden;pointer-events:none}
@@ -2336,6 +2351,7 @@ async function renderSelectableTextLayer(page, viewport) {
   textLayer.style.height = viewport.height + 'px';
   pageHost.style.width = viewport.width + 'px';
   pageHost.style.height = viewport.height + 'px';
+  balancePageVerticalSpace();
 
   try {
     const content = await page.getTextContent();
@@ -2621,7 +2637,23 @@ function clearTextSelection() {
   capturedSelectionRects = [];
 }
 
+// Center only a page that fits. Oversized pages keep their top edge reachable
+// and continuous modes keep the existing navigation layout.
+function balancePageVerticalSpace() {
+  const wrapStyle = getComputedStyle(document.getElementById('wrap'));
+  const verticalPadding =
+    (parseFloat(wrapStyle.paddingTop) || 0) +
+    (parseFloat(wrapStyle.paddingBottom) || 0);
+  const pageHeight = parseFloat(pageHost.style.height) || 0;
+  const spareHeight = stage.clientHeight - verticalPadding - pageHeight;
+  const inset = readerViewMode === 'page' && pageHeight > 0
+    ? Math.max(0, spareHeight / 2)
+    : 0;
+  pageHost.style.marginTop = inset + 'px';
+}
+
 function reportMetrics() {
+  balancePageVerticalSpace();
   const r = canvas.getBoundingClientRect();
   const density = window.devicePixelRatio || 1;
   LexPdfBridge.metrics(JSON.stringify({
@@ -2778,6 +2810,7 @@ function promoteVirtualPreview(target) {
   canvas.style.height = preview.height + 'px';
   pageHost.style.width = preview.width + 'px';
   pageHost.style.height = preview.height + 'px';
+  balancePageVerticalSpace();
 
   // The preview is visual-only. Interactive text/markup layers are rebuilt by
   // the normal renderer immediately afterwards for the promoted current page.
@@ -2962,7 +2995,9 @@ window.LexPDF = {
     wrap.style.paddingLeft = safeMargin + 'px';
     wrap.style.paddingRight = safeMargin + 'px';
     wrap.style.paddingTop = safeMargin + 'px';
-    wrap.style.paddingBottom = Math.max(28, safeMargin + 18) + 'px';
+    wrap.style.paddingBottom = safeMargin + 'px';
+    balancePageVerticalSpace();
+    settleMetrics();
 
     if (readerViewMode === 'page') {
       clearVirtualPageWindow();
@@ -2977,6 +3012,8 @@ window.LexPDF = {
     const allowed = ['page', 'continuous_vertical', 'continuous_horizontal'];
     readerViewMode = allowed.includes(mode) ? mode : 'page';
     stage.dataset.viewMode = readerViewMode;
+    balancePageVerticalSpace();
+    settleMetrics();
     if (readerViewMode === 'page') {
       clearVirtualPageWindow();
     } else {
@@ -3092,6 +3129,7 @@ stage.addEventListener('touchmove', e => {
     // This avoids an unreachable left/right edge on portrait screens.
     pageHost.style.width = (pageAtScaleOne.width * next) + 'px';
     pageHost.style.height = (pageAtScaleOne.height * next) + 'px';
+    balancePageVerticalSpace();
 
     const ratio = next / pinchStartScale;
     canvas.style.transformOrigin = '0 0';
@@ -3242,7 +3280,8 @@ function hypot(a,b) {
             }
         pageLabel.text = label
         if (::readingPageIndicator.isInitialized) {
-            readingPageIndicator.text = label
+            readingPageIndicator.text = "$label  ·  Ferramentas ↑"
+            readingPageIndicator.contentDescription = "Mostrar ferramentas, página $label"
         }
     }
 

@@ -57,7 +57,7 @@ void main() {
     expect(source, isNot(contains('val inkRow = toolRow()')));
   });
 
-  test('reading-first shell auto-hides chrome without changing the renderer', () {
+  test('reading-first shell auto-hides chrome while preserving reader features', () {
     final source = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
@@ -72,7 +72,7 @@ void main() {
     expect(source, contains('fun readerChromeTap()'));
     expect(source, contains('LexPdfBridge.readerChromeTap()'));
     expect(source, contains('target === canvas'));
-    expect(source, contains('readingPageIndicator.text = label'));
+    expect(source, contains('readingPageIndicator.text = "\$label  ·  Ferramentas ↑"'));
 
     expect(source, contains('PDFDataRangeTransport'));
     expect(source, contains('private const val RANGE_CHUNK_SIZE = 512 * 1024'));
@@ -80,6 +80,28 @@ void main() {
     expect(source, contains('ACTION_UNDO_MARKUP'));
     expect(source, contains('ACTION_REDO_MARKUP'));
     expect(source, isNot(contains('justify-content:center')));
+  });
+
+  test('restore tools control sits outside the finger and stylus ink router', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+    final viewportStart = source.indexOf('val readerViewport = FrameLayout(this)');
+    final controlStart = source.indexOf('readerViewport.addView(');
+    expect(viewportStart, greaterThan(0));
+    expect(controlStart, greaterThan(viewportStart));
+    expect(source.substring(viewportStart, controlStart), contains('readerFrame,'));
+    expect(source.substring(controlStart), startsWith(
+      'readerViewport.addView(\n            readingPageIndicator,'));
+    expect(source, isNot(contains('readerFrame.addView(\n            readingPageIndicator,')));
+    expect(source, contains('minimumHeight = 48.dp'));
+    expect(source, contains('setOnClickListener { setReaderChromeVisible(true) }'));
+    expect(source, contains('contentDescription = "Mostrar ferramentas"'));
+    // Recovering chrome never changes the current tool or cancels a stroke.
+    final restore = source.indexOf('setOnClickListener { setReaderChromeVisible(true) }');
+    expect(source.substring(restore, source.indexOf('visibility = View.GONE', restore)),
+      isNot(contains('selectTextMode')));
+    expect(source, contains('MotionEvent.TOOL_TYPE_FINGER -> interceptFingerInput'));
   });
 
   test('landscape tablets still fall back to compact overflow when width is constrained', () {
