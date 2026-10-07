@@ -1510,6 +1510,7 @@ let pdf = null;
 let pageNumber = ${currentPageIndex + 1};
 let scale = 1.15;
 let renderToken = 0;
+let pageRenderInProgress = false;
 let renderTask = null;
 let pageAtScaleOne = { width: 1, height: 1 };
 let pinchStartDistance = 0;
@@ -2774,7 +2775,7 @@ function clearVirtualPageWindow() {
 }
 
 function releaseBackgroundPage() {
-  if (!readerBackgrounded || renderTask) return;
+  if (!readerBackgrounded || pageRenderInProgress || renderTask) return;
   canvas.width = 0;
   canvas.height = 0;
   readerNeedsRepaint = true;
@@ -2785,7 +2786,7 @@ function retryMemoryRender() {
   memoryRenderTimer = setTimeout(() => {
     memoryRenderTimer = 0;
     if (!pdf || readerBackgrounded) return;
-    if (renderTask || pinchStartDistance > 0 || singleTouchActive) {
+    if (pageRenderInProgress || renderTask || pinchStartDistance > 0 || singleTouchActive) {
       retryMemoryRender();
       return;
     }
@@ -2938,6 +2939,7 @@ async function renderPage(target, preserveCenter = false) {
   if (!pdf) return;
   target = Math.max(1, Math.min(pdf.numPages, target));
   const token = ++renderToken;
+  pageRenderInProgress = true;
   const previewPromoted = target !== pageNumber && promoteVirtualPreview(target);
   loading.style.display = previewPromoted ? 'none' : 'block';
 
@@ -3020,6 +3022,8 @@ async function renderPage(target, preserveCenter = false) {
     if (e?.name === 'RenderingCancelledException') return;
     loading.style.display = 'none';
     LexPdfBridge.error(String(e?.stack || e));
+  } finally {
+    if (token === renderToken) pageRenderInProgress = false;
   }
 }
 

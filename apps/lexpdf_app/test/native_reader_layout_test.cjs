@@ -61,7 +61,7 @@ function memoryContext() {
     readerBackgrounded: false, memoryPressureActive: false,
     renderPixelBudget: 8000000, memoryRenderTimer: 0, readerNeedsRepaint: false,
     virtualWindowGeneration: 1, virtualPageWindow: new Map(), virtualPreviewTasks: new Set(),
-    renderTask: null, pinchStartDistance: 0, singleTouchActive: false,
+    renderTask: null, pageRenderInProgress: false, pinchStartDistance: 0, singleTouchActive: false,
     pdf: {}, pageNumber: 585, canvas: { width: 2000, height: 3000 },
     setTimeout: callback => { timers.push(callback); return timers.length; },
     renderPage: (page, preserve) => { renders.push({ page, preserve }); },
@@ -101,6 +101,10 @@ test('memory rerender waits for pinch, touch and active rendering without changi
   timers.shift()();
   assert.equal(renders.length, 0);
   context.renderTask = null;
+  context.pageRenderInProgress = true;
+  timers.shift()();
+  assert.equal(renders.length, 0);
+  context.pageRenderInProgress = false;
   timers.shift()();
   assert.deepEqual(renders, [{ page: 585, preserve: true }]);
 });
