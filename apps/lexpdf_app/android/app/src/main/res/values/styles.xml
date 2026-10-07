@@ -16,6 +16,14 @@
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
     <style name="NativePdfReaderTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="alertDialogTheme">@style/NativeReaderDialogTheme</item>
+        <item name="android:textColorPrimary">@color/native_reader_foreground</item>
+        <item name="android:textColorSecondary">@color/native_reader_secondary</item>
+        <item name="android:popupMenuStyle">@style/NativeReaderPopupMenu</item>
+        <item name="android:textAppearanceLargePopupMenu">@style/NativeReaderMenuText</item>
+        <item name="android:textAppearanceSmallPopupMenu">@style/NativeReaderMenuText</item>
+        <item name="colorAccent">@color/native_reader_accent</item>
+        <item name="android:colorAccent">@color/native_reader_accent</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:navigationBarColor">#000000</item>

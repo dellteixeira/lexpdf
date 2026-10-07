@@ -15,7 +15,7 @@ import java.util.Locale
 
 object PdfCrashDiagnostics {
     private const val PREFIX = "LPDFDIAG4"
-    private const val BUILD_MARKER = "rc10-printed-index-v1"
+    private const val MEMORY_REPORT_TITLE = "LexPDF: leitura interrompida por pouca memória"
     private const val BREADCRUMB_FILE = "pdfreader_breadcrumb.txt"
     private const val READER_LAUNCH_FILE = "pdfreader_launch.txt"
     private const val MAIN_LAUNCH_FILE = "main_startup_attempt.txt"
@@ -125,7 +125,7 @@ object PdfCrashDiagnostics {
                         scope = "processo principal / inicialização",
                     )
                 rememberShown(context, mainExit.timestamp)
-                return report
+                if (shouldNotifyExit(context, mainExit, now, report)) return report
             }
 
             // A PDF-reader crash is isolated in :pdfreader and must never make
@@ -143,7 +143,7 @@ object PdfCrashDiagnostics {
                         scope = "leitor PDF isolado",
                     )
                 rememberShown(context, readerExit.timestamp)
-                return report
+                if (shouldNotifyExit(context, readerExit, now, report)) return report
             }
 
             recentCapturedCrashReport(context)
@@ -169,6 +169,24 @@ object PdfCrashDiagnostics {
         }
     }
 
+    fun isMemoryPressureReport(report: String): Boolean = report.startsWith(MEMORY_REPORT_TITLE)
+
+    private fun shouldNotifyExit(
+        context: Context, exit: ApplicationExitInfo, now: Long, report: String,
+    ): Boolean {
+        if (exit.reason != ApplicationExitInfo.REASON_LOW_MEMORY) return true
+        writeDiagnosticFile(context, "last_memory_exit.txt", report)
+        return now - exit.timestamp in 0..MAIN_EXIT_FRESHNESS_MS
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedVersion(context: Context): String = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+        val updated = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(info.lastUpdateTime))
+        "${info.versionName ?: "desconhecida"} (código $code; atualização $updated)"
+    } catch (_: Exception) { "indisponível" }
+
     private fun formatExit(
         context: Context,
         exit: ApplicationExitInfo,
@@ -186,11 +204,15 @@ object PdfCrashDiagnostics {
         val breadcrumb = readBreadcrumb(context) ?: "(sem breadcrumb em arquivo)"
 
         return buildString {
-            appendLine("LexPDF diagnóstico de encerramento")
-            appendLine("build: $BUILD_MARKER")
+            appendLine(if (exit.reason == ApplicationExitInfo.REASON_LOW_MEMORY)
+                MEMORY_REPORT_TITLE else "LexPDF diagnóstico de encerramento")
+            appendLine("versão instalada: ${installedVersion(context)}")
             appendLine("escopo: $scope")
             appendLine("processo: ${exit.processName}")
             appendLine("quando: $timestamp")
+            if (exit.reason == ApplicationExitInfo.REASON_LOW_MEMORY) {
+                appendLine("O Android encerrou este processo para liberar RAM. Este é um registro anterior, não uma exceção do aplicativo.")
+            }
             appendLine("motivo: ${reasonName(exit.reason)} (${exit.reason})")
             appendLine("status/sinal: ${exit.status}")
             appendLine("PSS: ${exit.pss} kB")
@@ -239,7 +261,7 @@ object PdfCrashDiagnostics {
         rememberCapturedShown(context, timestamp)
         return buildString {
             appendLine("LexPDF diagnóstico local de exceção")
-            appendLine("build: $BUILD_MARKER")
+            appendLine("versão instalada: ${installedVersion(context)}")
             append(payload)
         }
     }
@@ -272,7 +294,7 @@ object PdfCrashDiagnostics {
 
         return buildString {
             appendLine("LexPDF detectou uma inicialização incompleta")
-            appendLine("build: $BUILD_MARKER")
+            appendLine("versão instalada: ${installedVersion(context)}")
             appendLine("tentativa iniciada em: $timestamp")
             appendLine(
                 "A execução anterior não confirmou a primeira tela do Flutter. " +

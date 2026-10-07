@@ -28,4 +28,6 @@ jobs:
       - name: Verify dependency lock is stable
         run: git diff --exit-code -- pubspec.lock
       - run: flutter analyze
+      - name: Verify native reader page spacing regressions
+        run: node --test test/native_reader_layout_test.cjs
       - run: flutter test

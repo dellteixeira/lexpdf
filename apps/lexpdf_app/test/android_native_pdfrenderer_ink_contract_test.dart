@@ -48,7 +48,8 @@ void main() {
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(activity, contains('const maxPixels = 8000000'));
+    expect(activity, contains('private var readerRenderPixelBudget = 8000000'));
+    expect(activity, contains('const maxPixels = renderPixelBudget'));
     expect(activity, contains('pdf.getPage(target)'));
     expect(activity, contains('page.cleanup()'));
     expect(activity, contains('RenderingCancelledException'));
@@ -159,13 +160,15 @@ void main() {
     expect(activity, contains('button("Fechar")'));
   });
 
-  test('native PDF toolbar uses adaptive overflow on small portrait screens', () {
+  test('native PDF toolbar uses width-aware adaptive overflow', () {
     final activity = File(
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
     expect(activity, contains('val unifiedToolbarRow = toolRow()'));
-    expect(activity, contains('val useOverflowMenu = !landscape && screenWidthDp < 600'));
+    expect(activity, contains('val useOverflowMenu = screenWidthDp < 1100'));
+    expect(activity, contains('val compactToolbar = useOverflowMenu'));
+    expect(activity, isNot(contains('!landscape && screenWidthDp < 600')));
     expect(activity, contains('PopupMenu(this, anchor)'));
     expect(activity, contains('button("⋮")'));
     expect(activity, contains('menu.add("Caneta")'));
@@ -294,6 +297,32 @@ void main() {
     expect(activity, contains('extendSelectionToPoint(touch.clientX, touch.clientY)'));
     expect(activity, contains('}, { passive: false })'));
     expect(activity, contains('singleTouchActive = false'));
+  });
+
+  test('continuous reader uses a bounded virtual page window', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
+    ).readAsStringSync();
+
+    expect(activity, contains('const VIRTUAL_WINDOW_RADIUS = 1'));
+    expect(activity, contains('const VIRTUAL_PREVIEW_MAX_PIXELS = 1500000'));
+    expect(activity, contains('const virtualPageWindow = new Map()'));
+    expect(activity, contains('function scheduleVirtualPageWindow(center)'));
+    expect(activity, contains('function renderVirtualPreview(target, generation)'));
+    expect(activity, contains('function promoteVirtualPreview(target)'));
+    expect(activity, contains('function pruneVirtualPageWindow(center)'));
+    expect(activity, contains('function clearVirtualPageWindow()'));
+    expect(activity, contains('target !== pageNumber && promoteVirtualPreview(target)'));
+    expect(activity, contains("readerViewMode === 'page'"));
+    expect(activity, contains('scheduleVirtualPageWindow(pageNumber)'));
+
+    // Neighbour previews are visual-only; the current page still rebuilds the
+    // proven interactive text/markup layers through the normal renderer.
+    expect(activity, contains('textLayer.replaceChildren()'));
+    expect(activity, contains('markupLayer.replaceChildren()'));
+    expect(activity, contains('await renderSelectableTextLayer(page, viewport)'));
+    expect(activity, contains('renderTextMarkups()'));
+    expect(activity, contains('LexPdfBridge.pageChanged(pageNumber)'));
   });
 
   test('pinch zoom preserves focal point and keeps free two-axis pan', () {
