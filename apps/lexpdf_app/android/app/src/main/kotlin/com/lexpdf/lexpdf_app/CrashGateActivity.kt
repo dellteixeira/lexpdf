@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 /**
  * Native launcher that runs before Flutter.
@@ -30,6 +31,11 @@ class CrashGateActivity : Activity() {
             return
         }
 
+        if (PdfCrashDiagnostics.isMemoryPressureReport(report)) {
+            Toast.makeText(this, "O Android encerrou a leitura anterior para liberar memória. Você pode reabrir o PDF.", Toast.LENGTH_LONG).show()
+            continueToLexPdf()
+            return
+        }
         showDiagnostic(report)
     }
 

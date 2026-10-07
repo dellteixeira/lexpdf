@@ -31,6 +31,7 @@ class MainActivity : FlutterActivity() {
     private var pendingPickerResult: MethodChannel.Result? = null
     private var pendingNativeReaderResult: MethodChannel.Result? = null
     private var pendingNativeReaderInitialPage = 1
+    private var pendingNativeReaderPath: String? = null
     private var pendingPickerExtensions: Set<String> = emptySet()
     private var pendingPickerMultiple = false
     private var pendingPdfPath: String? = null
@@ -166,6 +167,7 @@ class MainActivity : FlutterActivity() {
                                     }
                                 pendingNativeReaderResult = result
                                 pendingNativeReaderInitialPage = safeInitialPage
+                                pendingNativeReaderPath = file.absolutePath
                                 startActivityForResult(
                                     readerIntent,
                                     OPEN_NATIVE_READER_REQUEST_CODE,
@@ -173,6 +175,7 @@ class MainActivity : FlutterActivity() {
                             } catch (error: Throwable) {
                                 pendingNativeReaderResult = null
                                 pendingNativeReaderInitialPage = 1
+                                pendingNativeReaderPath = null
                                 PdfCrashDiagnostics.recordControlledLaunchFailure(
                                     this,
                                     error,
@@ -250,7 +253,10 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == OPEN_NATIVE_READER_REQUEST_CODE) {
             val result = pendingNativeReaderResult
-            val fallbackPage = pendingNativeReaderInitialPage.coerceAtLeast(1)
+            val source = pendingNativeReaderPath?.let { File(it) }
+            val recoveredPage = source?.let { NativeReaderCheckpoint.pendingPage(this, it) }
+            val fallbackPage = recoveredPage ?: pendingNativeReaderInitialPage.coerceAtLeast(1)
+            pendingNativeReaderPath = null
             pendingNativeReaderResult = null
             pendingNativeReaderInitialPage = 1
             val lastPage =
@@ -258,6 +264,7 @@ class MainActivity : FlutterActivity() {
                     ?.getIntExtra(NativePdfReaderActivity.EXTRA_LAST_PAGE, fallbackPage)
                     ?.coerceAtLeast(1)
                     ?: fallbackPage
+            source?.let { NativeReaderCheckpoint.save(this, it, lastPage, active = false) }
             result?.success(
                 mapOf(
                     "opened" to (resultCode == RESULT_OK),
@@ -407,6 +414,10 @@ class MainActivity : FlutterActivity() {
             val report = PdfCrashDiagnostics.recentExitReport(this)
             if (report.isNullOrBlank()) return
 
+            if (PdfCrashDiagnostics.isMemoryPressureReport(report)) {
+                android.widget.Toast.makeText(this, "O Android encerrou a leitura anterior para liberar memória. Você pode reabrir o PDF.", android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
             diagnosticDialogVisible = true
             AlertDialog.Builder(this)
                 .setTitle("Diagnóstico de falha do LexPDF")

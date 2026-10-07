@@ -1,6 +1,8 @@
 package com.lexpdf.lexpdf_app
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -23,8 +25,10 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -197,6 +201,18 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var currentPageIndex = 0
+    private var rendererGone = false
+    private var readerRenderPixelBudget = 8000000
+    private var readerMemoryPressure = false
+    private var readerUiBackgrounded = false
+    private val memoryHandler = Handler(Looper.getMainLooper())
+    private val memoryCheckRunnable = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed || rendererGone) return
+            checkReaderMemoryPressure()
+            memoryHandler.postDelayed(this, 15000L)
+        }
+    }
     private var pageCount = 0
     private var pageMetrics: PageMetrics? = null
 
@@ -249,7 +265,17 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         loadReadingPreferences()
 
         currentPageIndex =
-            (intent.getIntExtra(EXTRA_INITIAL_PAGE, 1) - 1).coerceAtLeast(0)
+            ((savedInstanceState?.getInt("reader_recovery_page")
+                ?: NativeReaderCheckpoint.pendingPage(this, sourceFile)
+                ?: intent.getIntExtra(EXTRA_INITIAL_PAGE, 1)) - 1).coerceAtLeast(0)
+        val memoryManager = getSystemService(ActivityManager::class.java)
+        if (memoryManager.isLowRamDevice) readerRenderPixelBudget = 4000000
+        val memoryInfo = ActivityManager.MemoryInfo()
+        memoryManager.getMemoryInfo(memoryInfo)
+        if (memoryInfo.lowMemory) {
+            readerMemoryPressure = true
+            readerRenderPixelBudget = 2000000
+        }
         publishLastPageResult()
 
         PdfCrashDiagnostics.mark(
@@ -1042,6 +1068,27 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         webView.addJavascriptInterface(JsBridge(), "LexPdfBridge")
         webView.webViewClient =
             object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    rendererGone = true
+                    memoryHandler.removeCallbacks(memoryCheckRunnable)
+                    persistInkForPage(currentPageIndex)
+                    persistTextMarkupsForPage(currentPageIndex)
+                    publishLastPageResult()
+                    PdfCrashDiagnostics.mark(
+                        this@NativePdfReaderActivity, "WEBVIEW_PROCESS_GONE",
+                        "crashed=${detail.didCrash()} page=${currentPageIndex + 1}",
+                    )
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    view.destroy()
+                    Toast.makeText(
+                        this@NativePdfReaderActivity,
+                        "O leitor foi interrompido. Reabra o PDF para continuar na página salva.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    finish()
+                    return true
+                }
+
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest,
@@ -1402,6 +1449,9 @@ class NativePdfReaderActivity : AppCompatActivity(), InProgressStrokesFinishedLi
         @JavascriptInterface
         fun rendered(page: Int) {
             runOnUiThread {
+                if (readerMemoryPressure || readerUiBackgrounded) {
+                    js("window.LexPDF?.trimMemory($readerMemoryPressure, $readerUiBackgrounded)")
+                }
                 pushTextMarkupsToViewer()
                 statusLabel.text =
                     "PDF.js • página $page • S Pen: ${currentEntries.size} traço(s)"
@@ -1484,6 +1534,12 @@ let smartFitWidthEnabled = true;
 let readerMarginPx = 12;
 const VIRTUAL_WINDOW_RADIUS = 1;
 const VIRTUAL_PREVIEW_MAX_PIXELS = 1500000;
+let renderPixelBudget = ${readerRenderPixelBudget};
+let memoryPressureActive = ${readerMemoryPressure};
+let readerBackgrounded = ${readerUiBackgrounded};
+let memoryRenderTimer = 0;
+let readerNeedsRepaint = false;
+const virtualPreviewTasks = new Set();
 const virtualPageWindow = new Map();
 let virtualWindowGeneration = 0;
 let metricsFrame = 0;
@@ -2703,9 +2759,51 @@ function virtualPageKey(page, scaleValue = scale) {
   return page + '@' + Number(scaleValue).toFixed(3);
 }
 
+function releasePreviewCanvas(preview) {
+  preview.width = 0;
+  preview.height = 0;
+}
+
 function clearVirtualPageWindow() {
   virtualWindowGeneration++;
+  for (const task of virtualPreviewTasks) {
+    try { task.cancel(); } catch (_) {}
+  }
+  for (const entry of virtualPageWindow.values()) releasePreviewCanvas(entry.canvas);
   virtualPageWindow.clear();
+}
+
+function releaseBackgroundPage() {
+  if (!readerBackgrounded || renderTask) return;
+  canvas.width = 0;
+  canvas.height = 0;
+  readerNeedsRepaint = true;
+}
+
+function retryMemoryRender() {
+  if (memoryRenderTimer) return;
+  memoryRenderTimer = setTimeout(() => {
+    memoryRenderTimer = 0;
+    if (!pdf || readerBackgrounded) return;
+    if (renderTask || pinchStartDistance > 0 || singleTouchActive) {
+      retryMemoryRender();
+      return;
+    }
+    if (readerNeedsRepaint || canvas.width * canvas.height > renderPixelBudget) {
+      void renderPage(pageNumber, true);
+    }
+  }, 150);
+}
+
+function trimReaderMemory(critical, backgrounded) {
+  readerBackgrounded = Boolean(backgrounded);
+  clearVirtualPageWindow();
+  if (critical) {
+    memoryPressureActive = true;
+    renderPixelBudget = Math.min(renderPixelBudget, 2000000);
+  }
+  if (readerBackgrounded) releaseBackgroundPage();
+  else if (memoryPressureActive || readerNeedsRepaint) retryMemoryRender();
 }
 
 function pruneVirtualPageWindow(center) {
@@ -2719,13 +2817,14 @@ function pruneVirtualPageWindow(center) {
 
   for (const [key, entry] of virtualPageWindow.entries()) {
     if (!keepPages.has(entry.page) || Math.abs(entry.scale - scale) > 0.001) {
+      releasePreviewCanvas(entry.canvas);
       virtualPageWindow.delete(key);
     }
   }
 }
 
 async function renderVirtualPreview(target, generation) {
-  if (!pdf || readerViewMode === 'page') return;
+  if (!pdf || readerViewMode === 'page' || memoryPressureActive || readerBackgrounded) return;
   if (target < 1 || target > pdf.numPages) return;
 
   const key = virtualPageKey(target);
@@ -2733,7 +2832,7 @@ async function renderVirtualPreview(target, generation) {
 
   try {
     const page = await pdf.getPage(target);
-    if (generation !== virtualWindowGeneration || readerViewMode === 'page') {
+    if (generation !== virtualWindowGeneration || readerViewMode === 'page' || memoryPressureActive || readerBackgrounded) {
       page.cleanup();
       return;
     }
@@ -2758,17 +2857,26 @@ async function renderVirtualPreview(target, generation) {
       return;
     }
 
-    await page.render({
+    const task = page.render({
       canvasContext: previewContext,
       viewport,
       transform: renderScale === 1
         ? null
         : [renderScale, 0, 0, renderScale, 0, 0],
       background: '#ffffff'
-    }).promise;
-    page.cleanup();
+    });
+    virtualPreviewTasks.add(task);
+    try {
+      await task.promise;
+    } finally {
+      virtualPreviewTasks.delete(task);
+      page.cleanup();
+      if (generation !== virtualWindowGeneration || memoryPressureActive || readerBackgrounded) {
+        releasePreviewCanvas(previewCanvas);
+      }
+    }
 
-    if (generation !== virtualWindowGeneration || readerViewMode === 'page') return;
+    if (generation !== virtualWindowGeneration || readerViewMode === 'page' || memoryPressureActive || readerBackgrounded) return;
 
     virtualPageWindow.set(key, {
       page: target,
@@ -2784,7 +2892,7 @@ async function renderVirtualPreview(target, generation) {
 }
 
 function scheduleVirtualPageWindow(center) {
-  if (!pdf || readerViewMode === 'page') {
+  if (!pdf || readerViewMode === 'page' || memoryPressureActive || readerBackgrounded) {
     clearVirtualPageWindow();
     return;
   }
@@ -2856,7 +2964,7 @@ async function renderPage(target, preserveCenter = false) {
     const viewport = page.getViewport({ scale });
 
     const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-    const maxPixels = 8000000;
+    const maxPixels = renderPixelBudget;
     let pixelWidth = Math.max(1, Math.floor(viewport.width * outputScale));
     let pixelHeight = Math.max(1, Math.floor(viewport.height * outputScale));
     const pixels = pixelWidth * pixelHeight;
@@ -2900,12 +3008,15 @@ async function renderPage(target, preserveCenter = false) {
       if (!preserveCenter && smartFitWidthEnabled) {
         centerPageHorizontally();
       }
+      readerNeedsRepaint = false;
+      releaseBackgroundPage();
       settleMetrics();
       LexPdfBridge.pageChanged(pageNumber);
       LexPdfBridge.rendered(pageNumber);
       scheduleVirtualPageWindow(pageNumber);
     });
   } catch (e) {
+    if (token === renderToken) renderTask = null;
     if (e?.name === 'RenderingCancelledException') return;
     loading.style.display = 'none';
     LexPdfBridge.error(String(e?.stack || e));
@@ -2913,6 +3024,7 @@ async function renderPage(target, preserveCenter = false) {
 }
 
 window.LexPDF = {
+  trimMemory(critical, backgrounded) { trimReaderMemory(critical, backgrounded); },
   receiveRange(begin, base64) {
     if (!rangeTransport || rangeFailed) return;
     rangeTransport.onDataRange(Number(begin), decodeBase64(base64));
@@ -3259,6 +3371,7 @@ function hypot(a,b) {
     }
 
     private fun js(script: String) {
+        if (!::webView.isInitialized || rendererGone || isDestroyed) return
         webView.evaluateJavascript(script, null)
     }
 
@@ -4444,13 +4557,66 @@ function hypot(a,b) {
         }
     }
 
+    private fun checkReaderMemoryPressure() {
+        val info = ActivityManager.MemoryInfo()
+        getSystemService(ActivityManager::class.java).getMemoryInfo(info)
+        if (info.lowMemory) trimReaderMemory(critical = true)
+    }
+
+    private fun trimReaderMemory(critical: Boolean, backgrounded: Boolean = false) {
+        if (!::sourceFile.isInitialized || rendererGone) return
+        readerUiBackgrounded = backgrounded
+        if (critical) {
+            readerMemoryPressure = true
+            readerRenderPixelBudget = 2000000
+        }
+        publishLastPageResult()
+        js("window.LexPDF?.trimMemory($critical, $backgrounded)")
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            trimReaderMemory(critical = true, backgrounded = true)
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            trimReaderMemory(critical = false, backgrounded = true)
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            trimReaderMemory(critical = true)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onLowMemory() {
+        super.onLowMemory()
+        trimReaderMemory(critical = true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        readerUiBackgrounded = false
+        js("window.LexPDF?.trimMemory($readerMemoryPressure, false)")
+        memoryHandler.removeCallbacks(memoryCheckRunnable)
+        memoryHandler.post(memoryCheckRunnable)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("reader_recovery_page", currentPageIndex + 1)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onPause() {
+        memoryHandler.removeCallbacks(memoryCheckRunnable)
+        trimReaderMemory(critical = false, backgrounded = true)
         publishLastPageResult()
         saveReadingPreferences()
         super.onPause()
     }
 
     private fun publishLastPageResult() {
+        if (::sourceFile.isInitialized) {
+            NativeReaderCheckpoint.save(this, sourceFile, currentPageIndex + 1)
+        }
         setResult(
             RESULT_OK,
             android.content.Intent().apply {
@@ -4460,7 +4626,11 @@ function hypot(a,b) {
     }
 
     override fun onDestroy() {
+        memoryHandler.removeCallbacks(memoryCheckRunnable)
         publishLastPageResult()
+        if (::sourceFile.isInitialized && isFinishing) {
+            NativeReaderCheckpoint.save(this, sourceFile, currentPageIndex + 1, active = false)
+        }
         PdfCrashDiagnostics.mark(this, "JSZ_ON_DESTROY")
         try {
             persistInkForPage(currentPageIndex)
@@ -4481,12 +4651,14 @@ function hypot(a,b) {
         } catch (_: Throwable) {
         }
         try {
-            webView.removeJavascriptInterface("LexPdfBridge")
-            webView.stopLoading()
-            webView.loadUrl("about:blank")
-            webView.clearHistory()
-            webView.removeAllViews()
-            webView.destroy()
+            if (!rendererGone && ::webView.isInitialized) {
+                webView.removeJavascriptInterface("LexPdfBridge")
+                webView.stopLoading()
+                webView.loadUrl("about:blank")
+                webView.clearHistory()
+                webView.removeAllViews()
+                webView.destroy()
+            }
         } catch (_: Throwable) {
         }
         ioExecutor.shutdown()

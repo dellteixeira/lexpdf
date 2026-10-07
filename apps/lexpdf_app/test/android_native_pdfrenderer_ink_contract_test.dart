@@ -48,7 +48,8 @@ void main() {
       'android/app/src/main/kotlin/com/lexpdf/lexpdf_app/NativePdfReaderActivity.kt',
     ).readAsStringSync();
 
-    expect(activity, contains('const maxPixels = 8000000'));
+    expect(activity, contains('private var readerRenderPixelBudget = 8000000'));
+    expect(activity, contains('const maxPixels = renderPixelBudget'));
     expect(activity, contains('pdf.getPage(target)'));
     expect(activity, contains('page.cleanup()'));
     expect(activity, contains('RenderingCancelledException'));
