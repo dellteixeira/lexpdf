@@ -2999,6 +2999,7 @@ async function renderPage(target, preserveCenter = false) {
     renderTextMarkups();
     await paintSearchHighlights(page, viewport, renderScale, target);
     if (token !== renderToken) return;
+    readerNeedsRepaint = false;
     pageNumber = target;
     page.cleanup();
     if (pageChanged && !preserveCenter) {
@@ -3010,7 +3011,6 @@ async function renderPage(target, preserveCenter = false) {
       if (!preserveCenter && smartFitWidthEnabled) {
         centerPageHorizontally();
       }
-      readerNeedsRepaint = false;
       releaseBackgroundPage();
       settleMetrics();
       LexPdfBridge.pageChanged(pageNumber);

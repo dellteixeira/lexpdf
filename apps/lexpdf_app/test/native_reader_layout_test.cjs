@@ -139,3 +139,37 @@ test('memory checks do not rerender a page already below the pixel budget', () =
   timers.shift()();
   assert.equal(renders.length, 0);
 });
+
+test('a delayed render frame cannot discard the repaint needed after backgrounding', async () => {
+  const { context, timers, renders } = memoryContext();
+  const frames = [];
+  const render = source.match(/async function renderPage\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(render);
+  const page = {
+    getViewport: () => ({ width: 1000, height: 1500 }),
+    render: () => ({ promise: Promise.resolve() }), cleanup: () => {},
+  };
+  Object.assign(context, {
+    pdf: { numPages: 1267, getPage: async () => page },
+    renderToken: 0, scale: 1, smartFitWidthEnabled: false,
+    promoteVirtualPreview: () => false,
+    loading: { style: {} }, canvas: { width: 0, height: 0, style: {} }, ctx: {},
+    window: { devicePixelRatio: 2 },
+    renderSelectableTextLayer: async () => {}, renderTextMarkups: () => {},
+    paintSearchHighlights: async () => {}, stage: {},
+    requestAnimationFrame: callback => frames.push(callback),
+    settleMetrics: () => {}, scheduleVirtualPageWindow: () => {},
+    LexPdfBridge: { pageChanged: () => {}, rendered: () => {},
+      error: message => { throw new Error(message); } },
+  });
+  vm.runInContext(render, context);
+  await context.renderPage(585, true);
+  context.trimReaderMemory(false, true);
+  assert.equal(context.readerNeedsRepaint, true);
+  context.trimReaderMemory(false, false);
+  frames.shift()();
+  assert.equal(context.readerNeedsRepaint, true);
+  context.renderPage = (page, preserve) => renders.push({ page, preserve });
+  timers.shift()();
+  assert.deepEqual(renders, [{ page: 585, preserve: true }]);
+});
